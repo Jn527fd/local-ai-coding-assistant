@@ -9,12 +9,12 @@ and a small local model such as `qwen3:4b`. No cloud LLM APIs are required.
 
 ## Project Status
 
-Phase 4 is complete. The project includes a configurable FastAPI application,
-Bearer API key authentication, and an authenticated chat endpoint backed by a
-local Ollama model.
+Phase 6 is complete. The project includes a configurable FastAPI application,
+Bearer API key authentication, local Ollama chat, JSON repository indexing,
+keyword retrieval, and RAG-based repository questions.
 
-Repository indexing, RAG, and the frontend will be added incrementally in
-later phases.
+The React frontend, Docker support, and expanded automated tests will be added
+incrementally in later phases.
 
 ## Planned Features
 
@@ -106,8 +106,9 @@ curl -X POST http://localhost:8000/chat \
 ```
 
 The `/chat` endpoint sends the message to Ollama and returns its generated
-answer. The `/repos/*` routes remain authenticated placeholders until Phases
-5-6. Missing or invalid API keys return `401 Unauthorized`.
+answer. `/repos/index-local` creates a JSON code index, and `/repos/ask`
+retrieves relevant chunks before sending a grounded prompt to Ollama. Missing
+or invalid API keys return `401 Unauthorized`.
 
 ## Prepare Ollama
 
@@ -125,6 +126,73 @@ separate terminal:
 ```bash
 ollama serve
 ```
+
+## Index a Local Repository
+
+The path must exist on the same machine where the FastAPI backend runs. Use an
+absolute path. A ready-to-index fixture is included at
+`sample-code-repository/`.
+
+From the project root:
+
+```bash
+SAMPLE_REPO_PATH="$(realpath sample-code-repository)"
+
+curl -X POST http://localhost:8000/repos/index-local \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"path\":\"$SAMPLE_REPO_PATH\"}"
+```
+
+The backend recursively indexes supported code and documentation files,
+ignores generated dependency directories, splits text into line-aware chunks,
+and writes the result under `data/indexes/`.
+
+For the included fixture, inspect:
+
+```bash
+python -m json.tool data/indexes/sample-code-repository.json | less
+```
+
+Supported extensions:
+
+```text
+.py .js .jsx .ts .tsx .md .json .yaml .yml .html .css
+```
+
+Ignored directories:
+
+```text
+.git node_modules .venv __pycache__ dist build
+```
+
+## Ask About an Indexed Repository
+
+After indexing `sample-code-repository`, ask a question:
+
+```bash
+curl -X POST http://localhost:8000/repos/ask \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repo_name": "sample-code-repository",
+    "question": "Where are the add and multiply functions implemented?"
+  }'
+```
+
+The response contains the Ollama answer and the relative paths of retrieved
+source files:
+
+```json
+{
+  "answer": "The functions are implemented in sample_app/calculator.py.",
+  "sources": ["app.py", "sample_app/calculator.py"]
+}
+```
+
+Retrieval currently uses transparent keyword overlap rather than embeddings.
+`RAG_TOP_K` controls how many chunks are sent to Ollama, and `RAG_MODEL`
+selects the local model.
 
 ## Development Roadmap
 

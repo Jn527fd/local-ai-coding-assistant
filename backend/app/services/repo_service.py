@@ -2,6 +2,7 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 import re
+from typing import Any
 from uuid import uuid4
 
 from app.rag.indexer import build_repository_index
@@ -21,6 +22,14 @@ class RepositoryAccessError(RepositoryServiceError):
 
 class RepositoryIndexWriteError(RepositoryServiceError):
     """Raised when the generated JSON index cannot be saved."""
+
+
+class RepositoryIndexNotFoundError(RepositoryServiceError):
+    """Raised when a requested repository has not been indexed."""
+
+
+class RepositoryIndexReadError(RepositoryServiceError):
+    """Raised when a repository index cannot be read or is malformed."""
 
 
 @dataclass(frozen=True)
@@ -75,6 +84,39 @@ class RepositoryService:
             indexed_chunks=len(index_data["chunks"]),
             index_path=index_path,
         )
+
+    def load_index(self, repo_name: str) -> dict[str, Any]:
+        """Load and validate a repository's persisted JSON index."""
+
+        index_path = self.index_path_for(repo_name)
+        if not index_path.is_file():
+            raise RepositoryIndexNotFoundError(
+                f"Repository index not found for '{repo_name}'. "
+                "Index the repository before asking questions."
+            )
+
+        try:
+            index_data: Any = json.loads(index_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise RepositoryIndexReadError(
+                f"Unable to read repository index: {index_path}"
+            ) from exc
+
+        if (
+            not isinstance(index_data, dict)
+            or not isinstance(index_data.get("repo_name"), str)
+            or not isinstance(index_data.get("chunks"), list)
+        ):
+            raise RepositoryIndexReadError(
+                f"Repository index has an invalid format: {index_path}"
+            )
+
+        return index_data
+
+    def index_path_for(self, repo_name: str) -> Path:
+        """Return the index path for a repository name."""
+
+        return self.index_directory / f"{self._safe_name(repo_name)}.json"
 
     def _write_index(self, index_path: Path, index_data: dict[str, object]) -> None:
         """Write an index atomically to avoid leaving partial JSON files."""

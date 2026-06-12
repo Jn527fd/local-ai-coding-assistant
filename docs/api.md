@@ -2,9 +2,9 @@
 
 ## Status
 
-The public endpoints, API key authentication, and Ollama-backed chat endpoint
-are implemented through Phase 4. Repository routes remain authenticated
-placeholders until their application logic is implemented.
+The public endpoints, API key authentication, Ollama-backed chat, local
+repository indexing, and keyword-based repository RAG are implemented through
+Phase 6.
 
 ## Planned Endpoints
 
@@ -99,5 +99,94 @@ Possible errors:
 | `503` | The backend could not connect to Ollama |
 | `504` | Ollama exceeded the configured timeout |
 
-The repository routes still return `501` after successful authentication until
-Phases 5-6.
+## `POST /repos/index-local`
+
+Recursively indexes supported files from a local directory. The path is
+resolved on the backend machine and should normally be absolute.
+
+Request:
+
+```bash
+SAMPLE_REPO_PATH="$(realpath sample-code-repository)"
+
+curl -X POST http://localhost:8000/repos/index-local \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"path\":\"$SAMPLE_REPO_PATH\"}"
+```
+
+Successful response:
+
+```json
+{
+  "repo_name": "sample-code-repository",
+  "indexed_files": 9,
+  "indexed_chunks": 9
+}
+```
+
+The generated file is stored at:
+
+```text
+data/indexes/sample-code-repository.json
+```
+
+Supported extensions are `.py`, `.js`, `.jsx`, `.ts`, `.tsx`, `.md`, `.json`,
+`.yaml`, `.yml`, `.html`, and `.css`.
+
+Directories named `.git`, `node_modules`, `.venv`, `__pycache__`, `dist`, or
+`build` are ignored at every depth.
+
+Possible errors:
+
+| Status | Meaning |
+| --- | --- |
+| `400` | The path does not exist, cannot be resolved, or is not a directory |
+| `401` | API key is missing or invalid |
+| `403` | The backend process cannot traverse the repository directory |
+| `422` | Request body is invalid |
+| `500` | The index file could not be written |
+
+## `POST /repos/ask`
+
+Retrieves relevant chunks from a previously generated JSON index, sends a
+grounded prompt to Ollama, and returns the answer with source file paths.
+
+Request:
+
+```bash
+curl -X POST http://localhost:8000/repos/ask \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repo_name": "sample-code-repository",
+    "question": "Where are the add and multiply functions implemented?"
+  }'
+```
+
+Successful response:
+
+```json
+{
+  "answer": "The functions are implemented in sample_app/calculator.py.",
+  "sources": [
+    "app.py",
+    "sample_app/calculator.py"
+  ]
+}
+```
+
+The exact answer and source ordering depend on the question and local model.
+Sources are unique relative paths from the ranked chunks.
+
+Possible errors:
+
+| Status | Meaning |
+| --- | --- |
+| `401` | API key is missing or invalid |
+| `404` | No JSON index exists for the requested repository |
+| `422` | Request body is invalid |
+| `500` | The repository index is unreadable or malformed |
+| `502` | Ollama returned an error or malformed response |
+| `503` | The backend could not connect to Ollama |
+| `504` | Ollama exceeded the configured timeout |

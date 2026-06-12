@@ -18,4 +18,4 @@ run-backend: ## Start the FastAPI development server
 	cd backend && python3 -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 status: ## Show the current implementation phase
-	@echo "Phase 3 complete: Bearer API key authentication for protected endpoints"
+	@echo "Phase 6 complete: keyword retrieval and repository RAG answers"

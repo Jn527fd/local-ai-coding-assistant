@@ -2,9 +2,10 @@
 
 ## Status
 
-The Phase 4 FastAPI backend can authenticate requests and send chat prompts to
-local Ollama models. Frontend and Docker instructions will be added in later
-phases.
+The Phase 6 FastAPI backend can authenticate requests, send chat prompts to
+local Ollama models, index local repositories into JSON, and answer grounded
+questions over those indexes. Frontend and Docker instructions will be added
+in later phases.
 
 ## Target Environment
 
@@ -53,6 +54,13 @@ file. The `.env` file is ignored by Git.
 `CORS_ORIGINS` is a comma-separated list. Its default value allows the planned
 Vite frontend at both `http://localhost:5173` and
 `http://127.0.0.1:5173`.
+
+Repository indexes are stored under `DATA_DIRECTORY/indexes`. When the backend
+is launched from `backend/`, the example value `../data` points to the project
+root's `data/` directory. `REPO_CHUNK_SIZE` controls the approximate maximum
+characters in each line-aware chunk. `RAG_TOP_K` controls how many relevant
+chunks are included in a repository prompt, and `RAG_MODEL` selects the Ollama
+model used for repository answers.
 
 ## Configure the API Key
 
@@ -122,4 +130,52 @@ curl -X POST http://localhost:8000/chat \
   -H "Authorization: Bearer your-generated-value" \
   -H "Content-Type: application/json" \
   -d '{"model":"qwen3:4b","message":"Write a Python hello-world function."}'
+```
+
+## Index a Repository
+
+The project includes `sample-code-repository/` as a ready-to-index fixture.
+From the project root, compute its absolute path and call the endpoint:
+
+```bash
+SAMPLE_REPO_PATH="$(realpath sample-code-repository)"
+
+curl -X POST http://localhost:8000/repos/index-local \
+  -H "Authorization: Bearer your-generated-value" \
+  -H "Content-Type: application/json" \
+  -d "{\"path\":\"$SAMPLE_REPO_PATH\"}"
+```
+
+Inspect the generated index:
+
+```bash
+ls -lh data/indexes
+python -m json.tool data/indexes/sample-code-repository.json | less
+```
+
+Re-indexing a repository with the same directory name replaces its previous
+JSON index.
+
+## Ask About the Sample Repository
+
+After indexing the fixture, ask a question:
+
+```bash
+curl -X POST http://localhost:8000/repos/ask \
+  -H "Authorization: Bearer your-generated-value" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repo_name": "sample-code-repository",
+    "question": "Where are the add and multiply functions implemented?"
+  }'
+```
+
+The response should contain an answer from Ollama and one or more relative
+source paths, including `sample_app/calculator.py` for this question.
+
+If the index is missing, run `/repos/index-local` first. If Ollama is
+unavailable, verify it directly with:
+
+```bash
+curl http://localhost:11434/api/tags
 ```

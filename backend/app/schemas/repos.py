@@ -16,14 +16,14 @@ class IndexLocalRepositoryResponse(BaseModel):
 
 
 class AskRepositoryRequest(BaseModel):
-    """Input accepted by the planned repository question endpoint."""
+    """Input accepted by the repository question endpoint."""
 
-    repo_name: str = Field(min_length=1)
-    question: str = Field(min_length=1)
+    repo_name: str = Field(min_length=1, max_length=255)
+    question: str = Field(min_length=1, max_length=10_000)
 
 
 class AskRepositoryResponse(BaseModel):
-    """Answer and source paths returned by repository retrieval."""
+    """Answer and source paths returned by repository RAG."""
 
     answer: str
     sources: list[str]

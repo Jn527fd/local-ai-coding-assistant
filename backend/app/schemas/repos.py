@@ -2,13 +2,13 @@ from pydantic import BaseModel, Field
 
 
 class IndexLocalRepositoryRequest(BaseModel):
-    """Input accepted by the planned local repository indexing endpoint."""
+    """Input accepted by the local repository indexing endpoint."""
 
     path: str = Field(min_length=1)
 
 
 class IndexLocalRepositoryResponse(BaseModel):
-    """Summary returned after a repository is indexed."""
+    """Summary returned after a local repository is indexed."""
 
     repo_name: str
     indexed_files: int

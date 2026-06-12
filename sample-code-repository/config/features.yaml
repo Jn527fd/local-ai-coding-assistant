@@ -1,0 +1,4 @@
+features:
+  calculator: true
+  greeting: true
+  experimental_search: false

@@ -1,7 +1,10 @@
 from functools import lru_cache
+from pathlib import Path
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
@@ -17,6 +20,8 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     ollama_base_url: str = "http://localhost:11434"
     ollama_timeout_seconds: float = 120.0
+    data_directory: Path = PROJECT_ROOT / "data"
+    repo_chunk_size: int = Field(default=2000, ge=200, le=20_000)
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -34,6 +39,12 @@ class Settings(BaseSettings):
             for origin in self.cors_origins.split(",")
             if origin.strip()
         ]
+
+    @property
+    def index_directory(self) -> Path:
+        """Return the directory used for generated repository indexes."""
+
+        return self.data_directory.expanduser().resolve() / "indexes"
 
 
 @lru_cache

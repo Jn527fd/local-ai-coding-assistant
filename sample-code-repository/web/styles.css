@@ -1,0 +1,9 @@
+body {
+  font-family: sans-serif;
+  margin: 2rem;
+  color: #202938;
+}
+
+main {
+  max-width: 40rem;
+}

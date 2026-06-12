@@ -9,8 +9,12 @@ and a small local model such as `qwen3:4b`. No cloud LLM APIs are required.
 
 ## Project Status
 
-Phase 1 is complete: the project structure and initial documentation have been
-created. Application code will be added incrementally in later phases.
+Phase 4 is complete. The project includes a configurable FastAPI application,
+Bearer API key authentication, and an authenticated chat endpoint backed by a
+local Ollama model.
+
+Repository indexing, RAG, and the frontend will be added incrementally in
+later phases.
 
 ## Planned Features
 
@@ -71,6 +75,56 @@ local-ai-coding-assistant/
 - [Architecture](docs/architecture.md)
 - [API](docs/api.md)
 - [Setup](docs/setup.md)
+
+## Run the Backend
+
+Python 3.10 or newer is recommended.
+
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+cp .env.example .env
+# Replace API_KEY in .env with a private random value.
+# OLLAMA_BASE_URL defaults to http://localhost:11434.
+python -m uvicorn app.main:app --reload
+```
+
+The API is available at `http://localhost:8000`, and interactive API
+documentation is available at `http://localhost:8000/docs`.
+
+Check the endpoints:
+
+```bash
+curl http://localhost:8000/
+curl http://localhost:8000/health
+curl -X POST http://localhost:8000/chat \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"qwen3:4b","message":"Hello"}'
+```
+
+The `/chat` endpoint sends the message to Ollama and returns its generated
+answer. The `/repos/*` routes remain authenticated placeholders until Phases
+5-6. Missing or invalid API keys return `401 Unauthorized`.
+
+## Prepare Ollama
+
+Confirm Ollama is installed and pull the default model:
+
+```bash
+ollama --version
+ollama pull qwen3:4b
+ollama list
+```
+
+Ollama normally runs as a Linux service. If it is not running, start it in a
+separate terminal:
+
+```bash
+ollama serve
+```
 
 ## Development Roadmap
 

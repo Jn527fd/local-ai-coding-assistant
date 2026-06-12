@@ -7,7 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from app.config import Settings, get_settings
+from app.routers.chat import router as chat_router
 from app.routers.health import router as health_router
+from app.routers.repos import router as repos_router
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +57,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     application.include_router(health_router)
+    application.include_router(chat_router)
+    application.include_router(repos_router)
 
     @application.get("/", response_model=RootResponse, tags=["application"])
     async def root() -> RootResponse:

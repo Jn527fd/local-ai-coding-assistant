@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,7 +13,10 @@ class Settings(BaseSettings):
     app_debug: bool = False
     app_host: str = "0.0.0.0"
     app_port: int = 8000
+    api_key: SecretStr = SecretStr("")
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_timeout_seconds: float = 120.0
 
     model_config = SettingsConfigDict(
         env_file=".env",

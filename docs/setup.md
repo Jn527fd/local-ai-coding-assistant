@@ -2,10 +2,9 @@
 
 ## Status
 
-The Phase 6 FastAPI backend can authenticate requests, send chat prompts to
-local Ollama models, index local repositories into JSON, and answer grounded
-questions over those indexes. Frontend and Docker instructions will be added
-in later phases.
+The Phase 9 application includes the FastAPI backend, React/Vite frontend,
+Docker Compose support, and isolated pytest coverage for health,
+authentication, and chat behavior.
 
 ## Target Environment
 
@@ -179,3 +178,184 @@ unavailable, verify it directly with:
 ```bash
 curl http://localhost:11434/api/tags
 ```
+
+## Run the Frontend on Linux Mint
+
+Use Node.js 20.19 or newer. Keep the backend running in its terminal and open
+a second terminal:
+
+```bash
+cd ~/local-ai-coding-assistant/frontend
+npm install
+cp .env.example .env
+npm run dev
+```
+
+Open `http://localhost:5173` in a browser.
+
+If the backend uses a different host or port, edit `frontend/.env`:
+
+```dotenv
+VITE_API_BASE_URL=http://localhost:8000
+```
+
+In the interface:
+
+1. Confirm the status panel reports that FastAPI is connected.
+2. Paste the value from `backend/.env` into the API-key field.
+3. Send a message to `qwen3:4b` in the chat panel.
+4. Index the absolute path returned by
+   `realpath ~/local-ai-coding-assistant/sample-code-repository`.
+5. Ask where the `add` and `multiply` functions are implemented.
+
+The API key remains in React memory for the current tab and is not persisted
+to browser storage.
+
+## Run with Docker Compose on Linux Mint
+
+The Docker setup assumes these commands succeed:
+
+```bash
+docker --version
+docker compose version
+systemctl is-active ollama
+```
+
+Stop the manually started Uvicorn and Vite development servers with `Ctrl+C`
+before starting Compose. Ports `8000` and `5173` must be free.
+
+From the project root, prepare the Compose environment:
+
+```bash
+cd ~/local-ai-coding-assistant
+cp .env.example .env
+sed -i "s/^APP_UID=.*/APP_UID=$(id -u)/" .env
+test -f backend/.env || cp backend/.env.example backend/.env
+```
+
+The root `.env` configures Docker build and mount behavior:
+
+```dotenv
+APP_UID=1000
+FRONTEND_API_BASE_URL=http://localhost:8000
+LOCAL_REPOS_ROOT=.
+```
+
+Use your actual user ID for `APP_UID`; the `sed` command above does this
+automatically. This lets the non-root backend container write generated JSON
+indexes to the host `data/` directory.
+
+Keep the private API key in `backend/.env`:
+
+```dotenv
+API_KEY=your-generated-value
+```
+
+Build and start:
+
+```bash
+docker compose up --build --detach
+docker compose ps
+```
+
+Both services should eventually report `healthy`. Open:
+
+- Frontend: `http://localhost:5173`
+- Backend health: `http://localhost:8000/health`
+- Backend API docs: `http://localhost:8000/docs`
+
+Follow startup and request logs:
+
+```bash
+docker compose logs --follow
+```
+
+Stop the application:
+
+```bash
+docker compose down
+```
+
+## Host Ollama Connection
+
+The Linux Compose configuration gives the backend container host networking.
+As a result, this container setting reaches Ollama running on the laptop:
+
+```dotenv
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+```
+
+You do not need to run Ollama in Docker or change its default listening
+address. Verify it before starting Compose:
+
+```bash
+curl http://127.0.0.1:11434/api/tags
+```
+
+If the backend container cannot reach Ollama, check:
+
+```bash
+systemctl status ollama
+docker compose logs backend
+```
+
+## Repository Paths in Docker
+
+Containers cannot use host paths such as
+`/home/chuy/local-ai-coding-assistant/sample-code-repository` directly. The
+Compose file mounts `LOCAL_REPOS_ROOT` at `/repositories` inside the backend.
+
+With the default root setting:
+
+```dotenv
+LOCAL_REPOS_ROOT=.
+```
+
+use this path in the frontend indexing form:
+
+```text
+/repositories/sample-code-repository
+```
+
+To index repositories stored under `/home/chuy/projects`, change the root
+`.env`:
+
+```dotenv
+LOCAL_REPOS_ROOT=/home/chuy/projects
+```
+
+Recreate the containers:
+
+```bash
+docker compose up --build --detach
+```
+
+A repository at `/home/chuy/projects/example-api` is then visible to the
+backend as:
+
+```text
+/repositories/example-api
+```
+
+The repository mount is read-only. Generated indexes are written separately
+to the persistent host `data/indexes/` directory.
+
+## Run Automated Tests
+
+From the project root, activate the repository virtual environment and install
+the development requirements:
+
+```bash
+source .venv/bin/activate
+python -m pip install -r backend/requirements-dev.txt
+```
+
+Run the complete backend suite:
+
+```bash
+python -m pytest
+```
+
+The tests use an in-memory FastAPI client, a temporary data directory, and a
+mock Ollama service. The backend, frontend, and Ollama do not need to be
+running.

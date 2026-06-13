@@ -9,12 +9,12 @@ and a small local model such as `qwen3:4b`. No cloud LLM APIs are required.
 
 ## Project Status
 
-Phase 6 is complete. The project includes a configurable FastAPI application,
+Phase 9 is complete. The project includes a configurable FastAPI application,
 Bearer API key authentication, local Ollama chat, JSON repository indexing,
-keyword retrieval, and RAG-based repository questions.
+keyword retrieval, RAG-based repository questions, a responsive React
+interface, Docker Compose orchestration, and an isolated backend pytest suite.
 
-The React frontend, Docker support, and expanded automated tests will be added
-incrementally in later phases.
+Final documentation polish will be added in Phase 10.
 
 ## Planned Features
 
@@ -26,7 +26,7 @@ incrementally in later phases.
 - Keyword retrieval and retrieval-augmented generation (RAG)
 - React and Vite user interface
 - Docker Compose development environment
-- Automated backend tests
+- Automated health, authentication, and mocked chat tests
 
 ## Planned Architecture
 
@@ -194,6 +194,79 @@ Retrieval currently uses transparent keyword overlap rather than embeddings.
 `RAG_TOP_K` controls how many chunks are sent to Ollama, and `RAG_MODEL`
 selects the local model.
 
+## Run the Frontend
+
+Use Node.js 20.19 or newer. Open a second terminal while the backend is
+running:
+
+```bash
+cd frontend
+npm install
+cp .env.example .env
+npm run dev
+```
+
+Open `http://localhost:5173`.
+
+The interface includes:
+
+- Backend health and API URL status
+- An API-key input stored only in the current browser tab
+- Local Ollama chat with selectable model
+- Local repository indexing with file and chunk counts
+- Repository RAG questions with retrieved source paths
+
+Set `VITE_API_BASE_URL` in `frontend/.env` if FastAPI is not available at
+`http://localhost:8000`.
+
+## Run with Docker Compose
+
+The Compose setup targets Linux Mint and assumes Ollama is already running as
+a host service.
+
+1. Stop any manually running backend or frontend processes using `Ctrl+C`.
+2. Prepare the Compose settings:
+
+```bash
+cd ~/local-ai-coding-assistant
+cp .env.example .env
+sed -i "s/^APP_UID=.*/APP_UID=$(id -u)/" .env
+test -f backend/.env || cp backend/.env.example backend/.env
+```
+
+3. Confirm `backend/.env` contains a private `API_KEY`.
+4. Build and start both containers:
+
+```bash
+docker compose up --build --detach
+docker compose ps
+```
+
+Open `http://localhost:5173`. The backend remains available at
+`http://localhost:8000`.
+
+The backend uses Docker host networking on Linux, so its configured
+`http://127.0.0.1:11434` Ollama URL reaches the host Ollama service directly.
+Ollama does not need to be added to Compose or exposed to the local network.
+
+The project root is mounted read-only at `/repositories` by default. Index the
+included fixture with this path in the frontend:
+
+```text
+/repositories/sample-code-repository
+```
+
+Set `LOCAL_REPOS_ROOT` in the root `.env` to another parent directory when you
+want containers to index repositories outside this project.
+
+Useful commands:
+
+```bash
+docker compose logs --follow
+docker compose restart
+docker compose down
+```
+
 ## Development Roadmap
 
 1. Project scaffold and documentation
@@ -204,7 +277,7 @@ selects the local model.
 6. Basic RAG workflow
 7. React and Vite frontend
 8. Docker support
-9. Automated tests
+9. Automated tests (complete)
 10. Complete project documentation
 
 ## License

@@ -2,14 +2,15 @@
 
 ## Status
 
-Phase 6 implements the FastAPI application boundary, environment-backed
-configuration, Bearer API key authentication, local Ollama text generation,
-JSON-based repository indexing, and keyword-based RAG.
+Phase 9 implements the complete current workflow across containerized
+React/Nginx and FastAPI services, including authentication, host Ollama text
+generation, JSON repository indexing, keyword-based RAG, and isolated backend
+tests.
 
 ## Planned Components
 
-- **Frontend:** React and Vite interface for health status, chat, repository
-  indexing, and repository questions.
+- **Frontend:** React and Vite interface for health status, in-memory API-key
+  entry, local chat, repository indexing, and repository questions.
 - **Backend:** FastAPI application that exposes health, chat, and repository
   endpoints. The application factory in `backend/app/main.py` owns startup,
   middleware, and router registration.
@@ -113,3 +114,56 @@ terms. Chunks with no overlap are not included.
 The prompt tells the model to use only retrieved context, treat indexed code
 as untrusted data rather than instructions, and acknowledge when the available
 context is insufficient.
+
+## Frontend Structure
+
+```text
+frontend/src/
+|-- App.jsx
+|-- api.js
+|-- main.jsx
+|-- styles.css
+`-- components/
+    |-- ChatBox.jsx
+    |-- RepoIndexer.jsx
+    `-- StatusPanel.jsx
+```
+
+`api.js` owns the backend base URL, Bearer header construction, JSON parsing,
+network errors, and FastAPI error extraction. Components receive the API key
+from `App.jsx`, but the key is not written to local storage or source control.
+
+The status panel calls public `/health`. Chat, indexing, and repository
+questions call protected endpoints through the shared API client. The frontend
+defaults to `http://localhost:8000` and can be configured with
+`VITE_API_BASE_URL`.
+
+## Container Architecture
+
+```text
+Browser
+  |-- http://localhost:5173 -> frontend container (Nginx + React build)
+  `-- http://localhost:8000 -> backend container (FastAPI)
+                                   |
+                                   | Linux host network
+                                   v
+                              Host Ollama :11434
+
+Host ./data          <-> /app/data
+Host repository root -> /repositories (read-only)
+```
+
+The frontend uses a multi-stage image: Node installs dependencies and builds
+the Vite application, then Nginx serves only the production assets. The backend
+uses Python 3.12, installs the declared requirements, runs as a non-root user,
+and exposes a health check.
+
+On the Linux Mint target, the backend uses host networking. This allows
+`127.0.0.1:11434` inside the backend container to reach the existing host
+Ollama service without changing Ollama to listen on every network interface.
+It also exposes FastAPI directly on host port `8000`; therefore a manually
+started Uvicorn process must be stopped before Compose starts.
+
+Repository indexes persist through the `./data:/app/data` bind mount. A
+configurable host directory is mounted read-only at `/repositories`, ensuring
+the indexer can read source code without modifying it.

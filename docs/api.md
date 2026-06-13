@@ -3,8 +3,8 @@
 ## Status
 
 The public endpoints, API key authentication, Ollama-backed chat, local
-repository indexing, and keyword-based repository RAG are implemented through
-Phase 6.
+repository indexing, and keyword-based repository RAG are available in both
+local development and the Phase 8 Docker Compose deployment.
 
 ## Planned Endpoints
 
@@ -103,6 +103,9 @@ Possible errors:
 
 Recursively indexes supported files from a local directory. The path is
 resolved on the backend machine and should normally be absolute.
+
+When using Docker Compose, use the container-visible `/repositories/...` path
+documented in `docs/setup.md`, not the original host path.
 
 Request:
 

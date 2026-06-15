@@ -37,6 +37,12 @@ API keys, and source code remain on the host machine during normal use.
 
 ## Application Preview
 
+### Local Login
+
+![Local AI Coding Assistant login page](docs/assets/login-preview.png)
+
+### Developer Dashboard
+
 ![Local AI Coding Assistant dashboard](docs/assets/dashboard-preview.png)
 
 ## Why This Project

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { checkHealth } from "../api.js";
 
-function StatusPanel({ apiBaseUrl }) {
+function StatusPanel({ activeModel, apiBaseUrl }) {
   const [status, setStatus] = useState("checking");
   const [message, setMessage] = useState("Checking backend connection...");
 
@@ -66,8 +66,8 @@ function StatusPanel({ apiBaseUrl }) {
           <dd>{apiBaseUrl}</dd>
         </div>
         <div>
-          <dt>Model provider</dt>
-          <dd>Local Ollama</dd>
+          <dt>Active model</dt>
+          <dd>{activeModel || "Checking..."}</dd>
         </div>
       </dl>
     </section>

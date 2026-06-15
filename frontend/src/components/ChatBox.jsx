@@ -1,20 +1,127 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { sendChat } from "../api.js";
 
-function ChatBox({ apiKey }) {
-  const [model, setModel] = useState("qwen3:4b");
+const MAX_CHATS = 5;
+const STORAGE_PREFIX = "local-ai-coding-assistant.chats";
+
+function createChat() {
+  return {
+    id:
+      typeof globalThis.crypto?.randomUUID === "function"
+        ? globalThis.crypto.randomUUID()
+        : `${Date.now()}-${Math.random()}`,
+    title: "New chat",
+    messages: [],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function loadChats(username) {
+  const storageKey = `${STORAGE_PREFIX}.${username}`;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(storageKey) || "[]");
+    if (!Array.isArray(parsed)) {
+      return [createChat()];
+    }
+
+    const validChats = parsed
+      .filter(
+        (chat) =>
+          chat &&
+          typeof chat.id === "string" &&
+          typeof chat.title === "string" &&
+          Array.isArray(chat.messages),
+      )
+      .map((chat) => ({
+        ...chat,
+        messages: chat.messages.filter(
+          (message) =>
+            message &&
+            (message.role === "user" || message.role === "assistant") &&
+            typeof message.content === "string" &&
+            message.content.length > 0,
+        ),
+      }))
+      .slice(0, MAX_CHATS);
+    return validChats.length > 0 ? validChats : [createChat()];
+  } catch {
+    return [createChat()];
+  }
+}
+
+function titleFromMessage(message) {
+  const singleLine = message.replace(/\s+/g, " ").trim();
+  return singleLine.length > 38
+    ? `${singleLine.slice(0, 38)}...`
+    : singleLine;
+}
+
+function ChatBox({ activeModel, apiKey, username }) {
+  const storageKey = `${STORAGE_PREFIX}.${username}`;
+  const initialChats = useMemo(() => loadChats(username), [username]);
+  const [chats, setChats] = useState(initialChats);
+  const [activeChatId, setActiveChatId] = useState(
+    initialChats[0]?.id || "",
+  );
   const [message, setMessage] = useState("");
-  const [conversation, setConversation] = useState([]);
   const [error, setError] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [sendingChatId, setSendingChatId] = useState("");
+
+  const activeChat = useMemo(
+    () => chats.find((chat) => chat.id === activeChatId) || null,
+    [activeChatId, chats],
+  );
+
+  useEffect(() => {
+    window.localStorage.setItem(storageKey, JSON.stringify(chats));
+  }, [chats, storageKey]);
+
+  function handleNewChat() {
+    if (chats.length >= MAX_CHATS) {
+      setError(
+        "You already have five chats. Delete one before creating another.",
+      );
+      return;
+    }
+
+    const nextChat = createChat();
+    setChats((current) => [nextChat, ...current]);
+    setActiveChatId(nextChat.id);
+    setMessage("");
+    setError("");
+  }
+
+  function handleDeleteChat(chat) {
+    const confirmed = window.confirm(
+      `Delete "${chat.title}"? Its messages and model context will be erased from this browser.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setChats((current) => {
+      const remaining = current.filter((item) => item.id !== chat.id);
+      if (chat.id === activeChatId) {
+        setActiveChatId(remaining[0]?.id || "");
+      }
+      return remaining;
+    });
+    setMessage("");
+    setError("");
+  }
 
   async function handleSubmit(event) {
     event.preventDefault();
     const trimmedMessage = message.trim();
 
     if (!apiKey) {
-      setError("Enter your API key before sending a protected request.");
+      setError("Save and verify your API key from Account before chatting.");
+      return;
+    }
+
+    if (!activeChat) {
+      setError("Create a chat before sending a message.");
       return;
     }
 
@@ -23,29 +130,51 @@ function ChatBox({ apiKey }) {
       return;
     }
 
-    if (!model.trim()) {
-      setError("Enter an Ollama model name.");
-      return;
-    }
+    const chatId = activeChat.id;
+    const history = activeChat.messages
+      .slice(-30)
+      .map(({ role, content }) => ({ role, content }));
+    const userMessage = { role: "user", content: trimmedMessage };
 
     setError("");
     setMessage("");
-    setConversation((current) => [
-      ...current,
-      { role: "user", content: trimmedMessage },
-    ]);
-    setIsSubmitting(true);
+    setSendingChatId(chatId);
+    setChats((current) =>
+      current.map((chat) =>
+        chat.id === chatId
+          ? {
+              ...chat,
+              title:
+                chat.messages.length === 0
+                  ? titleFromMessage(trimmedMessage)
+                  : chat.title,
+              messages: [...chat.messages, userMessage],
+              updatedAt: new Date().toISOString(),
+            }
+          : chat,
+      ),
+    );
 
     try {
-      const result = await sendChat(apiKey, model.trim(), trimmedMessage);
-      setConversation((current) => [
-        ...current,
-        { role: "assistant", content: result.answer },
-      ]);
+      const result = await sendChat(apiKey, trimmedMessage, history);
+      setChats((current) =>
+        current.map((chat) =>
+          chat.id === chatId
+            ? {
+                ...chat,
+                messages: [
+                  ...chat.messages,
+                  { role: "assistant", content: result.answer },
+                ],
+                updatedAt: new Date().toISOString(),
+              }
+            : chat,
+        ),
+      );
     } catch (requestError) {
       setError(requestError.message);
     } finally {
-      setIsSubmitting(false);
+      setSendingChatId("");
     }
   }
 
@@ -56,72 +185,136 @@ function ChatBox({ apiKey }) {
           <p className="section-kicker">Ollama</p>
           <h2>Chat with a local model</h2>
         </div>
-        <span className="panel__tag">Private inference</span>
+        <span className="panel__tag">
+          {activeModel || "Checking model..."}
+        </span>
       </div>
 
-      <div className="conversation" aria-live="polite">
-        {conversation.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-state__mark">&gt;_</div>
-            <h3>Start a local coding conversation</h3>
-            <p>
-              Ask for an explanation, a refactor idea, or help understanding an
-              error. Requests go directly to your Ollama server.
-            </p>
-          </div>
-        ) : (
-          conversation.map((item, index) => (
-            <article
-              className={`message message--${item.role}`}
-              key={`${item.role}-${index}`}
+      <div className="chat-workspace">
+        <aside className="chat-list" aria-label="Saved chats">
+          <div className="chat-list__header">
+            <div>
+              <strong>Chats</strong>
+              <span>
+                {chats.length}/{MAX_CHATS}
+              </span>
+            </div>
+            <button
+              className="chat-new-button"
+              disabled={chats.length >= MAX_CHATS}
+              onClick={handleNewChat}
+              type="button"
             >
-              <span>{item.role === "user" ? "You" : "Assistant"}</span>
-              <p>{item.content}</p>
-            </article>
-          ))
-        )}
+              New
+            </button>
+          </div>
 
-        {isSubmitting && (
-          <article className="message message--assistant message--loading">
-            <span>Assistant</span>
-            <p>Thinking locally...</p>
-          </article>
-        )}
-      </div>
+          <div className="chat-list__items">
+            {chats.map((chat) => (
+              <div
+                className={`chat-list__item ${
+                  chat.id === activeChatId ? "chat-list__item--active" : ""
+                }`}
+                key={chat.id}
+              >
+                <button
+                  className="chat-select-button"
+                  onClick={() => {
+                    setActiveChatId(chat.id);
+                    setError("");
+                  }}
+                  type="button"
+                >
+                  <span>{chat.title}</span>
+                  <small>{chat.messages.length} messages</small>
+                </button>
+                <button
+                  aria-label={`Delete ${chat.title}`}
+                  className="chat-delete-button"
+                  disabled={sendingChatId === chat.id}
+                  onClick={() => handleDeleteChat(chat)}
+                  type="button"
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
+          </div>
 
-      {error && <div className="alert alert--error">{error}</div>}
+          {chats.length === 0 && (
+            <div className="chat-list__empty">
+              <p>No saved chats.</p>
+              <button
+                className="secondary-button"
+                onClick={handleNewChat}
+                type="button"
+              >
+                Create chat
+              </button>
+            </div>
+          )}
+        </aside>
 
-      <form className="stacked-form" onSubmit={handleSubmit}>
-        <label className="field field--compact">
-          <span className="field__label">Model</span>
-          <input
-            onChange={(event) => setModel(event.target.value)}
-            required
-            value={model}
-          />
-        </label>
+        <div className="chat-main">
+          <div className="conversation" aria-live="polite">
+            {!activeChat || activeChat.messages.length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-state__mark">&gt;_</div>
+                <h3>Start a local coding conversation</h3>
+                <p>
+                  Each chat has separate context. Delete a chat to erase its
+                  stored messages and prevent them from being sent again.
+                </p>
+              </div>
+            ) : (
+              activeChat.messages.map((item, index) => (
+                <article
+                  className={`message message--${item.role}`}
+                  key={`${activeChat.id}-${item.role}-${index}`}
+                >
+                  <span>{item.role === "user" ? "You" : "Assistant"}</span>
+                  <p>{item.content}</p>
+                </article>
+              ))
+            )}
 
-        <label className="field">
-          <span className="field__label">Message</span>
-          <textarea
-            onChange={(event) => setMessage(event.target.value)}
-            placeholder="Explain how dependency injection works in FastAPI..."
-            rows="4"
-            value={message}
-          />
-        </label>
+            {sendingChatId === activeChatId && (
+              <article className="message message--assistant message--loading">
+                <span>Assistant</span>
+                <p>Thinking locally...</p>
+              </article>
+            )}
+          </div>
 
-        <div className="form-actions">
-          <span className="form-hint">Uses the selected local Ollama model</span>
-          <button
-            className="primary-button"
-            disabled={isSubmitting}
-            type="submit"
-          >
-            {isSubmitting ? "Sending..." : "Send message"}
-          </button>
+          {error && <div className="alert alert--error">{error}</div>}
+
+          <form className="stacked-form" onSubmit={handleSubmit}>
+            <label className="field">
+              <span className="field__label">Message</span>
+              <textarea
+                disabled={!activeChat}
+                onChange={(event) => setMessage(event.target.value)}
+                placeholder="Explain how dependency injection works in FastAPI..."
+                rows="4"
+                value={message}
+              />
+            </label>
+
+            <div className="form-actions">
+              <span className="form-hint">
+                Context: selected chat only. Maximum five local chats.
+              </span>
+              <button
+                className="primary-button"
+                disabled={Boolean(sendingChatId) || !activeChat}
+                type="submit"
+              >
+                {sendingChatId ? "Sending..." : "Send message"}
+              </button>
+            </div>
+          </form>
         </div>
-      </form>
+      </div>
     </section>
   );
 }

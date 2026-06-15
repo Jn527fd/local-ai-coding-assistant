@@ -8,8 +8,3 @@ def multiply(first: int, second: int) -> int:
     """Multiply two integers."""
 
     return first * second
-
-def divide(first: int, second: int) -> int:
-    """Divide two integers."""
-
-    return first // second

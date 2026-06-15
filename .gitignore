@@ -17,6 +17,9 @@ venv/
 
 # Node and Vite
 node_modules/
+!sample-code-repository/node_modules/
+!sample-code-repository/node_modules/ignored-package/
+!sample-code-repository/node_modules/ignored-package/index.js
 frontend/dist/
 frontend/.vite/
 npm-debug.log*
@@ -27,6 +30,16 @@ pnpm-debug.log*
 # Generated repository data
 data/indexes/*
 data/repos/*
+data/config/*
+!data/indexes/.gitkeep
+!data/repos/.gitkeep
+!data/config/.gitkeep
+
+# Local authentication and mutable application settings
+credentials.json
+app-settings.json
+backend/credentials.json
+backend/app-settings.json
 
 # IDE and editor files
 .idea/

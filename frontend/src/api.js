@@ -55,6 +55,7 @@ async function request(path, { method = "GET", apiKey = "", body } = {}) {
     response = await fetch(`${API_BASE_URL}${path}`, {
       method,
       headers,
+      credentials: "include",
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
@@ -92,11 +93,48 @@ export function checkHealth() {
   return request("/health");
 }
 
-export function sendChat(apiKey, model, message) {
+export function login(username, password) {
+  return request("/auth/login", {
+    method: "POST",
+    body: { username, password },
+  });
+}
+
+export function getCurrentUser() {
+  return request("/auth/me");
+}
+
+export function logout() {
+  return request("/auth/logout", { method: "POST" });
+}
+
+export function getAccountStatus(apiKey) {
+  return request("/account/status", { apiKey });
+}
+
+export function updateApiKey(apiKey) {
+  return request("/account/api-key", {
+    method: "PUT",
+    body: { api_key: apiKey },
+  });
+}
+
+export function getModelStatus() {
+  return request("/models/status");
+}
+
+export function switchModel(model) {
+  return request("/models/switch", {
+    method: "POST",
+    body: { model },
+  });
+}
+
+export function sendChat(apiKey, message, history = []) {
   return request("/chat", {
     method: "POST",
     apiKey,
-    body: { model, message },
+    body: { message, history },
   });
 }
 

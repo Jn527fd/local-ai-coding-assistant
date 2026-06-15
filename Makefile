@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: docker-build docker-down docker-logs docker-up help install-backend install-dev install-frontend run-backend run-frontend status test
+.PHONY: docker-build docker-down docker-logs docker-up help install-backend install-dev install-frontend run-backend run-frontend setup start status test
 
 help: ## Show available commands
 	@echo "Local AI Coding Assistant"
@@ -12,6 +12,8 @@ help: ## Show available commands
 	@echo "  make install-frontend  Install frontend dependencies"
 	@echo "  make run-backend       Start the FastAPI development server"
 	@echo "  make run-frontend      Start the Vite development server"
+	@echo "  make setup             Install local development dependencies"
+	@echo "  make start             Start backend and frontend together"
 	@echo "  make test              Run the backend pytest suite"
 	@echo "  make docker-build      Build the backend and frontend images"
 	@echo "  make docker-up         Build and start the Compose services"
@@ -34,6 +36,12 @@ run-backend: ## Start the FastAPI development server
 run-frontend: ## Start the Vite development server
 	cd frontend && npm run dev
 
+setup: ## Install local development dependencies
+	bash scripts/setup.sh
+
+start: ## Start backend and frontend together
+	bash scripts/start.sh
+
 docker-build: ## Build the backend and frontend images
 	docker compose build
 
@@ -50,4 +58,4 @@ test: ## Run the backend pytest suite
 	python3 -m pytest
 
 status: ## Show the current implementation phase
-	@echo "Phase 9 complete: automated FastAPI tests with pytest"
+	@echo "Phase 10 complete: project documentation and setup guides"

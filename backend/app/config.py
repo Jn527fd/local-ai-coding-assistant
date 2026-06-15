@@ -17,12 +17,21 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     api_key: SecretStr = SecretStr("")
+    credentials_file: Path = PROJECT_ROOT / "data" / "config" / "credentials.json"
+    local_settings_file: Path = (
+        PROJECT_ROOT / "data" / "config" / "app-settings.json"
+    )
+    session_cookie_name: str = "local_ai_session"
+    session_ttl_hours: int = Field(default=12, ge=1, le=168)
+    session_cookie_secure: bool = False
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     ollama_base_url: str = "http://localhost:11434"
     ollama_timeout_seconds: float = 120.0
+    model_pull_timeout_seconds: float = Field(default=3600.0, ge=60.0)
+    delete_previous_model: bool = True
+    default_model: str = Field(default="qwen3:4b", min_length=1)
     data_directory: Path = PROJECT_ROOT / "data"
     repo_chunk_size: int = Field(default=2000, ge=200, le=20_000)
-    rag_model: str = Field(default="qwen3:4b", min_length=1)
     rag_top_k: int = Field(default=5, ge=1, le=20)
 
     model_config = SettingsConfigDict(
@@ -47,6 +56,18 @@ class Settings(BaseSettings):
         """Return the directory used for generated repository indexes."""
 
         return self.data_directory.expanduser().resolve() / "indexes"
+
+    @property
+    def resolved_credentials_file(self) -> Path:
+        """Return the absolute local credentials file path."""
+
+        return self.credentials_file.expanduser().resolve()
+
+    @property
+    def resolved_local_settings_file(self) -> Path:
+        """Return the absolute persisted application settings path."""
+
+        return self.local_settings_file.expanduser().resolve()
 
 
 @lru_cache

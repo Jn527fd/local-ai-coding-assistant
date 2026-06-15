@@ -13,7 +13,9 @@ services:
       APP_DEBUG: "false"
       APP_HOST: 0.0.0.0
       APP_PORT: "8000"
-      CORS_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173"
+      CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}"
+      CREDENTIALS_FILE: /app/data/config/credentials.json
+      LOCAL_SETTINGS_FILE: /app/data/config/app-settings.json
       DATA_DIRECTORY: /app/data
       OLLAMA_BASE_URL: "http://127.0.0.1:11434"
     network_mode: host

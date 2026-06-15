@@ -1,165 +1,222 @@
 # API Reference
 
-## Status
+## Base URL
 
-The public endpoints, API key authentication, Ollama-backed chat, local
-repository indexing, and keyword-based repository RAG are available in both
-local development and the Phase 8 Docker Compose deployment.
+The default backend is `http://localhost:8000`. Interactive OpenAPI
+documentation is available at `/docs`.
 
-## Planned Endpoints
+## Authentication Layers
+
+The app uses two local authentication mechanisms:
+
+1. **Login session cookie:** `/auth/login` verifies
+   `data/config/credentials.json` and sets an HttpOnly cookie. Account and
+   model-management endpoints require this cookie.
+2. **Bearer API key:** `/chat` and `/repos/*` require
+   `Authorization: Bearer <API_KEY>`. The active key comes from the ignored
+   local app-settings file, with the `API_KEY` environment variable as a
+   fallback.
+
+`GET /` and `GET /health` remain public.
+
+## Endpoint Summary
 
 | Method | Path | Authentication | Purpose |
 | --- | --- | --- | --- |
-| `GET` | `/` | No | Return basic application information |
-| `GET` | `/health` | No | Report backend process health |
-| `POST` | `/chat` | Bearer API key | Send a message to Ollama |
-| `POST` | `/repos/index-local` | Bearer API key | Index a local repository |
-| `POST` | `/repos/ask` | Bearer API key | Ask a question about an index |
+| `GET` | `/` | None | Application metadata |
+| `GET` | `/health` | None | Backend process health |
+| `POST` | `/auth/login` | None | Create local browser session |
+| `GET` | `/auth/me` | Session | Return signed-in user |
+| `POST` | `/auth/logout` | None | Revoke current session |
+| `GET` | `/account/status` | Session | Check API-key state |
+| `PUT` | `/account/api-key` | Session | Persist a new API key |
+| `GET` | `/models/status` | Session | Model catalog and operation state |
+| `POST` | `/models/switch` | Session | Install and activate a model |
+| `POST` | `/chat` | Bearer key | Chat with the active model |
+| `POST` | `/repos/index-local` | Bearer key | Index a local directory |
+| `POST` | `/repos/ask` | Bearer key | Ask the active model about an index |
 
-## `GET /`
-
-Returns application metadata.
-
-```json
-{
-  "name": "Local AI Coding Assistant",
-  "version": "0.1.0",
-  "environment": "development",
-  "docs_url": "/docs"
-}
-```
-
-## `GET /health`
-
-Returns HTTP `200` while the backend process is accepting requests.
-
-```json
-{
-  "status": "ok"
-}
-```
-
-## Example Requests
+## Public Endpoints
 
 ```bash
 curl http://localhost:8000/
 curl http://localhost:8000/health
 ```
 
-## Authentication
-
-Protected endpoints require this HTTP header:
-
-```text
-Authorization: Bearer YOUR_API_KEY
-```
-
-The value must match the backend `API_KEY` environment variable. Missing or
-invalid credentials return:
+`GET /health` returns:
 
 ```json
-{
-  "detail": "Missing or invalid API key."
-}
+{"status":"ok"}
 ```
 
-with HTTP status `401` and the `WWW-Authenticate: Bearer` response header.
+It confirms FastAPI is running; it does not verify Ollama.
 
-If the server operator did not configure `API_KEY`, protected routes return
-HTTP `503` with a configuration error.
+## Login Session
 
-## `POST /chat`
-
-Sends a prompt to the configured local Ollama server.
-
-Request:
+Use a cookie jar for command-line testing:
 
 ```bash
-curl -X POST http://localhost:8000/chat \
-  -H "Authorization: Bearer YOUR_API_KEY" \
+curl -c session.cookies -X POST http://localhost:8000/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"model":"qwen3:4b","message":"Explain this function."}'
+  -d '{"username":"YOUR_USERNAME","password":"YOUR_PASSWORD"}'
 ```
 
 Successful response:
 
 ```json
+{"username":"YOUR_USERNAME"}
+```
+
+Check or end the session:
+
+```bash
+curl -b session.cookies http://localhost:8000/auth/me
+curl -b session.cookies -X POST http://localhost:8000/auth/logout
+```
+
+Invalid credentials return `401`. A missing or malformed credentials file
+returns `503` with a local setup message.
+
+## Account API Key
+
+Save a key of at least 16 characters:
+
+```bash
+curl -b session.cookies -X PUT http://localhost:8000/account/api-key \
+  -H "Content-Type: application/json" \
+  -d '{"api_key":"your-private-api-key"}'
+```
+
+The response never includes the secret:
+
+```json
 {
-  "answer": "The generated response from Ollama."
+  "username": "YOUR_USERNAME",
+  "api_key_configured": true,
+  "api_key_active": true
 }
 ```
 
-Possible errors:
+Check whether a candidate key matches the active key:
+
+```bash
+curl -b session.cookies http://localhost:8000/account/status \
+  -H "Authorization: Bearer your-private-api-key"
+```
+
+The backend persists the active key in
+`data/config/app-settings.json`. The React frontend also stores the user's
+entered copy in browser local storage.
+
+## Model Status and Switching
+
+Get the approved catalog, installed model names, Ollama connectivity, active
+model, and current operation state:
+
+```bash
+curl -b session.cookies http://localhost:8000/models/status
+```
+
+Start a switch:
+
+```bash
+curl -b session.cookies -X POST http://localhost:8000/models/switch \
+  -H "Content-Type: application/json" \
+  -d '{"model":"qwen2.5-coder:7b"}'
+```
+
+The request returns `202`; poll `/models/status` for:
+
+```text
+unloading -> downloading -> activating -> cleaning -> complete
+```
+
+The response includes `progress`, `message`, `error`, and `warning`. Only the
+server allowlist is accepted:
+
+```text
+qwen3:4b
+qwen2.5-coder:3b
+qwen2.5-coder:7b
+llama3.2:1b
+llama3.2:3b
+```
+
+An unsupported model returns `400`; a second concurrent switch returns `409`.
+Chat and repository generation return `409` while a switch is running.
+
+The old model is unloaded first. The replacement is downloaded and made
+active, then the old model is deleted when `DELETE_PREVIOUS_MODEL=true`.
+Deletion happens after a successful pull to preserve the previous installation
+when a download fails.
+
+## Chat
+
+Chat always uses the active model:
+
+```bash
+curl -X POST http://localhost:8000/chat \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message":"Explain dependency injection briefly.",
+    "history":[
+      {"role":"user","content":"What is FastAPI?"},
+      {"role":"assistant","content":"FastAPI is a Python web framework."}
+    ]
+  }'
+```
+
+Response:
+
+```json
+{
+  "model": "qwen3:4b",
+  "answer": "Generated text from the local model."
+}
+```
+
+The optional legacy `model` request field is accepted only when it exactly
+matches the active approved model. It cannot be used to bypass model switching.
+`history` is optional, accepts at most 30 user/assistant messages, and is used
+only to construct the current Ollama prompt. The backend does not persist it.
+
+Common errors:
 
 | Status | Meaning |
 | --- | --- |
-| `401` | API key is missing or invalid |
-| `422` | Request body is invalid |
-| `502` | Ollama returned an error or malformed response |
-| `503` | The backend could not connect to Ollama |
-| `504` | Ollama exceeded the configured timeout |
+| `400` | Requested legacy model is unsupported |
+| `401` | Bearer key is missing or invalid |
+| `409` | Different model requested or switch in progress |
+| `422` | Request validation failed |
+| `502` | Ollama returned an invalid/error response |
+| `503` | API key is unconfigured or Ollama is unavailable |
+| `504` | Ollama timed out |
 
-## `POST /repos/index-local`
-
-Recursively indexes supported files from a local directory. The path is
-resolved on the backend machine and should normally be absolute.
-
-When using Docker Compose, use the container-visible `/repositories/...` path
-documented in `docs/setup.md`, not the original host path.
-
-Request:
+## Repository Indexing
 
 ```bash
 SAMPLE_REPO_PATH="$(realpath sample-code-repository)"
 
 curl -X POST http://localhost:8000/repos/index-local \
-  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d "{\"path\":\"$SAMPLE_REPO_PATH\"}"
 ```
 
-Successful response:
-
-```json
-{
-  "repo_name": "sample-code-repository",
-  "indexed_files": 9,
-  "indexed_chunks": 9
-}
-```
-
-The generated file is stored at:
-
-```text
-data/indexes/sample-code-repository.json
-```
+Docker uses `/repositories/...` paths. The response contains `repo_name`,
+`indexed_files`, and `indexed_chunks`. Index files are stored beneath
+`DATA_DIRECTORY/indexes`.
 
 Supported extensions are `.py`, `.js`, `.jsx`, `.ts`, `.tsx`, `.md`, `.json`,
-`.yaml`, `.yml`, `.html`, and `.css`.
+`.yaml`, `.yml`, `.html`, and `.css`. `.git`, `node_modules`, `.venv`,
+`__pycache__`, `dist`, and `build` directories are ignored.
 
-Directories named `.git`, `node_modules`, `.venv`, `__pycache__`, `dist`, or
-`build` are ignored at every depth.
-
-Possible errors:
-
-| Status | Meaning |
-| --- | --- |
-| `400` | The path does not exist, cannot be resolved, or is not a directory |
-| `401` | API key is missing or invalid |
-| `403` | The backend process cannot traverse the repository directory |
-| `422` | Request body is invalid |
-| `500` | The index file could not be written |
-
-## `POST /repos/ask`
-
-Retrieves relevant chunks from a previously generated JSON index, sends a
-grounded prompt to Ollama, and returns the answer with source file paths.
-
-Request:
+## Repository Questions
 
 ```bash
 curl -X POST http://localhost:8000/repos/ask \
-  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "repo_name": "sample-code-repository",
@@ -167,29 +224,23 @@ curl -X POST http://localhost:8000/repos/ask \
   }'
 ```
 
-Successful response:
+Response:
 
 ```json
 {
   "answer": "The functions are implemented in sample_app/calculator.py.",
-  "sources": [
-    "app.py",
-    "sample_app/calculator.py"
-  ]
+  "sources": ["app.py", "sample_app/calculator.py"]
 }
 ```
 
-The exact answer and source ordering depend on the question and local model.
-Sources are unique relative paths from the ranked chunks.
+Repository answers use the same active model selected from the account panel.
 
-Possible errors:
+## Security Notes
 
-| Status | Meaning |
-| --- | --- |
-| `401` | API key is missing or invalid |
-| `404` | No JSON index exists for the requested repository |
-| `422` | Request body is invalid |
-| `500` | The repository index is unreadable or malformed |
-| `502` | Ollama returned an error or malformed response |
-| `503` | The backend could not connect to Ollama |
-| `504` | Ollama exceeded the configured timeout |
+- Do not expose these endpoints directly to the public internet.
+- Use HTTPS before sending cookies or Bearer keys across an untrusted network.
+- The session cookie is HttpOnly and SameSite=Lax, but local HTTP is not
+  encrypted.
+- An authenticated Bearer caller can index paths readable by the backend.
+- Model-management endpoints can download and delete local Ollama models and
+  therefore require a valid login session.

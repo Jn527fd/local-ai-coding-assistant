@@ -5,6 +5,10 @@ from fastapi import HTTPException, Request, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.config import Settings
+from app.services.local_settings_service import (
+    LocalSettingsError,
+    LocalSettingsService,
+)
 
 bearer_scheme = HTTPBearer(
     auto_error=False,
@@ -22,7 +26,16 @@ def require_api_key(
     """Validate the bearer API key for a protected endpoint."""
 
     settings: Settings = request.app.state.settings
-    expected_api_key = settings.api_key.get_secret_value()
+    local_settings: LocalSettingsService = request.app.state.local_settings_service
+    try:
+        expected_api_key = local_settings.get_api_key(
+            fallback=settings.api_key.get_secret_value()
+        )
+    except LocalSettingsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
 
     if not expected_api_key:
         raise HTTPException(

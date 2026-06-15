@@ -1,158 +1,316 @@
 # Local AI Coding Assistant
 
-A self-hosted coding assistant that will chat with a local large language model,
-index source repositories, and answer questions about an indexed codebase.
-
-The project is designed for a Linux Mint laptop with an NVIDIA GPU, Docker, and
-Ollama. It will use FastAPI for the backend, React with Vite for the frontend,
-and a small local model such as `qwen3:4b`. No cloud LLM APIs are required.
+A self-hosted full-stack coding assistant that chats with a local Ollama
+model, indexes source repositories, and answers grounded questions about an
+indexed codebase. Source code and prompts stay on the machine running the app;
+no cloud LLM API is required.
 
 ## Project Status
 
-Phase 9 is complete. The project includes a configurable FastAPI application,
-Bearer API key authentication, local Ollama chat, JSON repository indexing,
-keyword retrieval, RAG-based repository questions, a responsive React
-interface, Docker Compose orchestration, and an isolated backend pytest suite.
+All ten planned phases are complete. The project includes the FastAPI API,
+React/Vite interface, local user login, persistent Bearer API settings,
+allowlisted Ollama model switching, local repository indexing, keyword-based
+RAG, Docker Compose deployment, automated tests, and setup scripts.
 
-Final documentation polish will be added in Phase 10.
+## Features
 
-## Planned Features
+- FastAPI backend with environment-based configuration and OpenAPI docs
+- Login page backed by a local PBKDF2-hashed credentials file
+- HttpOnly local browser sessions for account and model controls
+- Public health endpoint and protected AI/repository endpoints
+- Constant-time Bearer API-key validation
+- Persistent local API-key settings and connection checks
+- Model switching restricted to approved models with 7B parameters or fewer
+- Streamed Ollama download progress and safe previous-model cleanup
+- Up to five browser-local chats with isolated context and deletion
+- Local generation through Ollama's `/api/generate` endpoint
+- Recursive local repository indexing into readable JSON
+- Line-aware chunks with file paths and source line ranges
+- Transparent keyword-overlap retrieval for repository questions
+- RAG answers that include retrieved source file paths
+- React/Vite UI for health, chat, indexing, and repository questions
+- Docker Compose deployment that connects to Ollama on the Linux host
+- Isolated pytest coverage for health, authentication, and mocked chat
+- Linux setup and local start scripts
 
-- FastAPI backend with health checks and environment-based configuration
-- Bearer API key authentication for protected endpoints
-- Local Ollama chat integration
-- Local and GitHub repository indexing
-- Simple JSON-based code chunk index
-- Keyword retrieval and retrieval-augmented generation (RAG)
-- React and Vite user interface
-- Docker Compose development environment
-- Automated health, authentication, and mocked chat tests
+GitHub cloning is not implemented yet. A GitHub repository can still be used
+by cloning it locally and indexing its local directory.
 
-## Planned Architecture
+## Architecture
 
 ```text
-React frontend
-      |
-      | HTTP + Bearer API key
-      v
+Browser
+  |
+  | HttpOnly login cookie + Authorization: Bearer <API_KEY>
+  v
+React/Vite frontend
+  |
+  v
 FastAPI backend
-      |--------------------|
-      v                    v
-Ollama local model    Repository index
-                           |
-                           v
-                    RAG retrieval flow
+  |-- /health --------------------------> process health
+  |-- /chat ----------------------------> Ollama /api/generate
+  `-- /repos
+       |-- /index-local -> chunker -----> data/indexes/<repo>.json
+       `-- /ask -> keyword retriever ---> grounded prompt -> Ollama
 ```
+
+The frontend never sends source code to a cloud service. Ollama runs directly
+on the Linux host, while the backend stores generated indexes under `data/`.
+See [docs/architecture.md](docs/architecture.md) for the module-level design.
+
+## Hardware Target
+
+The primary target is a Linux Mint laptop with:
+
+- An NVIDIA GPU and working Linux driver (`nvidia-smi` should succeed)
+- Enough RAM, VRAM, and disk space for the selected Ollama model
+- Ollama with `qwen3:4b` pulled locally
+- Python 3.10 or newer
+- Node.js `20.19+` or `22.12+`
+- Docker Engine with the Docker Compose plugin
+
+Ollama can fall back to CPU execution, but responses will generally be slower.
+The backend and frontend themselves do not require GPU access.
 
 ## Repository Layout
 
 ```text
 local-ai-coding-assistant/
 |-- backend/
-|   `-- app/
-|       |-- auth/
-|       |-- rag/
-|       |-- routers/
-|       |-- schemas/
-|       |-- services/
-|       `-- utils/
+|   |-- app/
+|   |   |-- auth/
+|   |   |-- rag/
+|   |   |-- routers/
+|   |   |-- schemas/
+|   |   |-- services/
+|   |   `-- utils/
+|   |-- Dockerfile
+|   |-- requirements.txt
+|   `-- requirements-dev.txt
 |-- frontend/
-|   `-- src/
-|       `-- components/
+|   |-- src/components/
+|   |-- Dockerfile
+|   `-- nginx.conf
 |-- tests/
 |-- scripts/
+|   |-- setup.sh
+|   |-- manage_credentials.py
+|   `-- start.sh
 |-- docs/
 |-- data/
+|   |-- config/
 |   |-- indexes/
 |   `-- repos/
+|-- sample-code-repository/
+|-- docker-compose.yml
 |-- Makefile
-|-- LICENSE
 `-- README.md
 ```
 
-## Documentation
+## Quick Start on Linux Mint
 
-- [Architecture](docs/architecture.md)
-- [API](docs/api.md)
-- [Setup](docs/setup.md)
-
-## Run the Backend
-
-Python 3.10 or newer is recommended.
+Install Ollama using its
+[official Linux instructions](https://docs.ollama.com/linux), then pull the
+default model:
 
 ```bash
-cd backend
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-cp .env.example .env
-# Replace API_KEY in .env with a private random value.
-# OLLAMA_BASE_URL defaults to http://localhost:11434.
-python -m uvicorn app.main:app --reload
+ollama pull qwen3:4b
+curl http://127.0.0.1:11434/api/tags
 ```
 
-The API is available at `http://localhost:8000`, and interactive API
-documentation is available at `http://localhost:8000/docs`.
+From the project root, run the setup helper:
 
-Check the endpoints:
+```bash
+bash scripts/setup.sh
+```
+
+Create or update a local user:
+
+```bash
+.venv/bin/python scripts/manage_credentials.py set YOUR_USERNAME
+```
+
+The command prompts for a password and stores only a salted PBKDF2 hash in the
+ignored `data/config/credentials.json` file. Then start the app:
+
+```bash
+bash scripts/start.sh
+```
+
+Open:
+
+- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:8000`
+- Interactive API docs: `http://localhost:8000/docs`
+
+Sign in, select the circular account button, and save a private API key of at
+least 16 characters. The key is persisted in browser local storage and the
+ignored `data/config/app-settings.json` file.
+
+Press `Ctrl+C` in the start-script terminal to stop both development servers.
+
+## Run Locally Manually
+
+Create one virtual environment at the project root:
+
+```bash
+cd ~/local-ai-coding-assistant
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r backend/requirements-dev.txt
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
+mkdir -p data/config
+cp credentials.example.json data/config/credentials.json
+cp app-settings.example.json data/config/app-settings.json
+.venv/bin/python scripts/manage_credentials.py set YOUR_USERNAME
+```
+
+Start FastAPI in terminal 1:
+
+```bash
+cd ~/local-ai-coding-assistant
+source .venv/bin/activate
+cd backend
+python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Start Vite in terminal 2:
+
+```bash
+cd ~/local-ai-coding-assistant/frontend
+npm install
+npm run dev -- --host 0.0.0.0
+```
+
+Ollama must also be running, normally as a system service:
+
+```bash
+systemctl status ollama
+```
+
+## Run with Docker Compose
+
+Compose runs the frontend and backend. Ollama remains installed on the Linux
+host and is not duplicated inside Docker.
+
+```bash
+cd ~/local-ai-coding-assistant
+cp .env.example .env
+test -f backend/.env || cp backend/.env.example backend/.env
+mkdir -p data/config
+test -f data/config/credentials.json || \
+  cp credentials.example.json data/config/credentials.json
+test -f data/config/app-settings.json || \
+  cp app-settings.example.json data/config/app-settings.json
+python3 scripts/manage_credentials.py set YOUR_USERNAME
+sed -i "s/^APP_UID=.*/APP_UID=$(id -u)/" .env
+docker compose up --build --detach
+docker compose ps
+```
+
+Both containers should eventually report `healthy`. Sign in and configure the
+Bearer key from the Account drawer.
+
+The backend uses Linux host networking, so
+`OLLAMA_BASE_URL=http://127.0.0.1:11434` reaches the host Ollama service. The
+frontend is published on port `5173`, and FastAPI listens on port `8000`.
+
+Useful lifecycle commands:
+
+```bash
+docker compose logs --follow
+docker compose restart
+docker compose down
+```
+
+Detached containers continue running after the terminal or SSH session closes.
+The `restart: unless-stopped` policy also restarts them after a reboot once
+Docker starts.
+
+## Access from Another Computer
+
+Find the Linux Mint machine's LAN address:
+
+```bash
+hostname -I
+```
+
+For an address such as `192.168.1.50`, set these values in the root `.env`
+before building:
+
+```dotenv
+FRONTEND_API_BASE_URL=http://192.168.1.50:8000
+CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://192.168.1.50:5173
+```
+
+Rebuild because the frontend API URL is compiled into the Vite bundle:
+
+```bash
+docker compose up --build --detach
+```
+
+Other devices on the same trusted network can then open
+`http://192.168.1.50:5173`. Do not expose ports `5173`, `8000`, or `11434`
+directly to the public internet.
+
+## API Examples
+
+Export the same key saved in the Account drawer (or configured as the
+`API_KEY` fallback):
+
+```bash
+export API_KEY="your-generated-api-key"
+```
+
+Check public endpoints:
 
 ```bash
 curl http://localhost:8000/
 curl http://localhost:8000/health
+```
+
+Chat with Ollama:
+
+```bash
 curl -X POST http://localhost:8000/chat \
-  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"model":"qwen3:4b","message":"Hello"}'
+  -d '{"message":"Explain FastAPI dependencies briefly."}'
 ```
 
-The `/chat` endpoint sends the message to Ollama and returns its generated
-answer. `/repos/index-local` creates a JSON code index, and `/repos/ask`
-retrieves relevant chunks before sending a grounded prompt to Ollama. Missing
-or invalid API keys return `401 Unauthorized`.
-
-## Prepare Ollama
-
-Confirm Ollama is installed and pull the default model:
-
-```bash
-ollama --version
-ollama pull qwen3:4b
-ollama list
-```
-
-Ollama normally runs as a Linux service. If it is not running, start it in a
-separate terminal:
-
-```bash
-ollama serve
-```
-
-## Index a Local Repository
-
-The path must exist on the same machine where the FastAPI backend runs. Use an
-absolute path. A ready-to-index fixture is included at
-`sample-code-repository/`.
-
-From the project root:
+Index the included sample repository:
 
 ```bash
 SAMPLE_REPO_PATH="$(realpath sample-code-repository)"
 
 curl -X POST http://localhost:8000/repos/index-local \
-  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d "{\"path\":\"$SAMPLE_REPO_PATH\"}"
 ```
 
-The backend recursively indexes supported code and documentation files,
-ignores generated dependency directories, splits text into line-aware chunks,
-and writes the result under `data/indexes/`.
+When using Docker, use the container-visible path instead:
 
-For the included fixture, inspect:
+```text
+/repositories/sample-code-repository
+```
+
+Ask a grounded question:
 
 ```bash
-python -m json.tool data/indexes/sample-code-repository.json | less
+curl -X POST http://localhost:8000/repos/ask \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repo_name": "sample-code-repository",
+    "question": "Where are the add and multiply functions implemented?"
+  }'
 ```
+
+Full request and error documentation is in [docs/api.md](docs/api.md).
+
+## Repository Indexing
 
 Supported extensions:
 
@@ -166,121 +324,150 @@ Ignored directories:
 .git node_modules .venv __pycache__ dist build
 ```
 
-## Ask About an Indexed Repository
+Indexes are readable JSON files under `data/indexes/`. Re-indexing a directory
+with the same final directory name replaces its previous index.
 
-After indexing `sample-code-repository`, ask a question:
+## Tests
 
-```bash
-curl -X POST http://localhost:8000/repos/ask \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "repo_name": "sample-code-repository",
-    "question": "Where are the add and multiply functions implemented?"
-  }'
-```
-
-The response contains the Ollama answer and the relative paths of retrieved
-source files:
-
-```json
-{
-  "answer": "The functions are implemented in sample_app/calculator.py.",
-  "sources": ["app.py", "sample_app/calculator.py"]
-}
-```
-
-Retrieval currently uses transparent keyword overlap rather than embeddings.
-`RAG_TOP_K` controls how many chunks are sent to Ollama, and `RAG_MODEL`
-selects the local model.
-
-## Run the Frontend
-
-Use Node.js 20.19 or newer. Open a second terminal while the backend is
-running:
-
-```bash
-cd frontend
-npm install
-cp .env.example .env
-npm run dev
-```
-
-Open `http://localhost:5173`.
-
-The interface includes:
-
-- Backend health and API URL status
-- An API-key input stored only in the current browser tab
-- Local Ollama chat with selectable model
-- Local repository indexing with file and chunk counts
-- Repository RAG questions with retrieved source paths
-
-Set `VITE_API_BASE_URL` in `frontend/.env` if FastAPI is not available at
-`http://localhost:8000`.
-
-## Run with Docker Compose
-
-The Compose setup targets Linux Mint and assumes Ollama is already running as
-a host service.
-
-1. Stop any manually running backend or frontend processes using `Ctrl+C`.
-2. Prepare the Compose settings:
+The tests do not require a running backend, frontend, Docker, or Ollama:
 
 ```bash
 cd ~/local-ai-coding-assistant
-cp .env.example .env
-sed -i "s/^APP_UID=.*/APP_UID=$(id -u)/" .env
-test -f backend/.env || cp backend/.env.example backend/.env
+source .venv/bin/activate
+python -m pip install -r backend/requirements-dev.txt
+python -m pytest
 ```
 
-3. Confirm `backend/.env` contains a private `API_KEY`.
-4. Build and start both containers:
+The suite verifies login, invalid credentials, persistent API settings, the
+7B model policy, public health, Bearer failures, and mocked chat.
 
-```bash
-docker compose up --build --detach
-docker compose ps
-```
+## Account and Model Settings
 
-Open `http://localhost:5173`. The backend remains available at
-`http://localhost:8000`.
+After login, use the circular avatar in the top-right corner.
 
-The backend uses Docker host networking on Linux, so its configured
-`http://127.0.0.1:11434` Ollama URL reaches the host Ollama service directly.
-Ollama does not need to be added to Compose or exposed to the local network.
+- **API access:** Enter a key with at least 16 characters, save it, then use
+  **Check connection**. The status turns connected only when the browser key
+  matches the active backend key.
+- **Model catalog:** Choose an approved model and select
+  **Install and activate**. The UI shows unload, download, activation, cleanup,
+  completion, and error states.
+- **Cleanup policy:** The old model is unloaded before the download. It is
+  deleted through Ollama only after the replacement downloads and becomes
+  active, so a failed pull does not remove the last usable installation.
 
-The project root is mounted read-only at `/repositories` by default. Index the
-included fixture with this path in the frontend:
+Approved models:
 
 ```text
-/repositories/sample-code-repository
+qwen3:4b
+qwen2.5-coder:3b
+qwen2.5-coder:7b
+llama3.2:1b
+llama3.2:3b
 ```
 
-Set `LOCAL_REPOS_ROOT` in the root `.env` to another parent directory when you
-want containers to index repositories outside this project.
+The backend rejects any unlisted model, including models above 7B, even if a
+request bypasses the frontend.
 
-Useful commands:
+## Chat Storage and Deletion
 
-```bash
-docker compose logs --follow
-docker compose restart
-docker compose down
+Each logged-in username can keep at most five chats in that browser. Chats are
+stored under a username-specific browser local-storage key; FastAPI does not
+store conversation records.
+
+Only the selected chat's latest 30 messages are sent as context with a new
+request. Selecting **Delete** removes that chat and all its messages from the
+application's local storage, so deleted content is not included in future
+model prompts. Create-space validation prevents a sixth chat until an existing
+chat is deleted.
+
+## Configuration
+
+Important backend variables are documented in `backend/.env.example`:
+
+| Variable | Purpose |
+| --- | --- |
+| `API_KEY` | Bearer secret required by protected endpoints |
+| `CREDENTIALS_FILE` | Ignored JSON file containing local user password hashes |
+| `LOCAL_SETTINGS_FILE` | Ignored JSON file containing API key and active model |
+| `SESSION_TTL_HOURS` | Lifetime of an in-memory login session |
+| `CORS_ORIGINS` | Comma-separated frontend origins allowed by FastAPI |
+| `OLLAMA_BASE_URL` | Ollama API root |
+| `OLLAMA_TIMEOUT_SECONDS` | Generation request timeout |
+| `MODEL_PULL_TIMEOUT_SECONDS` | Maximum model download duration |
+| `DELETE_PREVIOUS_MODEL` | Delete the old active model after a successful switch |
+| `DEFAULT_MODEL` | Initial active model when no local value is saved |
+| `DATA_DIRECTORY` | Parent directory for generated indexes |
+| `REPO_CHUNK_SIZE` | Approximate maximum characters per chunk |
+| `RAG_TOP_K` | Maximum retrieved chunks supplied to the model |
+
+Never commit real `.env` files or API keys.
+
+Intentionally ignored local files include:
+
+```text
+.env
+backend/.env
+frontend/.env
+data/config/credentials.json
+data/config/app-settings.json
 ```
 
-## Development Roadmap
+Safe committed templates are `credentials.example.json`,
+`app-settings.example.json`, and each `.env.example`.
 
-1. Project scaffold and documentation
-2. FastAPI application and health endpoint
-3. API key authentication
-4. Ollama chat integration
-5. Repository indexing
-6. Basic RAG workflow
-7. React and Vite frontend
-8. Docker support
-9. Automated tests (complete)
-10. Complete project documentation
+## Screenshots
+
+Screenshot placeholders for the final portfolio presentation:
+
+1. Main dashboard with backend status and successful local chat
+2. Repository indexing result with file/chunk counts
+3. Repository answer showing retrieved source paths
+
+## Security and Current Limits
+
+- This is a trusted-network, single-user project, not an internet-facing
+  multi-tenant service.
+- Local login sessions are held in backend memory and end after a restart.
+- The Bearer key is stored in browser local storage for persistence; use the
+  app only on trusted devices and protect it from untrusted scripts.
+- Chat deletion removes the application's local-storage record and server
+  context, but cannot promise forensic erasure from browser/device storage.
+- An authenticated caller can index any path readable by the backend process.
+- Retrieval uses keyword overlap, not semantic embeddings.
+- Indexes are JSON files and are not designed for very large monorepositories.
+- Chat responses are non-streaming.
+- GitHub repositories must currently be cloned locally before indexing.
+
+## Resume Bullet Examples
+
+- Built a self-hosted React and FastAPI coding assistant that integrates with
+  Ollama for private local LLM inference without cloud API dependencies.
+- Implemented authenticated repository indexing and retrieval-augmented
+  generation over source files using line-aware chunking and ranked keyword
+  retrieval with source attribution.
+- Containerized the frontend and backend with multi-stage Docker builds,
+  health checks, persistent indexes, non-root execution, and Linux host Ollama
+  connectivity.
+- Added dependency-injected pytest coverage for health, authentication, and
+  mocked LLM behavior, plus reproducible Linux setup documentation.
+
+## Next Improvements
+
+- Add embeddings and a local vector database such as Qdrant or Chroma
+- Stream Ollama responses to the browser
+- Add GitHub clone/update support with safe credential handling
+- Add language-aware parsing with Tree-sitter
+- Add repository management, index deletion, and index freshness metadata
+- Add rate limiting, per-user authentication, and an HTTPS reverse proxy
+- Expand tests for repository indexing, RAG ranking, and frontend behavior
+- Add CI for linting, tests, and Docker image builds
+
+## Documentation
+
+- [Architecture](docs/architecture.md)
+- [API reference](docs/api.md)
+- [Linux Mint setup](docs/setup.md)
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for
-details.
+This project is licensed under the MIT License. See [LICENSE](LICENSE).

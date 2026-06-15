@@ -26,6 +26,7 @@ from app.services.ollama_service import (
     OllamaTimeoutError,
     OllamaUnavailableError,
 )
+from app.services.model_manager import ModelManager
 
 router = APIRouter(
     prefix="/repos",
@@ -124,6 +125,13 @@ async def ask_repository(
         ) from exc
 
     settings: Settings = http_request.app.state.settings
+    model_manager: ModelManager = http_request.app.state.model_manager
+    if model_manager.is_switching:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Model switching is in progress. Try again when it completes.",
+        )
+
     retrieved_chunks = retrieve_relevant_chunks(
         index_data=index_data,
         question=request.question,
@@ -137,7 +145,7 @@ async def ask_repository(
 
     try:
         answer = await ollama_service.generate(
-            model=settings.rag_model,
+            model=model_manager.active_model,
             prompt=prompt,
         )
     except OllamaUnavailableError as exc:

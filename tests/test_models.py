@@ -48,11 +48,10 @@ def make_manager(
         ollama_service=ollama,
         local_settings=local_settings,
         default_model="qwen3:4b",
-        max_parameters_billion=7,
     )
 
 
-def test_model_switch_rejects_models_above_seven_billion_parameters(
+def test_model_switch_accepts_any_installed_local_model(
     app: FastAPI,
     logged_in_client: TestClient,
     tmp_path: Path,
@@ -69,8 +68,8 @@ def test_model_switch_rejects_models_above_seven_billion_parameters(
         json={"model": "qwen3:14b"},
     )
 
-    assert response.status_code == 400
-    assert "Only models up to 7B" in response.json()["detail"]
+    assert response.status_code == 202
+    assert response.json() == {"accepted": True, "model": "qwen3:14b"}
 
 
 @pytest.mark.anyio
@@ -91,16 +90,23 @@ async def test_model_status_builds_catalog_from_local_ollama_inventory(
 
     assert [model["name"] for model in status["supported_models"]] == [
         "llama3.2:3b",
+        "qwen3:14b",
         "qwen3:4b",
+        "unknown:latest",
     ]
+    unknown_model = next(
+        model
+        for model in status["supported_models"]
+        if model["name"] == "unknown:latest"
+    )
+    assert unknown_model["parameters_billion"] is None
+    assert unknown_model["parameter_size"] == "unknown size"
     assert status["installed_models"] == [
         "qwen3:4b",
         "llama3.2:3b",
         "qwen3:14b",
         "unknown:latest",
     ]
-    assert status["excluded_model_count"] == 2
-    assert status["max_parameters_billion"] == 7
 
 
 @pytest.mark.anyio

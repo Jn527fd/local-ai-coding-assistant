@@ -28,8 +28,9 @@ cloud model provider.
 
 The application connects a React dashboard to a FastAPI backend and a locally
 installed Ollama model. Users can authenticate, manage an API key, switch
-between approved small models, maintain isolated conversations, index local
-repositories, and ask questions grounded in retrieved source files.
+between locally pulled models, and maintain isolated conversations. Repository
+indexing and grounded code Q&A remain available through the API while the
+dashboard workspace is being redesigned.
 
 Internet access is required only when installing dependencies or downloading
 new Ollama models. Chat prompts, generated repository indexes, credentials,
@@ -65,9 +66,7 @@ This project demonstrates more than a basic LLM chat interface:
 ### Private Local AI
 
 - Runs inference through Ollama on the host machine.
-- Discovers locally installed Ollama models dynamically.
-- Filters the model selector using Ollama's reported parameter metadata and a
-  server-enforced ceiling of 7 billion parameters.
+- Lists every model installed in the local Ollama library.
 - Switches between installed models by updating the active-model setting
   without deleting model files.
 - Displays model installation progress, connection state, and user-facing
@@ -95,6 +94,8 @@ This project demonstrates more than a basic LLM chat interface:
 
 ### Repository Intelligence
 
+- Repository indexing is currently API-only while the dashboard workspace is
+  being redesigned for a future plus-button upload flow.
 - Recursive indexing of local code repositories.
 - Support for Python, JavaScript, TypeScript, React, Markdown, JSON, YAML,
   HTML, and CSS.
@@ -146,7 +147,7 @@ Detailed design notes are available in
 
 | Area | Technology | Responsibility |
 | --- | --- | --- |
-| Frontend | React 18, Vite 8, CSS | Authentication, chat, status, model and repository UI |
+| Frontend | React 18, Vite 8, CSS | Authentication, chat, status, account, and model UI |
 | Backend | Python, FastAPI, Pydantic | APIs, validation, sessions, orchestration |
 | Local inference | Ollama | Model downloads, lifecycle, and text generation |
 | Retrieval | Python JSON index and keyword ranking | Code chunking, retrieval, and grounding |
@@ -157,15 +158,10 @@ Detailed design notes are available in
 ## Local Model Discovery
 
 The model dropdown is built from `GET /api/tags` on the local Ollama service.
-Any installed model appears automatically when:
-
-- Ollama reports a recognizable `parameter_size`.
-- The reported size is no greater than
-  `MAX_MODEL_PARAMETERS_BILLION`, which defaults to `7`.
-
-Larger models and models with missing parameter metadata are excluded from the
-dropdown and rejected by the switch endpoint. No model-name allowlist is
-maintained in the application.
+Every installed model Ollama reports appears automatically. No parameter-size
+filter or model-name allowlist is maintained in the application, so you decide
+which models are appropriate for your hardware by choosing what to pull with
+Ollama.
 
 Pull any suitable models directly with Ollama:
 
@@ -304,7 +300,7 @@ docker compose up --build --detach
 1. Sign in with a configured local user.
 2. Open the account menu and save an API key.
 3. Verify the API status shows as connected.
-4. Select one of the eligible models installed in Ollama.
+4. Select one of the models installed in Ollama.
 5. Create a chat and submit a prompt.
 
 Changing models does not clear the selected conversation. Its saved history is
@@ -341,7 +337,7 @@ question. The response includes the source paths selected by the retriever.
 | `GET` | `/account/status` | Session cookie | Check account and API-key state |
 | `PUT` | `/account/api-key` | Session cookie | Save a local API key |
 | `GET` | `/models/status` | Session cookie | Return model and switch status |
-| `POST` | `/models/switch` | Session cookie | Select an eligible installed model |
+| `POST` | `/models/switch` | Session cookie | Select an installed local model |
 | `POST` | `/chat` | Bearer key | Generate a chat response |
 | `POST` | `/repos/index-local` | Bearer key | Index a local repository |
 | `POST` | `/repos/ask` | Bearer key | Ask a grounded repository question |
@@ -358,6 +354,9 @@ curl -X POST http://localhost:8000/chat \
 ```
 
 ### Example Repository Request
+
+The dashboard repository workspace is temporarily hidden, but the backend API
+remains available:
 
 ```bash
 curl -X POST http://localhost:8000/repos/index-local \
@@ -417,7 +416,6 @@ Important inference settings:
 | `OLLAMA_THINK` | `false` | Enable supported models' extended thinking |
 | `OLLAMA_KEEP_ALIVE` | `10m` | Keep the active model loaded between requests |
 | `CHAT_CONTEXT_MAX_CHARS` | `12000` | Bound conversation context size |
-| `MAX_MODEL_PARAMETERS_BILLION` | `7` | Maximum installed model size shown and accepted |
 | `RAG_TOP_K` | `5` | Maximum retrieved chunks added to a RAG prompt |
 
 Real `.env`, credentials, application settings, generated indexes, virtual
@@ -443,7 +441,7 @@ Current coverage includes:
 - Missing and invalid Bearer authentication
 - Login, logout, and invalid local credentials
 - API-key persistence and status checks
-- Dynamic local model discovery, size filtering, and installed-model reuse
+- Dynamic local model discovery and installed-model reuse
 - Mocked chat generation and context-size regression protection
 - Ollama generation limits and request options
 - Frontend API-host resolution for LAN access
@@ -458,8 +456,7 @@ Current coverage includes:
 - Secrets and mutable configuration are stored only in ignored local files.
 - Repository mounts are read-only in the default Docker configuration.
 - Logs include operational metadata, not prompts, passwords, or API keys.
-- Model switching rejects uninstalled models, models above 7B, and models
-  without recognizable parameter metadata.
+- Model switching rejects names that are not installed in local Ollama.
 
 This project is designed for a trusted local network, not as a hardened
 internet-facing multi-tenant service. Review the

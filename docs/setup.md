@@ -114,18 +114,17 @@ saved through the Account UI overrides that fallback.
 
 ## Switch Models
 
-Open the Account drawer to see eligible models installed in Ollama. The list
-is generated dynamically from Ollama's local model metadata. Select
+Open the Account drawer to see the models installed in Ollama. The list
+is generated dynamically from Ollama's local inventory. Select
 **Refresh local models** after pulling a model, or wait up to five seconds for
 the open drawer to refresh automatically, then choose **Use installed model**.
 
 The backend:
 
 1. Reads models from Ollama's `/api/tags` endpoint
-2. Parses each model's reported parameter size
-3. Hides models above `MAX_MODEL_PARAMETERS_BILLION`
-4. Rejects uninstalled, oversized, or unknown-size switch requests
-5. Persists the selected installed model name as active
+2. Lists every installed model Ollama reports
+3. Rejects only switch requests for models that are not installed locally
+4. Persists the selected installed model name as active
 
 The application does not download models. Pull them directly with Ollama:
 
@@ -174,7 +173,6 @@ OLLAMA_THINK=false
 OLLAMA_KEEP_ALIVE=10m
 CHAT_CONTEXT_MAX_CHARS=12000
 DEFAULT_MODEL=qwen3:4b
-MAX_MODEL_PARAMETERS_BILLION=7
 DATA_DIRECTORY=../data
 REPO_CHUNK_SIZE=2000
 RAG_TOP_K=5
@@ -301,9 +299,8 @@ docker compose logs backend
 df -h
 ```
 
-Use `ollama list` to verify the model is stored locally. Confirm that its
-reported parameter size is 7B or smaller, then select **Refresh local models**
-in the Account drawer.
+Use `ollama list` to verify the model is stored locally, then select
+**Refresh local models** in the Account drawer.
 
 ### Port already in use
 

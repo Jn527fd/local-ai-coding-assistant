@@ -16,7 +16,7 @@ from app.services.ollama_service import (
 class ModelDefinition:
     name: str
     label: str
-    parameters_billion: float
+    parameters_billion: float | None
     parameter_size: str
     size_bytes: int
     size_display: str
@@ -25,7 +25,7 @@ class ModelDefinition:
 
 
 class UnsupportedModelError(Exception):
-    """Raised when a model is absent, too large, or missing safe metadata."""
+    """Raised when a model is absent from the local Ollama inventory."""
 
 
 class ModelSwitchInProgressError(Exception):
@@ -40,12 +40,10 @@ class ModelManager:
         ollama_service: OllamaService,
         local_settings: LocalSettingsService,
         default_model: str,
-        max_parameters_billion: float,
     ) -> None:
         self.ollama_service = ollama_service
         self.local_settings = local_settings
         self.default_model = default_model
-        self.max_parameters_billion = max_parameters_billion
         self._lock = asyncio.Lock()
         self._task: asyncio.Task[None] | None = None
         self._target_model: str | None = None
@@ -132,10 +130,6 @@ class ModelManager:
                 for model in supported_models
             ],
             "installed_models": [model.name for model in installed_models],
-            "excluded_model_count": (
-                len(installed_models) - len(supported_models)
-            ),
-            "max_parameters_billion": self.max_parameters_billion,
             "ollama_connected": connected,
             "switching": switching,
             "target_model": self._target_model if switching else None,
@@ -196,8 +190,6 @@ class ModelManager:
         models = [
             self._model_definition(model)
             for model in installed_models
-            if model.parameters_billion is not None
-            and model.parameters_billion <= self.max_parameters_billion
         ]
         return sorted(models, key=lambda model: model.name.lower())
 
@@ -211,27 +203,14 @@ class ModelManager:
                 f"{name} is not installed locally. Pull it with Ollama, then "
                 "refresh the model list."
             )
-        if model.parameters_billion is None:
-            raise UnsupportedModelError(
-                f"{name} does not report a recognizable parameter size and "
-                "cannot be selected safely."
-            )
-        if model.parameters_billion > self.max_parameters_billion:
-            raise UnsupportedModelError(
-                f"{name} reports {model.parameter_size} parameters. Only "
-                f"models up to {self.max_parameters_billion:g}B are allowed."
-            )
 
     @staticmethod
     def _model_definition(model: InstalledOllamaModel) -> ModelDefinition:
-        parameters_billion = model.parameters_billion
-        if parameters_billion is None:
-            raise ValueError("Supported model must have a parameter size.")
         return ModelDefinition(
             name=model.name,
             label=model.name,
-            parameters_billion=parameters_billion,
-            parameter_size=model.parameter_size,
+            parameters_billion=model.parameters_billion,
+            parameter_size=model.parameter_size or "unknown size",
             size_bytes=model.size_bytes,
             size_display=ModelManager._format_size(model.size_bytes),
             family=model.family,

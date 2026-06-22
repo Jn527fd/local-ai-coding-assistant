@@ -40,13 +40,12 @@ frontend/src/
     |-- ChatBox.jsx
     |-- LoginPage.jsx
     |-- AccountPanel.jsx
-    |-- RepoIndexer.jsx
     `-- StatusPanel.jsx
 ```
 
 `App.jsx` restores the HttpOnly login session and owns the browser copy of the
 API key. The key is persisted in local storage and passed to protected
-AI/repository requests. `api.js` centralizes cookies, the Bearer header, JSON
+AI requests. `api.js` centralizes cookies, the Bearer header, JSON
 parsing, network errors, and FastAPI error extraction.
 
 The components provide:
@@ -54,11 +53,13 @@ The components provide:
 - Public backend health checks
 - Local login and logout
 - Account/API-key settings and connection checks
-- Allowlisted model switching with progress
+- Local installed-model switching with progress
 - Direct chat with the active Ollama model
 - Five username-scoped local chats with isolated context and deletion
-- Local repository indexing
-- Repository questions and source-path display
+
+The earlier repository workspace is intentionally hidden from the dashboard
+while a future upload-oriented flow is designed. Repository endpoints remain
+available through the backend API.
 
 For production, Vite builds static assets that Nginx serves from the frontend
 container.
@@ -145,9 +146,9 @@ model.
 ## Model Management
 
 `ModelManager` derives the selectable catalog from Ollama's `/api/tags`
-response. It parses `details.parameter_size`, excludes models above the
-configured 7B ceiling or with unknown metadata, and persists the selected
-installed model name. There is no model-name allowlist and the application
+response and exposes every installed model Ollama reports. It preserves
+reported metadata for display when available, but it does not enforce a
+parameter-size ceiling. There is no model-name allowlist and the application
 does not download or delete model files.
 
 One async lock prevents concurrent switches, and generation endpoints return

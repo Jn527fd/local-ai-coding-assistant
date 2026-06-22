@@ -54,7 +54,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ),
         local_settings=local_settings_service,
         default_model=app_settings.default_model,
-        max_parameters_billion=app_settings.max_model_parameters_billion,
     )
 
     @asynccontextmanager

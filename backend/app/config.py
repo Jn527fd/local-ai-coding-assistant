@@ -45,7 +45,6 @@ class Settings(BaseSettings):
         le=100_000,
     )
     default_model: str = Field(default="qwen3:4b", min_length=1)
-    max_model_parameters_billion: float = Field(default=7.0, gt=0, le=7.0)
     data_directory: Path = PROJECT_ROOT / "data"
     repo_chunk_size: int = Field(default=2000, ge=200, le=20_000)
     rag_top_k: int = Field(default=5, ge=1, le=20)

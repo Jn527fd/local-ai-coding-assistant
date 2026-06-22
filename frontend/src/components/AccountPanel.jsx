@@ -128,7 +128,7 @@ function AccountPanel({
 
   async function handleSwitchModel() {
     if (!selectedDefinition) {
-      setModelError("Select an eligible model installed in Ollama.");
+      setModelError("Select a model installed in Ollama.");
       return;
     }
 
@@ -249,11 +249,7 @@ function AccountPanel({
           <div className="account-section__heading">
             <div>
               <h3>Active model</h3>
-              <p>
-                Installed Ollama models with{" "}
-                {modelStatus?.max_parameters_billion || 7}B parameters or
-                fewer.
-              </p>
+              <p>All models installed in your local Ollama library.</p>
             </div>
             <span
               className={`connection-state ${statusClass(
@@ -272,7 +268,7 @@ function AccountPanel({
               value={selectedModel}
             >
               {!modelStatus?.supported_models.length && (
-                <option value="">No eligible local models found</option>
+                <option value="">No local models found</option>
               )}
               {(modelStatus?.supported_models || []).map((model) => (
                 <option key={model.name} value={model.name}>
@@ -285,15 +281,6 @@ function AccountPanel({
               ))}
             </select>
           </label>
-
-          {Boolean(modelStatus?.excluded_model_count) && (
-            <p className="account-note">
-              {modelStatus.excluded_model_count} installed model
-              {modelStatus.excluded_model_count === 1 ? " is" : "s are"} hidden
-              because the reported parameter size is above{" "}
-              {modelStatus.max_parameters_billion}B or unavailable.
-            </p>
-          )}
 
           <div className="model-summary">
             <span>Current</span>
@@ -353,8 +340,8 @@ function AccountPanel({
 
           <p className="account-note">
             Pull models with Ollama, then refresh this list. The application
-            only selects local models and never downloads or deletes them.
-            Switching models does not reset your chats.
+            shows every local model Ollama reports and never downloads or
+            deletes model files. Switching models does not reset your chats.
           </p>
         </section>
 

@@ -31,7 +31,7 @@ The app uses two local authentication mechanisms:
 | `GET` | `/account/status` | Session | Check API-key state |
 | `PUT` | `/account/api-key` | Session | Persist a new API key |
 | `GET` | `/models/status` | Session | Model catalog and operation state |
-| `POST` | `/models/switch` | Session | Select an eligible installed model |
+| `POST` | `/models/switch` | Session | Select an installed local model |
 | `POST` | `/chat` | Bearer key | Chat with the active model |
 | `POST` | `/repos/index-local` | Bearer key | Index a local directory |
 | `POST` | `/repos/ask` | Bearer key | Ask the active model about an index |
@@ -132,18 +132,16 @@ The request returns `202`; poll `/models/status` for:
 activating -> complete
 ```
 
-The response includes `supported_models`, `installed_models`,
-`excluded_model_count`, `max_parameters_billion`, `progress`, `message`,
-`error`, and `warning`. `supported_models` is generated from Ollama metadata
-and includes only locally installed models at or below the configured limit.
+The response includes `supported_models`, `installed_models`, `progress`,
+`message`, `error`, and `warning`. `supported_models` is generated from
+Ollama's local inventory and includes every installed model Ollama reports.
 
-An uninstalled, oversized, or unknown-size model returns `400`; a second
-concurrent switch returns `409`.
+An uninstalled model returns `400`; a second concurrent switch returns `409`.
 Chat and repository generation return `409` while a switch is running.
 
-The manager checks Ollama's installed-model list and reported parameter size,
-then activates the selected local model without a pull request. Model files
-are never downloaded or deleted by the application.
+The manager checks Ollama's installed-model list, then activates the selected
+local model without a pull request. Model files are never downloaded or
+deleted by the application.
 
 ## Chat
 

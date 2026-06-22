@@ -19,8 +19,6 @@ class FakeModelManager:
                 }
             ],
             "installed_models": ["qwen3:4b"],
-            "excluded_model_count": 0,
-            "max_parameters_billion": 7,
             "ollama_connected": True,
             "switching": False,
             "target_model": None,

@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 class SupportedModel(BaseModel):
     name: str
     label: str
-    parameters_billion: float
+    parameters_billion: float | None = None
     parameter_size: str
     size_bytes: int
     size_display: str
@@ -27,8 +27,6 @@ class ModelStatusResponse(BaseModel):
     active_model: str
     supported_models: list[SupportedModel]
     installed_models: list[str]
-    excluded_model_count: int
-    max_parameters_billion: float
     ollama_connected: bool
     switching: bool
     target_model: str | None = None

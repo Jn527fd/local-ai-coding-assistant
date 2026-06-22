@@ -96,7 +96,8 @@ port `8000` and Vite on `5173`; `Ctrl+C` stops both.
 After login:
 
 1. Select the circular account avatar in the top-right.
-2. Enter a private key containing at least 16 characters.
+2. Enter a private key. Short keys are accepted for local testing, but a
+   longer private key is recommended for normal use.
 3. Select **Save key**.
 4. Select **Check connection**.
 
@@ -113,32 +114,30 @@ saved through the Account UI overrides that fallback.
 
 ## Switch Models
 
-Open the Account drawer and select an approved model:
-
-```text
-qwen3:4b
-qwen2.5-coder:3b
-qwen2.5-coder:7b
-llama3.2:1b
-llama3.2:3b
-```
-
-Select **Install and activate** and confirm the cleanup warning. The UI shows
-each operation phase and download progress.
+Open the Account drawer to see eligible models installed in Ollama. The list
+is generated dynamically from Ollama's local model metadata. Select
+**Refresh local models** after pulling a model, or wait up to five seconds for
+the open drawer to refresh automatically, then choose **Use installed model**.
 
 The backend:
 
-1. Rejects anything outside the server allowlist
-2. Unloads the current model from memory
-3. Downloads the selected model through Ollama's streaming pull API
-4. Persists it as the active model
-5. Deletes the previous model through Ollama after the new pull succeeds
+1. Reads models from Ollama's `/api/tags` endpoint
+2. Parses each model's reported parameter size
+3. Hides models above `MAX_MODEL_PARAMETERS_BILLION`
+4. Rejects uninstalled, oversized, or unknown-size switch requests
+5. Persists the selected installed model name as active
 
-The old installation is preserved when a download fails. Set
-`DELETE_PREVIOUS_MODEL=false` in `backend/.env` to keep old models.
+The application does not download models. Pull them directly with Ollama:
 
-Model switching requires internet access to download a model that is not
-already installed. Chat prompts and repository content still remain local.
+```bash
+ollama pull qwen3:4b
+ollama pull qwen2.5-coder:3b
+ollama pull llama3.2:3b
+ollama list
+```
+
+The application never deletes model files automatically. Remove one manually
+only when desired with `ollama rm MODEL_NAME`.
 
 ## Manage Chats and Context
 
@@ -149,8 +148,10 @@ is deleted.
 Each chat has separate model context. Select **Delete** beside a chat and
 confirm to remove its messages from browser local storage. FastAPI never
 stores chat history; it receives only the selected chat's recent context with
-the current request. Deleted chats therefore cannot be included in later
-prompts.
+the current request. Switching models does not clear this browser history, so
+the next active model receives the same selected-chat context. Deleted chats
+cannot be included in later prompts. The backend also bounds the total prompt
+size so a long saved chat does not make local inference progressively slower.
 
 Browser storage is application-local persistence, not guaranteed forensic
 disk erasure. Clear site data in the browser when decommissioning a device.
@@ -168,9 +169,12 @@ SESSION_TTL_HOURS=12
 SESSION_COOKIE_SECURE=false
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_TIMEOUT_SECONDS=120
-MODEL_PULL_TIMEOUT_SECONDS=3600
-DELETE_PREVIOUS_MODEL=true
+OLLAMA_NUM_PREDICT=768
+OLLAMA_THINK=false
+OLLAMA_KEEP_ALIVE=10m
+CHAT_CONTEXT_MAX_CHARS=12000
 DEFAULT_MODEL=qwen3:4b
+MAX_MODEL_PARAMETERS_BILLION=7
 DATA_DIRECTORY=../data
 REPO_CHUNK_SIZE=2000
 RAG_TOP_K=5
@@ -178,6 +182,10 @@ RAG_TOP_K=5
 
 Login sessions are stored in memory and end when the backend restarts. Set
 `SESSION_COOKIE_SECURE=true` only when the site is served over HTTPS.
+
+`OLLAMA_THINK=false` keeps reasoning-capable models responsive for normal
+chat. Increase `OLLAMA_NUM_PREDICT` only when longer answers are worth the
+additional generation time. `CHAT_CONTEXT_MAX_CHARS` must be at least 12000.
 
 ## Files Intentionally Ignored by Git
 
@@ -234,22 +242,28 @@ Ollama continues running on the Linux host at `127.0.0.1:11434`.
 
 ## Home-Network Access
 
-For a Linux host at `192.168.1.50`, set in the root `.env`:
+By default, the production frontend uses `FRONTEND_API_BASE_URL=auto`. That
+makes the browser call the backend on the same hostname or IP address used to
+open the frontend. For a Linux host at `192.168.1.50`, open:
 
-```dotenv
-FRONTEND_API_BASE_URL=http://192.168.1.50:8000
-CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://192.168.1.50:5173
+```text
+http://192.168.1.50:5173
 ```
 
-Then rebuild:
+If `.env` already hardcodes a different `FRONTEND_API_BASE_URL`, reset it:
+
+```dotenv
+FRONTEND_API_BASE_URL=auto
+```
+
+Then rebuild once:
 
 ```bash
 docker compose up --build --detach
 ```
 
-Open `http://192.168.1.50:5173` from a trusted LAN device. HTTP does not
-encrypt passwords, cookies, or API keys; use an HTTPS reverse proxy before
-accessing the app across an untrusted network.
+HTTP does not encrypt passwords, cookies, or API keys; use an HTTPS reverse
+proxy before accessing the app across an untrusted network.
 
 ## Tests
 
@@ -259,6 +273,9 @@ files and a fake model service:
 ```bash
 source .venv/bin/activate
 python -m pytest
+
+cd frontend
+npm test
 ```
 
 ## Troubleshooting
@@ -284,7 +301,9 @@ docker compose logs backend
 df -h
 ```
 
-Confirm internet access and enough disk space for the selected download.
+Use `ollama list` to verify the model is stored locally. Confirm that its
+reported parameter size is 7B or smaller, then select **Refresh local models**
+in the Account drawer.
 
 ### Port already in use
 

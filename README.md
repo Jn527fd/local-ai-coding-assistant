@@ -10,7 +10,7 @@ asking source-grounded questions about your own codebases.**
 [![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=111827)](https://react.dev/)
 [![Ollama](https://img.shields.io/badge/Ollama-Local%20Inference-111827?style=flat-square)](https://ollama.com/)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](https://docs.docker.com/compose/)
-[![Tests](https://img.shields.io/badge/pytest-12%20passing-22C55E?style=flat-square&logo=pytest&logoColor=white)](#testing)
+[![Tests](https://img.shields.io/badge/tests-pytest%2022%20%2B%20node%205-22C55E?style=flat-square&logo=pytest&logoColor=white)](#testing)
 [![License](https://img.shields.io/badge/License-MIT-7C3AED?style=flat-square)](LICENSE)
 
 </div>
@@ -65,10 +65,11 @@ This project demonstrates more than a basic LLM chat interface:
 ### Private Local AI
 
 - Runs inference through Ollama on the host machine.
-- Supports an allowlisted catalog of models with 7 billion parameters or
-  fewer.
-- Unloads the previous model, downloads the replacement, activates it, and
-  optionally removes unused model files.
+- Discovers locally installed Ollama models dynamically.
+- Filters the model selector using Ollama's reported parameter metadata and a
+  server-enforced ceiling of 7 billion parameters.
+- Switches between installed models by updating the active-model setting
+  without deleting model files.
 - Displays model installation progress, connection state, and user-facing
   errors.
 - Bounds chat context and model output to keep local inference responsive.
@@ -86,6 +87,8 @@ This project demonstrates more than a basic LLM chat interface:
 
 - Up to five browser-local chats per username.
 - Isolated history and context for each conversation.
+- Conversation context survives model changes and is supplied to whichever
+  model the user selects next.
 - Complete chat deletion so removed messages are excluded from future prompts.
 - A maximum of 30 recent messages per request, further bounded by a backend
   context-size limit.
@@ -149,20 +152,35 @@ Detailed design notes are available in
 | Retrieval | Python JSON index and keyword ranking | Code chunking, retrieval, and grounding |
 | HTTP client | HTTPX | Async communication with Ollama |
 | Deployment | Docker, Docker Compose, Nginx | Reproducible frontend and backend services |
-| Testing | pytest, FastAPI TestClient | API, authentication, model, and chat regression tests |
+| Testing | pytest, FastAPI TestClient, node:test | API, authentication, frontend API, model, and chat regression tests |
 
-## Supported Models
+## Local Model Discovery
 
-The backend enforces the model policy, so unsupported models cannot be
-activated by bypassing the frontend.
+The model dropdown is built from `GET /api/tags` on the local Ollama service.
+Any installed model appears automatically when:
 
-| Model | Parameters | Approximate download |
-| --- | ---: | ---: |
-| `qwen3:4b` | 4B | 2.5 GB |
-| `qwen2.5-coder:3b` | 3B | 1.9 GB |
-| `qwen2.5-coder:7b` | 7B | 4.7 GB |
-| `llama3.2:1b` | 1B | 1.3 GB |
-| `llama3.2:3b` | 3B | 2.0 GB |
+- Ollama reports a recognizable `parameter_size`.
+- The reported size is no greater than
+  `MAX_MODEL_PARAMETERS_BILLION`, which defaults to `7`.
+
+Larger models and models with missing parameter metadata are excluded from the
+dropdown and rejected by the switch endpoint. No model-name allowlist is
+maintained in the application.
+
+Pull any suitable models directly with Ollama:
+
+```bash
+ollama pull qwen3:4b
+ollama pull qwen2.5-coder:3b
+ollama pull llama3.2:3b
+ollama list
+```
+
+While Account is open, the inventory refreshes every five seconds; the
+**Refresh local models** button updates it immediately. Model selection
+requires no internet connection, and the application never automatically
+downloads or deletes model files. To reclaim disk space manually, use
+`ollama rm MODEL_NAME`.
 
 ## Quick Start
 
@@ -208,9 +226,10 @@ Open:
 - Backend: `http://localhost:8000`
 - OpenAPI docs: `http://localhost:8000/docs`
 
-After signing in, open the account menu and create an API key with at least 16
-characters. The application stores it only in ignored local configuration and
-the current browser profile.
+After signing in, open the account menu and create an API key. Short keys are
+accepted for local testing, but a longer private key is recommended for normal
+use. The application stores it only in ignored local configuration and the
+current browser profile.
 
 Press `Ctrl+C` in the startup terminal to stop both development servers.
 
@@ -253,20 +272,26 @@ Find the Linux host address:
 hostname -I
 ```
 
-For a host address such as `192.168.1.50`, update the root `.env`:
+By default, `FRONTEND_API_BASE_URL=auto` makes the browser call the backend on
+the same hostname or IP address you used to open the frontend. For a host
+address such as `192.168.1.50`, open:
 
-```dotenv
-FRONTEND_API_BASE_URL=http://192.168.1.50:8000
-CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://192.168.1.50:5173
+```text
+http://192.168.1.50:5173
 ```
 
-Rebuild the frontend because its API URL is compiled into the Vite bundle:
+If you previously hardcoded `FRONTEND_API_BASE_URL` in `.env`, either remove
+that override or set it back to:
+
+```dotenv
+FRONTEND_API_BASE_URL=auto
+```
+
+Then rebuild the frontend once:
 
 ```bash
 docker compose up --build --detach
 ```
-
-Open `http://192.168.1.50:5173` from the second device.
 
 > [!WARNING]
 > This is a trusted-network application. Do not expose ports `5173`, `8000`,
@@ -279,8 +304,11 @@ Open `http://192.168.1.50:5173` from the second device.
 1. Sign in with a configured local user.
 2. Open the account menu and save an API key.
 3. Verify the API status shows as connected.
-4. Select or install an approved model.
+4. Select one of the eligible models installed in Ollama.
 5. Create a chat and submit a prompt.
+
+Changing models does not clear the selected conversation. Its saved history is
+passed to the newly active model until the user deletes that chat.
 
 ### Index a Repository
 
@@ -313,7 +341,7 @@ question. The response includes the source paths selected by the retriever.
 | `GET` | `/account/status` | Session cookie | Check account and API-key state |
 | `PUT` | `/account/api-key` | Session cookie | Save a local API key |
 | `GET` | `/models/status` | Session cookie | Return model and switch status |
-| `POST` | `/models/switch` | Session cookie | Install and activate a model |
+| `POST` | `/models/switch` | Session cookie | Select an eligible installed model |
 | `POST` | `/chat` | Bearer key | Generate a chat response |
 | `POST` | `/repos/index-local` | Bearer key | Index a local repository |
 | `POST` | `/repos/ask` | Bearer key | Ask a grounded repository question |
@@ -389,6 +417,7 @@ Important inference settings:
 | `OLLAMA_THINK` | `false` | Enable supported models' extended thinking |
 | `OLLAMA_KEEP_ALIVE` | `10m` | Keep the active model loaded between requests |
 | `CHAT_CONTEXT_MAX_CHARS` | `12000` | Bound conversation context size |
+| `MAX_MODEL_PARAMETERS_BILLION` | `7` | Maximum installed model size shown and accepted |
 | `RAG_TOP_K` | `5` | Maximum retrieved chunks added to a RAG prompt |
 
 Real `.env`, credentials, application settings, generated indexes, virtual
@@ -403,6 +432,9 @@ so it does not require a model download, Docker, or network access:
 source .venv/bin/activate
 python -m pip install -r backend/requirements-dev.txt
 python -m pytest
+
+cd frontend
+npm test
 ```
 
 Current coverage includes:
@@ -411,9 +443,11 @@ Current coverage includes:
 - Missing and invalid Bearer authentication
 - Login, logout, and invalid local credentials
 - API-key persistence and status checks
-- Approved-model validation and model-switch behavior
+- Dynamic local model discovery, size filtering, and installed-model reuse
 - Mocked chat generation and context-size regression protection
 - Ollama generation limits and request options
+- Frontend API-host resolution for LAN access
+- Login session-cookie verification before entering the dashboard
 
 ## Security and Privacy
 
@@ -424,7 +458,8 @@ Current coverage includes:
 - Secrets and mutable configuration are stored only in ignored local files.
 - Repository mounts are read-only in the default Docker configuration.
 - Logs include operational metadata, not prompts, passwords, or API keys.
-- Model switching rejects any model outside the approved 7B-or-smaller list.
+- Model switching rejects uninstalled models, models above 7B, and models
+  without recognizable parameter metadata.
 
 This project is designed for a trusted local network, not as a hardened
 internet-facing multi-tenant service. Review the

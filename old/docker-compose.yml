@@ -1,0 +1,59 @@
+name: local-ai-coding-assistant
+
+services:
+  backend:
+    build:
+      context: ./backend
+      args:
+        APP_UID: "${APP_UID:-1000}"
+    env_file:
+      - ./backend/.env
+    environment:
+      APP_ENVIRONMENT: production
+      APP_DEBUG: "false"
+      APP_HOST: 0.0.0.0
+      APP_PORT: "8000"
+      CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}"
+      CREDENTIALS_FILE: /app/data/config/credentials.json
+      LOCAL_SETTINGS_FILE: /app/data/config/app-settings.json
+      DATA_DIRECTORY: /app/data
+      OLLAMA_BASE_URL: "http://127.0.0.1:11434"
+    network_mode: host
+    volumes:
+      - ./data:/app/data
+      - "${LOCAL_REPOS_ROOT:-.}:/repositories:ro"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).read()"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: "${FRONTEND_API_BASE_URL:-http://localhost:8000}"
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "5173:80"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - -q
+        - -O
+        - /dev/null
+        - "http://127.0.0.1/"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s

@@ -144,21 +144,27 @@ model.
 
 ## Model Management
 
-`ModelManager` owns the server allowlist and active model. Every listed model
-has 7B parameters or fewer. A background task exposes progress while it
-unloads the old model, pulls the replacement through `/api/pull`, persists the
-new active model, and deletes the previous model through `/api/delete`.
+`ModelManager` derives the selectable catalog from Ollama's `/api/tags`
+response. It parses `details.parameter_size`, excludes models above the
+configured 7B ceiling or with unknown metadata, and persists the selected
+installed model name. There is no model-name allowlist and the application
+does not download or delete model files.
 
-Cleanup occurs only after a successful pull. One async lock prevents concurrent
-switches, and generation endpoints return `409` while model state is changing.
-Mutable state is persisted in ignored `data/config/app-settings.json`.
+One async lock prevents concurrent switches, and generation endpoints return
+`409` while model state is changing. Mutable state is persisted in ignored
+`data/config/app-settings.json`.
 
 ## Chat Context Lifecycle
 
 The frontend stores at most five chats per username in browser local storage.
 FastAPI is stateless: a chat request contains the current message plus up to 30
 recent messages from only the selected chat. The router formats that explicit
-history into the prompt sent to Ollama.
+history into the prompt sent to Ollama. It keeps the newest history that fits
+the configured total-character budget, preventing accumulated assistant
+answers from producing an unbounded prompt. Ollama generation also uses a
+configurable output-token limit and disables extended thinking by default.
+The conversation is independent of the active model, so its retained history
+is passed to the next selected model.
 
 Deleting a chat removes its local-storage record. Because neither FastAPI nor
 Ollama receives a server-side conversation identifier or stores chat history,
@@ -220,7 +226,7 @@ POST /repos/ask
   -> score content and file-path overlap
   -> choose up to RAG_TOP_K chunks
   -> build a guarded prompt with paths and line ranges
-  -> generate with the active allowlisted model through Ollama
+  -> generate with the active size-approved local model through Ollama
   -> return answer and unique source paths
 ```
 
@@ -259,9 +265,10 @@ Linux host networking lets the backend reach Ollama on
 `127.0.0.1:11434` without exposing Ollama to the LAN. Repository mounts are
 read-only; only generated indexes are written through the `data/` mount.
 
-`VITE_API_BASE_URL` is compiled into the frontend during its Docker build.
-Changing the API host for LAN access therefore requires rebuilding the
-frontend image.
+`VITE_API_BASE_URL=auto` is compiled into the frontend during its Docker build
+by default. At runtime the browser resolves that value to the same hostname or
+IP address used to open the frontend, with port `8000` for FastAPI. Explicit
+non-loopback API URLs are still supported for custom deployments.
 
 ## Testing
 
@@ -273,8 +280,9 @@ Pytest creates a fresh FastAPI application with:
 - A dependency-injected fake Ollama service for chat
 
 The current suite covers public health, missing/invalid authentication, and a
-successful mocked chat request. It runs without Docker, network access, or
-Ollama.
+successful mocked chat request. Frontend `node:test` coverage checks LAN API
+host resolution and login session-cookie verification. The tests run without
+Docker, network access, or Ollama.
 
 ## Trust Boundary and Limits
 

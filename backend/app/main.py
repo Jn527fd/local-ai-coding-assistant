@@ -48,11 +48,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ollama_service=OllamaService(
             base_url=app_settings.ollama_base_url,
             timeout_seconds=app_settings.ollama_timeout_seconds,
+            num_predict=app_settings.ollama_num_predict,
+            think=app_settings.ollama_think,
+            keep_alive=app_settings.ollama_keep_alive,
         ),
         local_settings=local_settings_service,
         default_model=app_settings.default_model,
-        pull_timeout_seconds=app_settings.model_pull_timeout_seconds,
-        delete_previous_model=app_settings.delete_previous_model,
+        max_parameters_billion=app_settings.max_model_parameters_billion,
     )
 
     @asynccontextmanager
@@ -89,6 +91,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.add_middleware(
         CORSMiddleware,
         allow_origins=app_settings.cors_origin_list,
+        allow_origin_regex=app_settings.cors_origin_regex or None,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

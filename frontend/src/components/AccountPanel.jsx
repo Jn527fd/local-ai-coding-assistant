@@ -11,6 +11,14 @@ function statusClass(isActive) {
   return isActive ? "connection-state--online" : "connection-state--offline";
 }
 
+function modelConnectionLabel(modelStatus, modelError) {
+  if (!modelStatus) {
+    return modelError ? "Status unavailable" : "Checking...";
+  }
+
+  return modelStatus.ollama_connected ? "Ollama connected" : "Ollama offline";
+}
+
 function AccountPanel({
   apiKey,
   isOpen,
@@ -38,7 +46,6 @@ function AccountPanel({
       ),
     [modelStatus, selectedModel],
   );
-
   async function refreshAccountStatus(key = draftApiKey) {
     setIsCheckingKey(true);
     setAccountError("");
@@ -55,7 +62,16 @@ function AccountPanel({
     try {
       const status = await getModelStatus();
       setModelStatus(status);
-      setSelectedModel((current) => current || status.active_model);
+      setSelectedModel((current) => {
+        const modelNames = status.supported_models.map((model) => model.name);
+        if (modelNames.includes(current)) {
+          return current;
+        }
+        if (modelNames.includes(status.active_model)) {
+          return status.active_model;
+        }
+        return modelNames[0] || "";
+      });
       setModelError(status.error || "");
       onModelStatus(status);
       return status;
@@ -80,25 +96,20 @@ function AccountPanel({
   }, [isOpen]);
 
   useEffect(() => {
-    if (!isOpen || !modelStatus?.switching) {
+    if (!isOpen) {
       return undefined;
     }
 
-    const intervalId = window.setInterval(async () => {
-      const status = await refreshModelStatus();
-      if (status && !status.switching) {
-        await refreshAccountStatus(draftApiKey);
-      }
-    }, 1000);
+    const intervalId = window.setInterval(refreshModelStatus, 5000);
 
     return () => window.clearInterval(intervalId);
-  }, [isOpen, modelStatus?.switching, draftApiKey]);
+  }, [isOpen]);
 
   async function handleSaveApiKey(event) {
     event.preventDefault();
     const trimmedKey = draftApiKey.trim();
-    if (trimmedKey.length < 16) {
-      setAccountError("Use an API key with at least 16 characters.");
+    if (!trimmedKey) {
+      setAccountError("Enter an API key before saving.");
       return;
     }
 
@@ -116,8 +127,8 @@ function AccountPanel({
   }
 
   async function handleSwitchModel() {
-    if (!selectedDefinition || selectedDefinition.parameters_billion > 7) {
-      setModelError("Select a supported model with 7B parameters or fewer.");
+    if (!selectedDefinition) {
+      setModelError("Select an eligible model installed in Ollama.");
       return;
     }
 
@@ -127,8 +138,7 @@ function AccountPanel({
     }
 
     const confirmed = window.confirm(
-      `Switch to ${selectedModel}? After the new model downloads successfully, ` +
-        "the previous active model files will be removed.",
+      `Switch to the installed ${selectedModel} model? Your chats will be retained.`,
     );
     if (!confirmed) {
       return;
@@ -149,6 +159,9 @@ function AccountPanel({
 
   const isSwitching = Boolean(modelStatus?.switching);
   const progress = modelStatus?.progress;
+  const switchButtonLabel = isSwitching
+    ? "Switching model..."
+    : "Use installed model";
 
   return (
     <div className="account-overlay" role="presentation" onMouseDown={onClose}>
@@ -189,7 +202,7 @@ function AccountPanel({
                 <input
                   autoComplete="off"
                   onChange={(event) => setDraftApiKey(event.target.value)}
-                  placeholder="Enter at least 16 characters"
+                  placeholder="Enter a local API key"
                   type={showApiKey ? "text" : "password"}
                   value={draftApiKey}
                 />
@@ -224,7 +237,8 @@ function AccountPanel({
 
           <p className="account-note">
             The browser copy is stored in local storage. The active backend
-            copy is stored in the ignored local settings file.
+            copy is stored in the ignored local settings file. Short keys are
+            accepted for local testing; use a longer private key for normal use.
           </p>
           {accountError && (
             <div className="alert alert--error">{accountError}</div>
@@ -235,34 +249,51 @@ function AccountPanel({
           <div className="account-section__heading">
             <div>
               <h3>Active model</h3>
-              <p>Only approved Ollama models with 7B parameters or fewer.</p>
+              <p>
+                Installed Ollama models with{" "}
+                {modelStatus?.max_parameters_billion || 7}B parameters or
+                fewer.
+              </p>
             </div>
             <span
               className={`connection-state ${statusClass(
                 modelStatus?.ollama_connected,
               )}`}
             >
-              {modelStatus?.ollama_connected
-                ? "Ollama connected"
-                : "Ollama offline"}
+              {modelConnectionLabel(modelStatus, modelError)}
             </span>
           </div>
 
           <label className="field">
             <span className="field__label">Model catalog</span>
             <select
-              disabled={isSwitching}
+              disabled={isSwitching || !modelStatus?.supported_models.length}
               onChange={(event) => setSelectedModel(event.target.value)}
               value={selectedModel}
             >
+              {!modelStatus?.supported_models.length && (
+                <option value="">No eligible local models found</option>
+              )}
               {(modelStatus?.supported_models || []).map((model) => (
                 <option key={model.name} value={model.name}>
-                  {model.label} ({model.parameters_billion}B, about{" "}
-                  {model.approximate_download})
+                  {model.label} ({model.parameter_size}, {model.size_display}
+                  {model.quantization_level
+                    ? `, ${model.quantization_level}`
+                    : ""}
+                  )
                 </option>
               ))}
             </select>
           </label>
+
+          {Boolean(modelStatus?.excluded_model_count) && (
+            <p className="account-note">
+              {modelStatus.excluded_model_count} installed model
+              {modelStatus.excluded_model_count === 1 ? " is" : "s are"} hidden
+              because the reported parameter size is above{" "}
+              {modelStatus.max_parameters_billion}B or unavailable.
+            </p>
+          )}
 
           <div className="model-summary">
             <span>Current</span>
@@ -297,22 +328,33 @@ function AccountPanel({
           )}
           {modelError && <div className="alert alert--error">{modelError}</div>}
 
-          <button
-            className="secondary-button"
-            disabled={
-              isSwitching ||
-              !selectedModel ||
-              selectedModel === modelStatus?.active_model
-            }
-            onClick={handleSwitchModel}
-            type="button"
-          >
-            {isSwitching ? "Switching model..." : "Install and activate"}
-          </button>
+          <div className="inline-actions">
+            <button
+              className="secondary-button"
+              disabled={
+                isSwitching ||
+                !selectedModel ||
+                selectedModel === modelStatus?.active_model
+              }
+              onClick={handleSwitchModel}
+              type="button"
+            >
+              {switchButtonLabel}
+            </button>
+            <button
+              className="ghost-button"
+              disabled={isSwitching}
+              onClick={refreshModelStatus}
+              type="button"
+            >
+              Refresh local models
+            </button>
+          </div>
 
           <p className="account-note">
-            The old model is unloaded first and deleted only after the new
-            download succeeds. Ollama safely manages any shared model layers.
+            Pull models with Ollama, then refresh this list. The application
+            only selects local models and never downloads or deletes them.
+            Switching models does not reset your chats.
           </p>
         </section>
 

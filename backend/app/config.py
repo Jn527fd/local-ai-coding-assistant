@@ -25,11 +25,27 @@ class Settings(BaseSettings):
     session_ttl_hours: int = Field(default=12, ge=1, le=168)
     session_cookie_secure: bool = False
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    cors_origin_regex: str = (
+        r"^https?://("
+        r"localhost|127\.0\.0\.1|\[::1\]|"
+        r"10\.\d{1,3}\.\d{1,3}\.\d{1,3}|"
+        r"192\.168\.\d{1,3}\.\d{1,3}|"
+        r"172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|"
+        r"[\w.-]+\.local"
+        r")(:\d+)?$"
+    )
     ollama_base_url: str = "http://localhost:11434"
     ollama_timeout_seconds: float = 120.0
-    model_pull_timeout_seconds: float = Field(default=3600.0, ge=60.0)
-    delete_previous_model: bool = True
+    ollama_num_predict: int = Field(default=768, ge=64, le=4096)
+    ollama_think: bool = False
+    ollama_keep_alive: str = Field(default="10m", min_length=1, max_length=20)
+    chat_context_max_chars: int = Field(
+        default=12_000,
+        ge=12_000,
+        le=100_000,
+    )
     default_model: str = Field(default="qwen3:4b", min_length=1)
+    max_model_parameters_billion: float = Field(default=7.0, gt=0, le=7.0)
     data_directory: Path = PROJECT_ROOT / "data"
     repo_chunk_size: int = Field(default=2000, ge=200, le=20_000)
     rag_top_k: int = Field(default=5, ge=1, le=20)

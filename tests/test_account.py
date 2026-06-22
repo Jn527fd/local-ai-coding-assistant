@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 def test_account_can_persist_and_verify_api_key(
     logged_in_client: TestClient,
 ) -> None:
-    new_key = "new-local-api-key-1234567890"
+    new_key = "short"
 
     update_response = logged_in_client.put(
         "/account/api-key",

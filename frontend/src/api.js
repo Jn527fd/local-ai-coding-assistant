@@ -1,8 +1,11 @@
-const DEFAULT_API_BASE_URL = "http://localhost:8000";
+import { resolveApiBaseUrl } from "./apiBase.js";
 
-export const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL
-).replace(/\/+$/, "");
+const configuredApiBaseUrl = import.meta.env?.VITE_API_BASE_URL || "";
+
+export const API_BASE_URL = resolveApiBaseUrl(
+  configuredApiBaseUrl,
+  globalThis.location,
+);
 
 export class ApiError extends Error {
   constructor(message, status = 0) {
@@ -93,11 +96,20 @@ export function checkHealth() {
   return request("/health");
 }
 
-export function login(username, password) {
-  return request("/auth/login", {
+export async function login(username, password) {
+  await request("/auth/login", {
     method: "POST",
     body: { username, password },
   });
+
+  try {
+    return await getCurrentUser();
+  } catch (error) {
+    throw new ApiError(
+      "Login succeeded, but the browser session cookie could not be verified. Open the frontend and backend through the same host or IP address, then try again.",
+      error.status,
+    );
+  }
 }
 
 export function getCurrentUser() {

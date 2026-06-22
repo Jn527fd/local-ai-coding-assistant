@@ -31,7 +31,7 @@ The app uses two local authentication mechanisms:
 | `GET` | `/account/status` | Session | Check API-key state |
 | `PUT` | `/account/api-key` | Session | Persist a new API key |
 | `GET` | `/models/status` | Session | Model catalog and operation state |
-| `POST` | `/models/switch` | Session | Install and activate a model |
+| `POST` | `/models/switch` | Session | Select an eligible installed model |
 | `POST` | `/chat` | Bearer key | Chat with the active model |
 | `POST` | `/repos/index-local` | Bearer key | Index a local directory |
 | `POST` | `/repos/ask` | Bearer key | Ask the active model about an index |
@@ -79,7 +79,8 @@ returns `503` with a local setup message.
 
 ## Account API Key
 
-Save a key of at least 16 characters:
+Save a local key. Short keys are accepted for testing, but a longer private
+key is recommended for normal use:
 
 ```bash
 curl -b session.cookies -X PUT http://localhost:8000/account/api-key \
@@ -110,8 +111,8 @@ entered copy in browser local storage.
 
 ## Model Status and Switching
 
-Get the approved catalog, installed model names, Ollama connectivity, active
-model, and current operation state:
+Get the dynamically filtered local catalog, all installed model names, Ollama
+connectivity, active model, and current operation state:
 
 ```bash
 curl -b session.cookies http://localhost:8000/models/status
@@ -128,27 +129,21 @@ curl -b session.cookies -X POST http://localhost:8000/models/switch \
 The request returns `202`; poll `/models/status` for:
 
 ```text
-unloading -> downloading -> activating -> cleaning -> complete
+activating -> complete
 ```
 
-The response includes `progress`, `message`, `error`, and `warning`. Only the
-server allowlist is accepted:
+The response includes `supported_models`, `installed_models`,
+`excluded_model_count`, `max_parameters_billion`, `progress`, `message`,
+`error`, and `warning`. `supported_models` is generated from Ollama metadata
+and includes only locally installed models at or below the configured limit.
 
-```text
-qwen3:4b
-qwen2.5-coder:3b
-qwen2.5-coder:7b
-llama3.2:1b
-llama3.2:3b
-```
-
-An unsupported model returns `400`; a second concurrent switch returns `409`.
+An uninstalled, oversized, or unknown-size model returns `400`; a second
+concurrent switch returns `409`.
 Chat and repository generation return `409` while a switch is running.
 
-The old model is unloaded first. The replacement is downloaded and made
-active, then the old model is deleted when `DELETE_PREVIOUS_MODEL=true`.
-Deletion happens after a successful pull to preserve the previous installation
-when a download fails.
+The manager checks Ollama's installed-model list and reported parameter size,
+then activates the selected local model without a pull request. Model files
+are never downloaded or deleted by the application.
 
 ## Chat
 
@@ -177,9 +172,10 @@ Response:
 ```
 
 The optional legacy `model` request field is accepted only when it exactly
-matches the active approved model. It cannot be used to bypass model switching.
+matches the active model. It cannot be used to bypass model switching.
 `history` is optional, accepts at most 30 user/assistant messages, and is used
-only to construct the current Ollama prompt. The backend does not persist it.
+only to construct the current Ollama prompt. The backend keeps the newest
+history that fits `CHAT_CONTEXT_MAX_CHARS`; it does not persist history.
 
 Common errors:
 
@@ -242,5 +238,5 @@ Repository answers use the same active model selected from the account panel.
 - The session cookie is HttpOnly and SameSite=Lax, but local HTTP is not
   encrypted.
 - An authenticated Bearer caller can index paths readable by the backend.
-- Model-management endpoints can download and delete local Ollama models and
+- Model-management endpoints can download and select local Ollama models and
   therefore require a valid login session.

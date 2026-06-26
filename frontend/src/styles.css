@@ -8005,10 +8005,28 @@ textarea:disabled,
   grid-area: composer !important;
   width: min(820px, calc(100vw - 96px)) !important;
   margin: 0 auto !important;
-  padding: 0 0 10px !important;
+  padding: 0 0 6px !important;
   z-index: 50 !important;
   position: relative;
   transform: translateX(-40px);
+
+  isolation: isolate;
+}
+
+.composer-region::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+
+  top: 0;
+  bottom: -100vh;
+
+  background:#0b0c0f;
+  border-radius: 18px 18px 0 0;
+
+  z-index: -1;
+  pointer-events: none;
 }
 
 .composer.smart-composer {

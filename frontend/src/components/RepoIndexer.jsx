@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { askRepository, indexLocalRepository } from "../api.js";
+import { Button, Input, Textarea } from "./ui.jsx";
 
 function RepoIndexer({ apiKey }) {
   const [localPath, setLocalPath] = useState("");
@@ -96,7 +97,7 @@ function RepoIndexer({ apiKey }) {
           <form className="stacked-form" onSubmit={handleIndex}>
             <label className="field">
               <span className="field__label">Absolute path</span>
-              <input
+              <Input
                 onChange={(event) => setLocalPath(event.target.value)}
                 placeholder="/home/user/projects/my-repository"
                 value={localPath}
@@ -119,13 +120,14 @@ function RepoIndexer({ apiKey }) {
               </div>
             )}
 
-            <button
+            <Button
               className="secondary-button"
               disabled={isIndexing}
               type="submit"
+              variant="secondary"
             >
               {isIndexing ? "Indexing..." : "Create index"}
-            </button>
+            </Button>
           </form>
         </div>
 
@@ -141,7 +143,7 @@ function RepoIndexer({ apiKey }) {
           <form className="stacked-form" onSubmit={handleAsk}>
             <label className="field">
               <span className="field__label">Repository name</span>
-              <input
+              <Input
                 onChange={(event) => setRepoName(event.target.value)}
                 placeholder="sample-code-repository"
                 value={repoName}
@@ -150,7 +152,7 @@ function RepoIndexer({ apiKey }) {
 
             <label className="field">
               <span className="field__label">Question</span>
-              <textarea
+              <Textarea
                 onChange={(event) => setQuestion(event.target.value)}
                 placeholder="Where are the add and multiply functions implemented?"
                 rows="4"
@@ -178,13 +180,14 @@ function RepoIndexer({ apiKey }) {
               </div>
             )}
 
-            <button
+            <Button
               className="secondary-button"
               disabled={isAsking}
               type="submit"
+              variant="secondary"
             >
               {isAsking ? "Searching..." : "Ask repository"}
-            </button>
+            </Button>
           </form>
         </div>
       </div>

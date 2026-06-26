@@ -56,3 +56,13 @@ Thumbs.db
 *.tmp
 tmp/
 temp/
+frontendOld/
+old/
+frontendCurrBad/
+# best one so far is oldGood/
+frontendOldGood/ 
+frontendOldOK/
+frontendCurrOk/
+frontendCurrBest/
+frontendCurrOk2/
+

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { checkHealth } from "../api.js";
+import { Button } from "./ui.jsx";
 
 function StatusPanel({ activeModel, apiBaseUrl }) {
   const [status, setStatus] = useState("checking");
@@ -36,14 +37,15 @@ function StatusPanel({ activeModel, apiBaseUrl }) {
           <p className="section-kicker">System</p>
           <h2>Status</h2>
         </div>
-        <button
+        <Button
           className="icon-button"
           onClick={refreshStatus}
           title="Refresh backend status"
           type="button"
+          variant="ghost"
         >
           Refresh
-        </button>
+        </Button>
       </div>
 
       <div className={`status-card status-card--${status}`}>

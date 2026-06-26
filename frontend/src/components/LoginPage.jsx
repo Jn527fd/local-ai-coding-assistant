@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { login } from "../api.js";
+import { Button, Card, Input } from "./ui.jsx";
 
 function LoginPage({ onLogin }) {
   const [username, setUsername] = useState("");
@@ -52,7 +53,7 @@ function LoginPage({ onLogin }) {
       </section>
 
       <section className="login-panel" aria-label="Sign in">
-        <form className="login-card" onSubmit={handleSubmit}>
+        <Card as="form" className="login-card" onSubmit={handleSubmit}>
           <div className="login-card__heading">
             <p className="header-kicker">Account</p>
             <h2>Sign in locally</h2>
@@ -61,7 +62,7 @@ function LoginPage({ onLogin }) {
 
           <label className="field" htmlFor="username">
             <span className="field__label">Username</span>
-            <input
+            <Input
               autoComplete="username"
               autoFocus
               id="username"
@@ -72,7 +73,7 @@ function LoginPage({ onLogin }) {
 
           <label className="field" htmlFor="password">
             <span className="field__label">Password</span>
-            <input
+            <Input
               autoComplete="current-password"
               id="password"
               onChange={(event) => setPassword(event.target.value)}
@@ -87,18 +88,19 @@ function LoginPage({ onLogin }) {
             </div>
           )}
 
-          <button
+          <Button
             className="primary-button login-button"
             disabled={isSubmitting}
             type="submit"
+            variant="primary"
           >
             {isSubmitting ? "Signing in..." : "Sign in"}
-          </button>
+          </Button>
 
           <p className="login-card__note">
             Credentials are verified by the local FastAPI service.
           </p>
-        </form>
+        </Card>
       </section>
     </main>
   );

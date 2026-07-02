@@ -235,3 +235,146 @@ Scope:
 - [x] Documentation updated
 - [x] No new critical or high-severity issues introduced
 - [x] CI workflow files are present and default CI does not require Ollama
+
+## Phase 7 Frontend State Decomposition
+
+Date: 2026-07-02
+
+Scope:
+
+- Extract capability loading and refresh state from `App.jsx` into a focused hook.
+- Preserve existing account panel capability status messages and refresh behavior.
+- Add hook-level tests for capability loading, failure, pending, and reset states.
+- Do not begin Phase 8 backend service boundary cleanup.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vitest\vitest.mjs run src/hooks/useCapabilities.test.js` from `frontend/` | Passed | 1 test file passed, 5 tests passed. Initial sandboxed attempt failed while loading Vitest config due restricted file access, then passed unsandboxed. |
+| `.venv\Scripts\python.exe -m pytest` | Passed | 76 passed, 4 skipped. Optional live Ollama tests skipped because `RUN_OLLAMA_TESTS=1` was not set. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe scripts\lint-check.mjs` from `frontend/` | Passed | Frontend lint guard passed for 39 frontend files. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vitest\vitest.mjs run` from `frontend/` | Passed | 8 test files passed, 39 tests passed. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vite\bin\vite.js build` from `frontend/` | Passed | Production build completed successfully. |
+| `git diff --check` | Passed | No whitespace errors. Git reported the existing CRLF normalization warning for `frontend/src/App.jsx`. |
+
+### Phase 7 Verification Checklist
+
+- [x] Code builds successfully
+- [x] Existing tests pass
+- [x] New tests for this phase pass
+- [x] Linting/static checks pass
+- [x] Documentation updated
+- [x] No new critical or high-severity issues introduced
+- [x] No user-facing workflow regressions
+
+## Phase 8 Backend Service Boundary Cleanup
+
+Date: 2026-07-02
+
+Scope:
+
+- Rename backend AI scaffold modules from `stubs.py` to explicit
+  `unavailable.py` adapter modules.
+- Preserve existing exported unavailable adapter class names for compatibility.
+- Make component provider protocols runtime-checkable and documented.
+- Replace stale backend execution messages that referenced "this phase" with
+  adapter-boundary messages.
+- Document service/provider ownership in the architecture guide.
+- Do not begin Phase 9 document pipeline hardening.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `.venv\Scripts\python.exe -m pytest tests\test_ai_provider_boundaries.py` | Passed | 5 provider-boundary tests passed. |
+| `rg -n "from app\.ai\..*\.stubs\|stubs\.py\|not implemented in this phase" backend/app tests docs README.md` | Passed | No stale backend/test references remained. The only match is the roadmap text explaining Phase 8's original problem. |
+| `.venv\Scripts\python.exe -m pytest` | Passed | 81 passed, 4 skipped. Optional live Ollama tests skipped because `RUN_OLLAMA_TESTS=1` was not set. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe scripts\lint-check.mjs` from `frontend/` | Passed | Frontend lint guard passed for 39 frontend files. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vitest\vitest.mjs run` from `frontend/` | Passed | 8 test files passed, 39 tests passed. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vite\bin\vite.js build` from `frontend/` | Passed | Production build completed successfully. |
+| `git diff --check` | Passed | No whitespace errors. Git reported existing CRLF normalization warnings. |
+
+### Phase 8 Verification Checklist
+
+- [x] Code builds successfully
+- [x] Existing tests pass
+- [x] New tests for this phase pass
+- [x] Linting/static checks pass
+- [x] Documentation updated
+- [x] No new critical or high-severity issues introduced
+- [x] Service ownership is clearer than before
+
+## Phase 9 Document Pipeline Hardening
+
+Date: 2026-07-02
+
+Scope:
+
+- Harden document processing for empty extracted text.
+- Harden chunk artifact reads and indexing when artifacts are malformed.
+- Add metadata identity consistency checks for stored document artifacts.
+- Add API tests for missing originals, malformed metadata, malformed chunks,
+  empty text, and indexing failures.
+- Document the safer document artifact failure behavior.
+- Do not begin Phase 10 retrieval quality and source reliability work.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `.venv\Scripts\python.exe -m pytest tests\test_documents.py tests\test_vector_indexes.py` | Passed | 25 document/vector tests passed. |
+| `.venv\Scripts\python.exe -m pytest` | Passed | 86 passed, 4 skipped. Optional live Ollama tests skipped because `RUN_OLLAMA_TESTS=1` was not set. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe scripts\lint-check.mjs` from `frontend/` | Passed | Frontend lint guard passed for 39 frontend files. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vitest\vitest.mjs run` from `frontend/` | Passed | 8 test files passed, 39 tests passed. React printed existing `act(...)` warnings in the accessibility suite. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vite\bin\vite.js build` from `frontend/` | Passed | Production build completed successfully. |
+| `git diff --check` | Passed | No whitespace errors. Git reported existing CRLF normalization warnings. |
+
+### Phase 9 Verification Checklist
+
+- [x] Code builds successfully
+- [x] Existing tests pass
+- [x] New tests for this phase pass
+- [x] Linting/static checks pass
+- [x] Documentation updated
+- [x] No new critical or high-severity issues introduced
+- [x] Document failures are safe and explainable
+
+## Phase 10 Retrieval Quality and Source Reliability
+
+Date: 2026-07-02
+
+Scope:
+
+- Normalize retrieved source metadata before prompt injection and response
+  payloads.
+- Skip empty retrieved chunks with a RAG warning.
+- Include `collectionId` in chat source payloads when available.
+- Add backend tests for sparse source metadata, skipped empty chunks, source
+  numbering, and collection IDs.
+- Add frontend test coverage for source chips that include long document names
+  and rerank score labels.
+- Document source numbering, scoring fields, preview behavior, and limits.
+- Do not begin Phase 11 vector store adapter work.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `.venv\Scripts\python.exe -m pytest tests\test_chat.py` | Passed | 25 chat/RAG tests passed after fixing test fixtures to corrupt stored vector artifacts directly. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vitest\vitest.mjs run src/components/__tests__/workspace-components.test.jsx` from `frontend/` | Passed | 1 test file passed, 8 tests passed. |
+| `.venv\Scripts\python.exe -m pytest` | Passed | 88 passed, 4 skipped. Optional live Ollama tests skipped because `RUN_OLLAMA_TESTS=1` was not set. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe scripts\lint-check.mjs` from `frontend/` | Passed | Frontend lint guard passed for 39 frontend files. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vitest\vitest.mjs run` from `frontend/` | Passed | 8 test files passed, 40 tests passed. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vite\bin\vite.js build` from `frontend/` | Passed | Production build completed successfully. |
+| `git diff --check` | Passed | No whitespace errors. Git reported existing CRLF normalization warnings. |
+
+### Phase 10 Verification Checklist
+
+- [x] Code builds successfully
+- [x] Existing tests pass
+- [x] New tests for this phase pass
+- [x] Linting/static checks pass
+- [x] Documentation updated
+- [x] No new critical or high-severity issues introduced
+- [x] Source metadata remains stable across RAG modes

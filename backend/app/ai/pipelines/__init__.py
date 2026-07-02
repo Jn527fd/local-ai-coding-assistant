@@ -3,7 +3,7 @@ from app.ai.pipelines.retrieval import (
     RetrievalResult,
     RetrievedSource,
 )
-from app.ai.pipelines.stubs import (
+from app.ai.pipelines.unavailable import (
     UnavailableContextCompressor,
     UnavailableRAGPipeline,
     UnavailableRetriever,

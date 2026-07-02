@@ -6,7 +6,7 @@ from app.ai.vectorstores.json_store import (
     VectorStoreError,
     VectorStoreValidationError,
 )
-from app.ai.vectorstores.stubs import UnavailableVectorStore
+from app.ai.vectorstores.unavailable import UnavailableVectorStore
 
 __all__ = [
     "JsonVectorStore",

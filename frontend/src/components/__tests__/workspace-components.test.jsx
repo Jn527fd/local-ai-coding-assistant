@@ -216,6 +216,56 @@ describe("Workspace / Conversation / Composer", () => {
     expect(onSendMessage).toHaveBeenCalledWith("Add tests");
   });
 
+  it("renders document source labels and score details from RAG metadata", async () => {
+    const user = userEvent.setup();
+    const onOpenSourceDetails = vi.fn();
+    const longDocumentName =
+      "Very long document name with enough detail to prove the source chip stays readable.txt";
+
+    render(
+      <WorkspaceHarness
+        activeChat={{
+          ...baseChat,
+          messages: [
+            { role: "user", content: "Where is retrieval described?" },
+            {
+              role: "assistant",
+              content: "Retrieval is documented in the local architecture notes.",
+              ragUsed: true,
+              rerankingUsed: true,
+              sources: [
+                {
+                  sourceNumber: 1,
+                  documentId: "doc-1",
+                  documentName: longDocumentName,
+                  chunkId: "chunk-1",
+                  chunkIndex: 3,
+                  score: 0.91,
+                  vectorScore: 0.72,
+                  rerankScore: 0.91,
+                  finalRank: 1,
+                  textPreview: "Architecture notes explain retrieval source metadata.",
+                },
+              ],
+            },
+          ],
+        }}
+        onOpenSourceDetails={onOpenSourceDetails}
+      />,
+    );
+
+    const sourceButton = screen.getByRole("button", {
+      name: new RegExp(`open source ${longDocumentName}`, "i"),
+    });
+
+    expect(sourceButton).toHaveTextContent(`Source 1: ${longDocumentName}`);
+    expect(sourceButton).toHaveTextContent("R 0.91");
+
+    await user.click(sourceButton);
+
+    expect(onOpenSourceDetails).toHaveBeenCalledWith(longDocumentName);
+  });
+
   it("autocompletes slash commands from the composer", async () => {
     const user = userEvent.setup();
 

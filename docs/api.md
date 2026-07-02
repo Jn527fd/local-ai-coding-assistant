@@ -326,6 +326,12 @@ curl -X POST http://localhost:8000/documents/DOCUMENT_ID/index \
 The current phase persists vectors in the local JSON store even when the
 selected `vectorDatabase` records a future backend such as `chroma`.
 
+Document artifacts are checked before processing and indexing. Missing
+documents return `404`, invalid requests return `400`, unreadable artifacts
+return safe failed metadata or warnings, and malformed chunk artifacts are not
+indexed. Empty extracted text marks processing as failed instead of producing a
+processed document with zero chunks.
+
 Search indexed chunks:
 
 ```bash
@@ -383,6 +389,15 @@ Compression modes:
 - `semantic`: currently falls back to token compression with a warning.
 - `memory`: currently falls back to summarizer or token compression with a
   warning.
+
+Returned RAG `sources` are ordered exactly as they were injected into the final
+prompt after vector ranking, optional reranking, and optional compression.
+`sourceNumber` and `finalRank` are one-based positions in that final prompt
+context. `vectorScore` is the original vector similarity score, `rerankScore`
+is present only when reranking succeeded, and `score` is the final score used
+for the displayed ordering. `textPreview` is normalized and bounded for UI
+display, and `collectionId` identifies the local JSON vector collection that
+produced the source when available.
 
 ## Repository Indexing
 

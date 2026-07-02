@@ -1,4 +1,3 @@
-from app.ai.ocr.stubs import UnavailableOCREngine
+from app.ai.ocr.unavailable import UnavailableOCREngine
 
 __all__ = ["UnavailableOCREngine"]
-

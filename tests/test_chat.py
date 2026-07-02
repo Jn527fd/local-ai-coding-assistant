@@ -1,4 +1,5 @@
 import asyncio
+import json
 from dataclasses import replace
 from pathlib import Path
 
@@ -217,22 +218,26 @@ def seed_vector_index(
     vector_database: str = "chroma",
     document_id: str = "doc-1",
     chunk_texts: list[str] | None = None,
+    chunk_metadata: list[dict[str, object]] | None = None,
 ) -> None:
     texts = chunk_texts or ["apple pie", "banana bread"]
     chunks = []
     for index, text in enumerate(texts):
-        keyword = text.split(maxsplit=1)[0].lower()
+        keyword = (text.split(maxsplit=1)[0].lower() if text.split() else f"empty-{index}")
         chunk_id = f"chunk-{keyword}"
+        metadata = {
+            "documentId": document_id,
+            "documentName": "notes.txt",
+            "chunkId": chunk_id,
+            "chunkIndex": index,
+        }
+        if chunk_metadata and index < len(chunk_metadata):
+            metadata.update(chunk_metadata[index])
         chunks.append(
             Chunk(
                 id=chunk_id,
                 text=text,
-                metadata={
-                    "documentId": document_id,
-                    "documentName": "notes.txt",
-                    "chunkId": chunk_id,
-                    "chunkIndex": index,
-                },
+                metadata=metadata,
             )
         )
     collection_id = JsonVectorStore.collection_id(
@@ -256,6 +261,25 @@ def seed_vector_index(
                 "internalStore": "json",
             },
         )
+    )
+
+
+def vector_index_path(
+    app: FastAPI,
+    conversation_id: str,
+    embedder_model: str = "embed-a",
+    vector_database: str = "chroma",
+) -> Path:
+    collection_id = JsonVectorStore.collection_id(
+        conversation_id=conversation_id,
+        embedder_model=embedder_model,
+        vector_database=vector_database,
+    )
+    return (
+        app.state.vector_store.index_directory
+        / conversation_id
+        / collection_id
+        / "index.json"
     )
 
 
@@ -780,6 +804,7 @@ def test_hybrid_rag_retrieves_chunks_and_inserts_them_into_prompt(
     assert payload["sources"][0]["documentName"] == "notes.txt"
     assert payload["sources"][0]["chunkId"] == "chunk-banana"
     assert payload["sources"][0]["chunkIndex"] == 1
+    assert payload["sources"][0]["collectionId"]
     assert payload["sources"][0]["vectorScore"] == payload["sources"][0]["score"]
     assert payload["sources"][0]["rerankScore"] is None
     assert "banana bread" in payload["sources"][0]["textPreview"]
@@ -793,6 +818,104 @@ def test_hybrid_rag_retrieves_chunks_and_inserts_them_into_prompt(
     assert fake_embedder.calls == [
         (["What document talks about banana?"], "embed-a")
     ]
+
+
+def test_rag_source_metadata_is_normalized_for_sparse_vector_records(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService()
+    configure_chat_rag_tests(app, tmp_path)
+    seed_vector_index(
+        app,
+        "conversation-a",
+        chunk_texts=["banana bread"],
+    )
+    index_path = vector_index_path(app, "conversation-a")
+    index_data = json.loads(index_path.read_text(encoding="utf-8"))
+    index_data["vectors"][0]["documentId"] = ""
+    index_data["vectors"][0]["chunkId"] = ""
+    index_data["vectors"][0]["chunkIndex"] = "bad"
+    index_data["vectors"][0]["metadata"] = {
+        "documentId": "",
+        "documentName": "Very long document name " + ("with extra detail " * 20),
+        "chunkId": "",
+    }
+    index_path.write_text(json.dumps(index_data), encoding="utf-8")
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        response = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "conversationId": "conversation-a",
+                "message": "What document talks about banana?",
+                "conversationSettings": {
+                    "embedderModel": "embed-a",
+                    "ragPipeline": "hybrid",
+                    "vectorDatabase": "chroma",
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    source = response.json()["sources"][0]
+    assert source["sourceNumber"] == 1
+    assert source["finalRank"] == 1
+    assert source["documentId"] == "unknown-document"
+    assert source["chunkId"] == "unknown-document:0"
+    assert source["chunkIndex"] == 0
+    assert len(source["documentName"]) <= 160
+    assert source["documentName"].endswith("[truncated]")
+    assert source["collectionId"]
+
+
+def test_rag_skips_empty_retrieved_chunks_and_keeps_source_numbers_stable(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService()
+    configure_chat_rag_tests(app, tmp_path)
+    seed_vector_index(app, "conversation-a", chunk_texts=["", "banana bread"])
+    index_path = vector_index_path(app, "conversation-a")
+    index_data = json.loads(index_path.read_text(encoding="utf-8"))
+    index_data["vectors"][0]["embedding"] = [0.0, 2.0, 0.0]
+    index_path.write_text(json.dumps(index_data), encoding="utf-8")
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        response = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "conversationId": "conversation-a",
+                "message": "What document talks about banana?",
+                "conversationSettings": {
+                    "embedderModel": "embed-a",
+                    "ragPipeline": "hybrid",
+                    "vectorDatabase": "chroma",
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["sources"]) == 1
+    assert payload["sources"][0]["sourceNumber"] == 1
+    assert payload["sources"][0]["finalRank"] == 1
+    assert payload["sources"][0]["chunkId"] == "chunk-banana"
+    assert "Skipped retrieved chunk" in payload["ragWarnings"][0]
+    assert "Source 1" in fake_ollama.calls[0][1]
+    assert "Source 2" not in fake_ollama.calls[0][1]
 
 
 def test_reranked_pipeline_attempts_reranking_and_uses_reranked_order(

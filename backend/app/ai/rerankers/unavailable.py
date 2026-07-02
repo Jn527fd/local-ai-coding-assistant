@@ -5,7 +5,7 @@ from app.ai.components import ComponentNotImplementedError, RetrievedChunk
 
 
 class UnavailableReranker:
-    """Reranker scaffold that fails explicitly until reranking is wired."""
+    """Explicit placeholder used when a reranker adapter has no implementation."""
 
     async def rerank(
         self,
@@ -15,5 +15,6 @@ class UnavailableReranker:
         settings: Mapping[str, Any],
     ) -> list[RetrievedChunk]:
         raise ComponentNotImplementedError(
-            "Reranking execution is not implemented in this phase."
+            "No executable adapter is registered for this reranker."
         )
+

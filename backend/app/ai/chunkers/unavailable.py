@@ -5,7 +5,7 @@ from app.ai.components import Chunk, ComponentNotImplementedError
 
 
 class UnavailableChunker:
-    """Chunker scaffold that fails explicitly until document chunking is wired."""
+    """Explicit placeholder used when a chunker adapter has no implementation."""
 
     async def chunk_text(
         self,
@@ -13,6 +13,6 @@ class UnavailableChunker:
         settings: Mapping[str, Any],
     ) -> list[Chunk]:
         raise ComponentNotImplementedError(
-            "Document chunking execution is not implemented in this phase."
+            "No executable adapter is registered for this chunker."
         )
 

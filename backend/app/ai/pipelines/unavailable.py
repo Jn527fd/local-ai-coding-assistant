@@ -5,7 +5,7 @@ from app.ai.components import ComponentNotImplementedError, RetrievedChunk
 
 
 class UnavailableRetriever:
-    """Retriever scaffold that fails explicitly until retrieval is implemented."""
+    """Explicit placeholder used when a retriever adapter has no implementation."""
 
     async def retrieve(
         self,
@@ -13,12 +13,12 @@ class UnavailableRetriever:
         settings: Mapping[str, Any],
     ) -> list[RetrievedChunk]:
         raise ComponentNotImplementedError(
-            "Retriever execution is not implemented in this phase."
+            "No executable adapter is registered for this retriever."
         )
 
 
 class UnavailableContextCompressor:
-    """Context compressor scaffold for later RAG/chat phases."""
+    """Explicit placeholder used when a compressor adapter has no implementation."""
 
     async def compress(
         self,
@@ -27,12 +27,12 @@ class UnavailableContextCompressor:
         settings: Mapping[str, Any],
     ) -> str:
         raise ComponentNotImplementedError(
-            "Context compression is not implemented in this phase."
+            "No executable adapter is registered for this context compressor."
         )
 
 
 class UnavailableRAGPipeline:
-    """RAG pipeline scaffold that fails explicitly until RAG is implemented."""
+    """Explicit placeholder used when a RAG pipeline adapter has no implementation."""
 
     async def answer(
         self,
@@ -41,5 +41,6 @@ class UnavailableRAGPipeline:
         history: Sequence[Mapping[str, str]],
     ) -> str:
         raise ComponentNotImplementedError(
-            "RAG pipeline execution is not implemented in this phase."
+            "No executable adapter is registered for this RAG pipeline."
         )
+

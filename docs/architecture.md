@@ -112,7 +112,11 @@ backend/app/
 |   |-- ollama_service.py
 |   `-- repo_service.py
 |-- ai/
+|   |-- components.py
 |   |-- execution_context.py
+|   |-- chunkers/
+|   |-- ocr/
+|   |-- parsers/
 |   |-- embedders/
 |   |-- rerankers/
 |   |-- compressors/
@@ -184,6 +188,34 @@ This metadata is additive. Existing runtime resolution still uses `available`
 and the selected capability ID, so the enriched contract does not change chat,
 document, RAG, reranking, or compression behavior by itself.
 
+## AI Service and Provider Boundaries
+
+`backend/app/services/*` owns application workflows, persistence, validation,
+and external service clients. `backend/app/ai/*` owns narrow component
+interfaces and adapters that can be swapped in tests or future providers.
+
+`backend/app/ai/components.py` defines runtime-checkable protocol boundaries
+for:
+
+- LLM generation
+- embedding
+- OCR
+- PDF parsing
+- chunking
+- vector stores
+- retrieval
+- reranking
+- context compression
+- RAG pipelines
+
+Real adapters include the Ollama LLM, embedding, and reranking providers, the
+document retrieval pipeline, token/summarizer compression, and the local JSON
+vector store. Packages named `unavailable.py` are explicit non-executing
+adapters. They preserve dependency-injection seams for capabilities that are
+discoverable or planned, but they raise `ComponentNotImplementedError` with a
+clear adapter-boundary message when called. They are not active runtime
+implementations.
+
 ## AI Execution Context
 
 `AISettingsResolver` combines the active conversation settings, component
@@ -217,6 +249,13 @@ POST /documents/{document_id}/index
   -> embed chunks through Ollama
   -> upsert vectors into local JSON vector store
 ```
+
+The document service validates conversation IDs, document IDs, upload
+extensions, upload size, artifact paths, and metadata identity. Missing or
+corrupt metadata is returned as failed document metadata instead of crashing
+list/get calls. Missing originals fail processing with `404`, empty extracted
+text fails processing with a clear error, and malformed chunk artifacts are not
+indexed.
 
 PDF text extraction supports PyMuPDF and pdfplumber when installed in the
 backend runtime. Docling is discoverable but not implemented for parsing yet.
@@ -254,6 +293,14 @@ Document RAG retrieves local vector-indexed chunks when the selected pipeline
 requires retrieval or request `ragOptions` enables it. Sources include stable
 source numbers, vector scores, optional rerank scores, final rank, and text
 previews.
+
+Source metadata is normalized before prompt injection and response payloads are
+created. Empty retrieved chunks are skipped with a warning. Missing source
+fields fall back to safe labels such as `Document`, `unknown-document`, or a
+derived chunk ID. Long display fields and previews are truncated with an
+explicit `[truncated]` marker. After reranking or compression removes context,
+the remaining sources are renumbered so `[Source N]` in the prompt matches the
+returned `sources[N-1]` metadata.
 
 Reranking uses an Ollama generation prompt that asks the selected reranker
 model for a numeric relevance score. This avoids assuming a native Ollama

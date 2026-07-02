@@ -311,6 +311,33 @@ def test_markdown_extraction_works(
     assert summary["chunkCount"] >= 1
 
 
+def test_empty_text_document_fails_with_clear_error(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    configure_documents(app, tmp_path)
+    metadata = upload_document(
+        client,
+        auth_headers,
+        "conversation-a",
+        "empty.txt",
+        b"   \n\t",
+    )
+
+    summary = process_document(
+        client,
+        auth_headers,
+        "conversation-a",
+        metadata["documentId"],
+    )
+
+    assert summary["status"] == "failed"
+    assert summary["chunkCount"] == 0
+    assert "No text could be extracted" in summary["error"]
+
+
 def test_pdf_parser_fallback_is_safe_when_parser_is_unavailable(
     app: FastAPI,
     client: TestClient,
@@ -470,6 +497,110 @@ def test_missing_or_corrupt_artifacts_do_not_crash_list_or_get(
     assert get_response.status_code == 200
     assert list_response.json()["documents"][0]["status"] == "failed"
     assert get_response.json()["status"] == "failed"
+
+
+def test_metadata_identity_mismatch_is_reported_as_failed_artifact(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    configure_documents(app, tmp_path)
+    metadata = upload_document(
+        client,
+        auth_headers,
+        "conversation-a",
+        "notes.txt",
+        b"hello",
+    )
+    metadata_path = (
+        app.state.document_service.upload_directory
+        / "conversation-a"
+        / metadata["documentId"]
+        / "metadata.json"
+    )
+    stored = json.loads(metadata_path.read_text(encoding="utf-8"))
+    stored["documentId"] = "0" * 32
+    metadata_path.write_text(json.dumps(stored), encoding="utf-8")
+
+    response = client.get(
+        f"/documents/{metadata['documentId']}",
+        headers=auth_headers,
+        params={"conversationId": "conversation-a"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "failed"
+    assert payload["documentId"] == metadata["documentId"]
+    assert "documentId does not match" in payload["error"]
+
+
+def test_missing_original_artifact_returns_not_found(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    configure_documents(app, tmp_path)
+    metadata = upload_document(
+        client,
+        auth_headers,
+        "conversation-a",
+        "notes.txt",
+        b"hello",
+    )
+    original_path = (
+        app.state.document_service.upload_directory
+        / "conversation-a"
+        / metadata["documentId"]
+        / "original"
+        / "original.txt"
+    )
+    original_path.unlink()
+
+    response = client.post(
+        f"/documents/{metadata['documentId']}/process",
+        headers=auth_headers,
+        json={"conversationId": "conversation-a", "conversationSettings": {}},
+    )
+
+    assert response.status_code == 404
+    assert "Original document artifact" in response.json()["detail"]
+
+
+def test_invalid_chunks_artifact_returns_warning_instead_of_crashing(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    configure_documents(app, tmp_path)
+    metadata = upload_document(
+        client,
+        auth_headers,
+        "conversation-a",
+        "notes.txt",
+        b"hello document",
+    )
+    process_document(client, auth_headers, "conversation-a", metadata["documentId"])
+    chunks_path = (
+        app.state.document_service.upload_directory
+        / "conversation-a"
+        / metadata["documentId"]
+        / "chunks.json"
+    )
+    chunks_path.write_text(json.dumps({"chunks": {"bad": "shape"}}), encoding="utf-8")
+
+    response = client.get(
+        f"/documents/{metadata['documentId']}/chunks",
+        headers=auth_headers,
+        params={"conversationId": "conversation-a"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["chunks"] == []
+    assert response.json()["warning"] == "Chunks artifact is invalid."
 
 
 def test_uploaded_documents_do_not_affect_existing_chat_flow(

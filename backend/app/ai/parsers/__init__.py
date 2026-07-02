@@ -1,4 +1,3 @@
-from app.ai.parsers.stubs import UnavailablePDFParser
+from app.ai.parsers.unavailable import UnavailablePDFParser
 
 __all__ = ["UnavailablePDFParser"]
-

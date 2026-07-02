@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   checkHealth,
-  getComponentCapabilities,
   getCurrentUser,
   getModelStatus,
   indexDocument,
@@ -32,6 +31,7 @@ import LoginPage from "./components/LoginPage.jsx";
 import NavigationRail from "./components/NavigationRail.jsx";
 import Workspace from "./components/Workspace.jsx";
 import { Button, Input, Modal, Toast } from "./components/ui.jsx";
+import { useCapabilities } from "./hooks/useCapabilities.js";
 
 const API_KEY_STORAGE_KEY = "local-ai-coding-assistant.api-key";
 
@@ -45,11 +45,12 @@ function App() {
   );
   const [accountOpen, setAccountOpen] = useState(false);
   const [modelStatus, setModelStatus] = useState(null);
-  const [capabilities, setCapabilities] = useState(null);
-  const [capabilitiesStatus, setCapabilitiesStatus] = useState({
-    status: "idle",
-    message: "",
-  });
+  const {
+    capabilities,
+    capabilitiesStatus,
+    refreshCapabilities,
+    resetCapabilities,
+  } = useCapabilities();
   const [apiStatus, setApiStatus] = useState({
     status: "checking",
     message: "Checking backend connection...",
@@ -124,29 +125,6 @@ function App() {
     const status = await getModelStatus();
     setModelStatus(status);
     return status;
-  }, []);
-
-  const refreshCapabilities = useCallback(async () => {
-    setCapabilitiesStatus({
-      status: "checking",
-      message: "Checking local models and tools...",
-    });
-
-    try {
-      const result = await getComponentCapabilities();
-      setCapabilities(result);
-      setCapabilitiesStatus({
-        status: "ready",
-        message: "Local models and tools refreshed.",
-      });
-      return result;
-    } catch (error) {
-      setCapabilitiesStatus({
-        status: "error",
-        message: error.message,
-      });
-      return null;
-    }
   }, []);
 
   const refreshApiStatus = useCallback(async () => {
@@ -248,11 +226,12 @@ function App() {
       } catch {
         setUser(null);
         setAuthState("anonymous");
+        resetCapabilities();
       }
     }
 
     restoreSession();
-  }, [initializeAuthenticatedSession]);
+  }, [initializeAuthenticatedSession, resetCapabilities]);
 
   useEffect(() => {
     if (authState !== "authenticated") {
@@ -318,8 +297,7 @@ function App() {
       setUser(null);
       setAuthState("anonymous");
       setModelStatus(null);
-      setCapabilities(null);
-      setCapabilitiesStatus({ status: "idle", message: "" });
+      resetCapabilities();
       setChats([]);
       setActiveChatId("");
       setDocumentsByChat({});

@@ -351,6 +351,12 @@ async def index_document(
         )
         texts.append(text)
 
+    if not chunks:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Document chunks artifact does not contain indexable text chunks.",
+        )
+
     try:
         embeddings = await embed_texts_in_batches(
             embedder_provider=embedder_provider,

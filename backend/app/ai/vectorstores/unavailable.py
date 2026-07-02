@@ -5,7 +5,7 @@ from app.ai.components import Chunk, ComponentNotImplementedError, RetrievedChun
 
 
 class UnavailableVectorStore:
-    """Vector store scaffold that fails explicitly until persistence is wired."""
+    """Explicit placeholder used when a vector store adapter has no implementation."""
 
     async def upsert(
         self,
@@ -15,7 +15,7 @@ class UnavailableVectorStore:
         metadata: Mapping[str, Any],
     ) -> None:
         raise ComponentNotImplementedError(
-            "Vector store persistence is not implemented in this phase."
+            "No executable adapter is registered for vector store persistence."
         )
 
     async def query(
@@ -25,7 +25,7 @@ class UnavailableVectorStore:
         top_k: int,
     ) -> list[RetrievedChunk]:
         raise ComponentNotImplementedError(
-            "Vector store queries are not implemented in this phase."
+            "No executable adapter is registered for vector store queries."
         )
 
     async def get_collection_metadata(
@@ -33,6 +33,6 @@ class UnavailableVectorStore:
         collection: str,
     ) -> Mapping[str, Any]:
         raise ComponentNotImplementedError(
-            "Vector store metadata is not implemented in this phase."
+            "No executable adapter is registered for vector store metadata."
         )
 

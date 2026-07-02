@@ -17,6 +17,9 @@ from app.services.ollama_service import (
 
 logger = logging.getLogger(__name__)
 
+MAX_SOURCE_FIELD_CHARS = 160
+MAX_SOURCE_PREVIEW_CHARS = 280
+
 
 @dataclass(frozen=True)
 class RetrievedSource:
@@ -47,6 +50,7 @@ class RetrievedSource:
             "rerankScore": self.rerank_score,
             "finalRank": self.final_rank or self.source_number,
             "textPreview": self.text_preview,
+            "collectionId": self.collection_id,
         }
 
 
@@ -180,21 +184,35 @@ class DocumentRetrievalPipeline:
             return self._empty(warnings)
 
         sources: list[RetrievedSource] = []
-        for index, result in enumerate(search_results, start=1):
+        skipped_results = 0
+        for result in search_results:
             record = result.record
             metadata = (
                 record.get("metadata")
                 if isinstance(record.get("metadata"), dict)
                 else {}
             )
-            text = str(record.get("text") or "")
-            document_id = str(record.get("documentId") or "")
-            document_name = str(metadata.get("documentName") or "Document")
-            chunk_id = str(record.get("chunkId") or "")
+            text = str(record.get("text") or "").strip()
+            if not text:
+                skipped_results += 1
+                continue
+            document_id = self._normalize_source_field(
+                record.get("documentId") or metadata.get("documentId"),
+                fallback="unknown-document",
+            )
+            document_name = self._normalize_source_field(
+                metadata.get("documentName"),
+                fallback="Document",
+            )
             chunk_index = self._coerce_int(record.get("chunkIndex"))
+            chunk_id = self._normalize_source_field(
+                record.get("chunkId") or metadata.get("chunkId"),
+                fallback=f"{document_id}:{chunk_index}",
+            )
+            source_number = len(sources) + 1
             sources.append(
                 RetrievedSource(
-                    source_number=index,
+                    source_number=source_number,
                     document_id=document_id,
                     document_name=document_name,
                     chunk_id=chunk_id,
@@ -203,9 +221,15 @@ class DocumentRetrievalPipeline:
                     vector_score=float(result.score),
                     text=text,
                     text_preview=self._preview(text),
-                    final_rank=index,
+                    final_rank=source_number,
                     collection_id=str(result.collection.get("collectionId") or ""),
                 )
+            )
+
+        if skipped_results:
+            warnings.append(
+                "Skipped retrieved chunk(s) with empty text while building "
+                "document context."
             )
 
         return RetrievalResult(
@@ -223,11 +247,25 @@ class DocumentRetrievalPipeline:
         )
 
     @staticmethod
-    def _preview(text: str, max_chars: int = 280) -> str:
+    def _preview(text: str, max_chars: int = MAX_SOURCE_PREVIEW_CHARS) -> str:
         normalized = " ".join(text.split())
         if len(normalized) <= max_chars:
             return normalized
         return f"{normalized[: max_chars - 14].rstrip()} [truncated]"
+
+    @staticmethod
+    def _normalize_source_field(
+        value: object,
+        fallback: str,
+        max_chars: int = MAX_SOURCE_FIELD_CHARS,
+    ) -> str:
+        text = str(value or "")
+        normalized = " ".join(text.split()).strip()
+        if not normalized:
+            return fallback
+        if len(normalized) <= max_chars:
+            return normalized
+        return f"{normalized[: max(0, max_chars - 14)].rstrip()} [truncated]"
 
     @staticmethod
     def _coerce_int(value: object) -> int:

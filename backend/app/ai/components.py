@@ -1,7 +1,7 @@
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 
 class AIComponentError(RuntimeError):
@@ -13,7 +13,7 @@ class ComponentUnavailableError(AIComponentError):
 
 
 class ComponentNotImplementedError(AIComponentError):
-    """Raised by scaffolding components that do not execute real work yet."""
+    """Raised when a component interface exists but has no execution adapter."""
 
 
 @dataclass(frozen=True)
@@ -43,7 +43,10 @@ class RetrievedChunk:
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
+@runtime_checkable
 class LLMProvider(Protocol):
+    """Boundary for local text-generation adapters."""
+
     async def generate(
         self,
         prompt: str,
@@ -53,7 +56,10 @@ class LLMProvider(Protocol):
         """Generate a text answer for a prompt and recent history."""
 
 
+@runtime_checkable
 class EmbedderProvider(Protocol):
+    """Boundary for local embedding adapters."""
+
     async def embed_texts(
         self,
         texts: Sequence[str],
@@ -62,7 +68,10 @@ class EmbedderProvider(Protocol):
         """Return one embedding vector for each input text."""
 
 
+@runtime_checkable
 class OCREngine(Protocol):
+    """Boundary for OCR adapters that extract text from visual documents."""
+
     async def extract_text(
         self,
         file_path: Path,
@@ -71,7 +80,10 @@ class OCREngine(Protocol):
         """Extract text from an image or scanned document."""
 
 
+@runtime_checkable
 class PDFParser(Protocol):
+    """Boundary for PDF text extraction adapters."""
+
     async def extract_text(
         self,
         file_path: Path,
@@ -80,7 +92,10 @@ class PDFParser(Protocol):
         """Extract text from a PDF file."""
 
 
+@runtime_checkable
 class Chunker(Protocol):
+    """Boundary for document chunking adapters."""
+
     async def chunk_text(
         self,
         text: str,
@@ -89,7 +104,10 @@ class Chunker(Protocol):
         """Split text into chunks suitable for retrieval."""
 
 
+@runtime_checkable
 class VectorStore(Protocol):
+    """Boundary for vector persistence and similarity search adapters."""
+
     async def upsert(
         self,
         collection: str,
@@ -114,7 +132,10 @@ class VectorStore(Protocol):
         """Return metadata for a stored collection."""
 
 
+@runtime_checkable
 class Retriever(Protocol):
+    """Boundary for retrieval pipelines that return candidate context."""
+
     async def retrieve(
         self,
         query: str,
@@ -123,7 +144,10 @@ class Retriever(Protocol):
         """Retrieve candidate context for a query."""
 
 
+@runtime_checkable
 class Reranker(Protocol):
+    """Boundary for reranking retrieved context before prompt injection."""
+
     async def rerank(
         self,
         query: str,
@@ -134,7 +158,10 @@ class Reranker(Protocol):
         """Reorder retrieved chunks by query relevance."""
 
 
+@runtime_checkable
 class ContextCompressor(Protocol):
+    """Boundary for prompt context compression adapters."""
+
     async def compress(
         self,
         compression_input: Any,
@@ -143,7 +170,10 @@ class ContextCompressor(Protocol):
         """Compress prompt inputs before generation."""
 
 
+@runtime_checkable
 class RAGPipeline(Protocol):
+    """Boundary for complete retrieval-augmented generation pipelines."""
+
     async def answer(
         self,
         query: str,

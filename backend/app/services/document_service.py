@@ -159,6 +159,10 @@ class DocumentService:
                 execution_context=execution_context,
             )
             warnings.extend(extraction_warnings)
+            if not text.strip():
+                raise DocumentValidationError(
+                    "No text could be extracted from the document."
+                )
             extracted = {
                 "documentId": document_id,
                 "conversationId": safe_conversation_id,
@@ -295,11 +299,19 @@ class DocumentService:
                 "warning": str(exc),
             }
         chunks = data.get("chunks") if isinstance(data, dict) else None
+        if not isinstance(chunks, list):
+            return {
+                "documentId": document_id,
+                "conversationId": safe_conversation_id,
+                "status": metadata.get("status", "uploaded"),
+                "chunks": [],
+                "warning": "Chunks artifact is invalid.",
+            }
         return {
             "documentId": document_id,
             "conversationId": safe_conversation_id,
             "status": metadata.get("status", "uploaded"),
-            "chunks": chunks if isinstance(chunks, list) else [],
+            "chunks": chunks,
         }
 
     def _extract_text(
@@ -341,11 +353,12 @@ class DocumentService:
             text = self._extract_with_pdfplumber(file_path)
         elif parser == "docling":
             raise DocumentValidationError(
-                "Docling PDF parsing is not implemented in this phase."
+                "Docling is discoverable but no PDF extraction adapter is "
+                "registered yet."
             )
         else:
             raise DocumentValidationError(
-                f"PDF parser '{parser}' is not supported in this phase."
+                f"PDF parser '{parser}' is not supported by the document service."
             )
 
         if len(text.strip()) < 20 and execution_context.resolved_ocr_engine != "none":
@@ -404,7 +417,8 @@ class DocumentService:
         if execution_context.resolved_ocr_engine == "none":
             return ""
         raise ComponentNotImplementedError(
-            "OCR execution is not implemented in this phase."
+            "OCR engines are discoverable but no OCR extraction adapter is "
+            "registered yet."
         )
 
     def _chunk_text(
@@ -553,6 +567,20 @@ class DocumentService:
                 conversation_id,
                 document_id,
                 "Metadata artifact is invalid.",
+            )
+        stored_document_id = data.get("documentId")
+        stored_conversation_id = data.get("conversationId")
+        if stored_document_id not in {None, document_id}:
+            return self._fallback_metadata(
+                conversation_id,
+                document_id,
+                "Metadata artifact documentId does not match its storage path.",
+            )
+        if stored_conversation_id not in {None, conversation_id}:
+            return self._fallback_metadata(
+                conversation_id,
+                document_id,
+                "Metadata artifact conversationId does not match its storage path.",
             )
         data.setdefault("documentId", document_id)
         data.setdefault("conversationId", conversation_id)

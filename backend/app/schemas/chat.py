@@ -68,6 +68,7 @@ class ChatSource(BaseModel):
     rerankScore: float | None = None
     finalRank: int
     textPreview: str
+    collectionId: str | None = None
 
 
 class ChatCompressionStats(BaseModel):

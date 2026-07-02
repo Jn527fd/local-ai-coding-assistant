@@ -5,8 +5,8 @@ from typing import Any
 from app.ai.components import ComponentNotImplementedError, DocumentText
 
 
-class UnavailablePDFParser:
-    """PDF parser scaffold that fails explicitly until parsing is implemented."""
+class UnavailableOCREngine:
+    """Explicit placeholder used when an OCR adapter has no implementation."""
 
     async def extract_text(
         self,
@@ -14,6 +14,6 @@ class UnavailablePDFParser:
         settings: Mapping[str, Any],
     ) -> DocumentText:
         raise ComponentNotImplementedError(
-            "PDF parsing execution is not implemented in this phase."
+            "No executable adapter is registered for this OCR engine."
         )
 

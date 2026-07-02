@@ -193,6 +193,45 @@ def test_cannot_index_unprocessed_document(
     assert "processed before" in response.json()["detail"]
 
 
+def test_cannot_index_malformed_chunks_artifact(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    configure_vector_tests(app, tmp_path)
+    document = upload_document(client, auth_headers, "conversation-a", b"apple")
+    process_document(client, auth_headers, "conversation-a", document["documentId"])
+    chunks_path = (
+        app.state.document_service.upload_directory
+        / "conversation-a"
+        / document["documentId"]
+        / "chunks.json"
+    )
+    chunks_path.write_text(
+        json.dumps(
+            {
+                "documentId": document["documentId"],
+                "conversationId": "conversation-a",
+                "chunks": [{"chunkId": "bad", "text": 42}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    response = client.post(
+        f"/documents/{document['documentId']}/index",
+        headers=auth_headers,
+        json={
+            "conversationId": "conversation-a",
+            "conversationSettings": {"embedderModel": "embed-a"},
+        },
+    )
+
+    assert response.status_code == 400
+    assert "indexable text chunks" in response.json()["detail"]
+
+
 def test_cannot_index_without_valid_embedder(
     app: FastAPI,
     client: TestClient,

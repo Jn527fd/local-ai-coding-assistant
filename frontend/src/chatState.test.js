@@ -23,14 +23,13 @@ const capabilities = {
 };
 
 describe("conversation settings state", () => {
-  it("builds defaults from active model and discovered capabilities", () => {
+  it("builds defaults from the first alphabetical LLM and discovered capabilities", () => {
     const defaults = buildDefaultConversationSettings({
-      activeModel: "qwen3:4b",
       capabilities,
     });
 
     expect(defaults).toMatchObject({
-      llmModel: "qwen3:4b",
+      llmModel: "llama3.2:3b",
       embedderModel: "nomic-embed-text:latest",
       ocrEngine: "none",
       pdfParser: "pymupdf",
@@ -45,7 +44,6 @@ describe("conversation settings state", () => {
 
   it("migrates existing localStorage chats to include settings", () => {
     const defaults = buildDefaultConversationSettings({
-      activeModel: "qwen3:4b",
       capabilities,
     });
     window.localStorage.setItem(
@@ -68,7 +66,6 @@ describe("conversation settings state", () => {
 
   it("fills partial or corrupted settings safely", () => {
     const defaults = buildDefaultConversationSettings({
-      activeModel: "qwen3:4b",
       capabilities,
     });
 
@@ -85,15 +82,14 @@ describe("conversation settings state", () => {
 
   it("gives new chats independent settings copies", () => {
     const defaults = buildDefaultConversationSettings({
-      activeModel: "qwen3:4b",
       capabilities,
     });
     const firstChat = createChat(defaults);
     const secondChat = createChat(defaults);
 
-    firstChat.settings.llmModel = "llama3.2:3b";
+    firstChat.settings.llmModel = "qwen3:4b";
 
-    expect(secondChat.settings.llmModel).toBe("qwen3:4b");
+    expect(secondChat.settings.llmModel).toBe("llama3.2:3b");
   });
 
   it("preserves distinct per-chat settings after reload", () => {
@@ -120,7 +116,6 @@ describe("conversation settings state", () => {
     const chats = loadChats(
       "test-user",
       buildDefaultConversationSettings({
-        activeModel: "qwen3:4b",
         capabilities,
       }),
     );

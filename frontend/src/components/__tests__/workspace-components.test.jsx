@@ -254,11 +254,18 @@ describe("CommandPalette", () => {
   });
 });
 
-describe("ModelSelector", () => {
-  it("loads mocked Ollama models in account settings", async () => {
+describe("Conversation model settings", () => {
+  it("loads mocked Ollama models in per-chat account settings", async () => {
     render(
       <AccountPanel
+        activeConversationSettings={{ llmModel: "qwen3:4b" }}
         apiKey="test-key"
+        capabilities={{
+          llmModels: [
+            { id: "qwen3:4b", label: "qwen3:4b", available: true },
+            { id: "llama3.2:3b", label: "llama3.2:3b", available: true },
+          ],
+        }}
         isOpen
         onApiKeyChange={vi.fn()}
         onClose={vi.fn()}
@@ -269,7 +276,7 @@ describe("ModelSelector", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole("combobox", { name: /model catalog/i })).toHaveValue(
+      expect(screen.getByRole("combobox", { name: /llm model/i })).toHaveValue(
         "qwen3:4b",
       );
     });

@@ -97,14 +97,12 @@ function App() {
     () => chats.find((chat) => chat.id === chatDialog.chatId) || null,
     [chatDialog.chatId, chats],
   );
-  const activeModel = modelStatus?.active_model || "";
   const defaultConversationSettings = useMemo(
     () =>
       buildDefaultConversationSettings({
-        activeModel,
         capabilities,
       }),
-    [activeModel, capabilities],
+    [capabilities],
   );
 
   const focusComposer = useCallback((nextMessage = "") => {
@@ -230,7 +228,6 @@ function App() {
           ? capabilitiesResult.value
           : null;
       const defaults = buildDefaultConversationSettings({
-        activeModel: nextModelStatus?.active_model || "",
         capabilities: nextCapabilities,
       });
       const savedChats = loadChats(session.username, defaults);
@@ -792,7 +789,11 @@ function App() {
                     role: "assistant",
                     content: result.answer,
                     generationTimeMs: Math.max(0, Math.round(generationEndedAt - generationStartedAt)),
-                    model: result.model || result.model_used || activeModel || "Local model",
+                    model:
+                      result.model ||
+                      result.model_used ||
+                      modelStatus?.active_model ||
+                      "Local model",
                     ragUsed: Boolean(result.ragUsed),
                     ragWarnings,
                     rerankingUsed: Boolean(result.rerankingUsed),
@@ -1030,6 +1031,9 @@ function App() {
           onApiKeyChange={handleApiKeyChange}
           onClose={() => setAccountOpen(false)}
           onConversationSettingsChange={updateActiveConversationSettings}
+          onConversationSettingsVerified={(title) =>
+            showToast(`Settings verified for "${title}".`, "success")
+          }
           onLogout={handleLogout}
           onModelStatus={setModelStatus}
           onRefreshCapabilities={refreshCapabilities}

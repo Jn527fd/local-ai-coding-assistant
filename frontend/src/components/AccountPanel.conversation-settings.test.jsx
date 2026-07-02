@@ -105,4 +105,35 @@ describe("AccountPanel conversation settings", () => {
     );
     expect(screen.getByText(/Chat B/)).toBeInTheDocument();
   });
+
+  it("lets users verify the active chat settings", async () => {
+    const user = userEvent.setup();
+    const onConversationSettingsVerified = vi.fn();
+    const onConversationSettingsChange = vi.fn();
+    renderAccountPanel({
+      onConversationSettingsChange,
+      onConversationSettingsVerified,
+    });
+
+    await user.click(
+      screen.getByRole("button", { name: /verify chat settings/i }),
+    );
+
+    expect(onConversationSettingsVerified).toHaveBeenCalledWith("Chat A");
+    expect(screen.getByRole("status")).toHaveTextContent(
+      /settings verified for "chat a"/i,
+    );
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /llm model/i }),
+      "llama3.2:3b",
+    );
+
+    expect(onConversationSettingsChange).toHaveBeenCalledWith({
+      llmModel: "llama3.2:3b",
+    });
+    expect(
+      screen.queryByText(/settings verified for "chat a"/i),
+    ).not.toBeInTheDocument();
+  });
 });

@@ -63,11 +63,10 @@ function preferredCapability(ids, preferredId) {
 }
 
 function firstAvailable(ids) {
-  return ids[0] || "";
+  return [...ids].sort((left, right) => left.localeCompare(right))[0] || "";
 }
 
 export function buildDefaultConversationSettings({
-  activeModel = "",
   capabilities = null,
 } = {}) {
   const llmModels = availableCapabilityIds(capabilities, "llmModels");
@@ -76,10 +75,7 @@ export function buildDefaultConversationSettings({
 
   return {
     ...BASE_CONVERSATION_SETTINGS,
-    llmModel:
-      activeModel && (llmModels.length === 0 || llmModels.includes(activeModel))
-        ? activeModel
-        : firstAvailable(llmModels),
+    llmModel: firstAvailable(llmModels),
     embedderModel:
       preferredCapability(embedderModels, "nomic-embed-text") ||
       firstAvailable(embedderModels),

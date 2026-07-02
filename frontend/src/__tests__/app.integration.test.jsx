@@ -120,7 +120,7 @@ describe("main app integration", () => {
     expect(screen.getByRole("button", { name: /open source notes\.txt/i })).toHaveTextContent(/R 0\.91/i);
   });
 
-  it("shows mocked Ollama models from the model selector", async () => {
+  it("shows mocked Ollama models from the per-chat model selector", async () => {
     const user = userEvent.setup();
     await renderAuthenticatedApp();
 
@@ -129,7 +129,7 @@ describe("main app integration", () => {
     expect(
       await screen.findByRole("complementary", { name: /account and api settings/i }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: /model catalog/i })).toHaveTextContent(
+    expect(screen.getByRole("combobox", { name: /llm model/i })).toHaveTextContent(
       "llama3.2:3b",
     );
   });

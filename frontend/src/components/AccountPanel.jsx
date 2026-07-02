@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   getAccountStatus,
   getModelStatus,
-  switchModel,
   updateApiKey,
 } from "../api.js";
 import { Badge, Button, Card, Input, Select } from "./ui.jsx";
@@ -277,6 +276,7 @@ function AccountPanel({
   onApiKeyChange,
   onClose,
   onConversationSettingsChange = () => {},
+  onConversationSettingsVerified = () => {},
   onLogout,
   onModelStatus,
   onRefreshCapabilities,
@@ -290,18 +290,9 @@ function AccountPanel({
   const [isCheckingKey, setIsCheckingKey] = useState(false);
 
   const [modelStatus, setModelStatus] = useState(null);
-  const [selectedModel, setSelectedModel] = useState("");
-  const [pendingModel, setPendingModel] = useState("");
   const [modelError, setModelError] = useState("");
   const [isRefreshingCapabilities, setIsRefreshingCapabilities] = useState(false);
-
-  const selectedDefinition = useMemo(
-    () =>
-      modelStatus?.supported_models.find(
-        (model) => model.name === selectedModel,
-      ),
-    [modelStatus, selectedModel],
-  );
+  const [settingsVerified, setSettingsVerified] = useState(false);
   async function refreshAccountStatus(key = draftApiKey) {
     setIsCheckingKey(true);
     setAccountError("");
@@ -318,16 +309,6 @@ function AccountPanel({
     try {
       const status = await getModelStatus();
       setModelStatus(status);
-      setSelectedModel((current) => {
-        const modelNames = status.supported_models.map((model) => model.name);
-        if (modelNames.includes(current)) {
-          return current;
-        }
-        if (modelNames.includes(status.active_model)) {
-          return status.active_model;
-        }
-        return modelNames[0] || "";
-      });
       setModelError(status.error || "");
       onModelStatus(status);
       return status;
@@ -361,6 +342,10 @@ function AccountPanel({
     return () => window.clearInterval(intervalId);
   }, [isOpen]);
 
+  useEffect(() => {
+    setSettingsVerified(false);
+  }, [activeConversationSettings, activeConversationTitle]);
+
   async function handleSaveApiKey(event) {
     event.preventDefault();
     const trimmedKey = draftApiKey.trim();
@@ -382,34 +367,6 @@ function AccountPanel({
     }
   }
 
-  async function handleSwitchModel() {
-    if (!selectedDefinition) {
-      setModelError("Select a model installed in Ollama.");
-      return;
-    }
-
-    if (selectedModel === modelStatus?.active_model) {
-      setModelError("That model is already active.");
-      return;
-    }
-
-    setPendingModel(selectedModel);
-  }
-
-  async function confirmSwitchModel() {
-    if (!pendingModel) {
-      return;
-    }
-    setModelError("");
-    try {
-      await switchModel(pendingModel);
-      setPendingModel("");
-      await refreshModelStatus();
-    } catch (requestError) {
-      setModelError(requestError.message);
-    }
-  }
-
   async function handleRefreshLocalCapabilities() {
     setIsRefreshingCapabilities(true);
     try {
@@ -426,15 +383,20 @@ function AccountPanel({
     return null;
   }
 
-  const isSwitching = Boolean(modelStatus?.switching);
-  const progress = modelStatus?.progress;
-  const switchButtonLabel = isSwitching
-    ? "Switching model..."
-    : "Use installed model";
   const apiConnected = Boolean(accountStatus?.api_key_active);
   const ollamaConnected = Boolean(modelStatus?.ollama_connected);
   const installedModelCount = modelStatus?.supported_models?.length || 0;
   const conversationSettings = activeConversationSettings || {};
+  function handleConversationSettingsChange(patch) {
+    setSettingsVerified(false);
+    onConversationSettingsChange(patch);
+  }
+
+  function handleVerifyConversationSettings() {
+    setSettingsVerified(true);
+    onConversationSettingsVerified(activeConversationTitle);
+  }
+
 
   return (
     <div className="account-overlay" role="presentation" onMouseDown={onClose}>
@@ -472,10 +434,10 @@ function AccountPanel({
               value={apiConnected ? "Connected" : "Not connected"}
             />
             <SettingsStatusRow
-              detail={ollamaConnected ? "Local model service ready" : modelConnectionLabel(modelStatus, modelError)}
+              detail={modelConnectionLabel(modelStatus, modelError)}
               label="Ollama"
               tone={ollamaConnected ? "success" : "error"}
-              value={modelStatus?.active_model || "Checking..."}
+              value={modelStatus ? (ollamaConnected ? "Connected" : "Offline") : "Checking..."}
             />
             <SettingsStatusRow
               detail={`${installedModelCount} local model${installedModelCount === 1 ? "" : "s"}`}
@@ -525,7 +487,7 @@ function AccountPanel({
                     includeNone={field.includeNone}
                     key={field.key}
                     label={field.label}
-                    onChange={onConversationSettingsChange}
+                    onChange={handleConversationSettingsChange}
                     settingKey={field.key}
                     type={field.type}
                     value={conversationSettings[field.key] || ""}
@@ -540,6 +502,23 @@ function AccountPanel({
             are stored with this conversation for upcoming document and RAG
             phases.
           </p>
+
+          {settingsVerified && (
+            <div className="alert alert--success" role="status">
+              Settings verified for "{activeConversationTitle}".
+            </div>
+          )}
+
+          <div className="inline-actions">
+            <Button
+              className="secondary-button"
+              onClick={handleVerifyConversationSettings}
+              type="button"
+              variant="secondary"
+            >
+              Verify chat settings
+            </Button>
+          </div>
         </SettingsCard>
 
         <SettingsCard
@@ -609,145 +588,6 @@ function AccountPanel({
           {accountError && (
             <div className="alert alert--error">{accountError}</div>
           )}
-        </SettingsCard>
-
-        <SettingsCard
-          actions={
-            <Button
-              className="settings-card__text-action"
-              disabled={isSwitching}
-              onClick={refreshModelStatus}
-              type="button"
-              variant="plain"
-            >
-              Refresh
-            </Button>
-          }
-          badge={
-            <Badge
-              className={`connection-state ${statusClass(ollamaConnected)}`}
-              tone={ollamaConnected ? "success" : "error"}
-            >
-              {modelConnectionLabel(modelStatus, modelError)}
-            </Badge>
-          }
-          description="Switch between models already installed in your local Ollama library."
-          eyebrow="Models"
-          title="Active model"
-        >
-
-          <label className="field">
-            <span className="field__label">Model catalog</span>
-            <Select
-              disabled={isSwitching || !modelStatus?.supported_models.length}
-              onChange={(event) => {
-                setSelectedModel(event.target.value);
-                setPendingModel("");
-              }}
-              value={selectedModel}
-            >
-              {!modelStatus?.supported_models.length && (
-                <option value="">No local models found</option>
-              )}
-              {(modelStatus?.supported_models || []).map((model) => (
-                <option key={model.name} value={model.name}>
-                  {model.label} ({model.parameter_size}, {model.size_display}
-                  {model.quantization_level
-                    ? `, ${model.quantization_level}`
-                    : ""}
-                  )
-                </option>
-              ))}
-            </Select>
-          </label>
-
-          <div className="model-summary">
-            <span>Current</span>
-            <strong>{modelStatus?.active_model || "Checking..."}</strong>
-          </div>
-
-          {(isSwitching || modelStatus?.phase === "complete") && (
-            <div className="model-progress" aria-live="polite">
-              <div className="model-progress__header">
-                <span>{modelStatus.message}</span>
-                {typeof progress === "number" && <strong>{progress}%</strong>}
-              </div>
-              <div className="progress-track">
-                <span
-                  aria-label="Model switch progress"
-                  className={
-                    typeof progress === "number"
-                      ? ""
-                      : "progress-track__indeterminate"
-                  }
-                  role="progressbar"
-                  aria-valuemax={100}
-                  aria-valuemin={0}
-                  aria-valuenow={typeof progress === "number" ? progress : undefined}
-                  style={
-                    typeof progress === "number"
-                      ? { width: `${progress}%` }
-                      : undefined
-                  }
-                />
-              </div>
-            </div>
-          )}
-
-          {modelStatus?.warning && (
-            <div className="alert alert--warning">{modelStatus.warning}</div>
-          )}
-          {modelError && <div className="alert alert--error">{modelError}</div>}
-
-          {pendingModel && (
-            <div className="model-confirmation" role="alert">
-              <div>
-                <strong>Switch active model to {pendingModel}?</strong>
-                <p>Your local chat history stays intact. Only the active Ollama model string changes.</p>
-              </div>
-              <div className="inline-actions">
-                <Button
-                  className="ghost-button"
-                  onClick={() => setPendingModel("")}
-                  type="button"
-                  variant="ghost"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  className="secondary-button"
-                  disabled={isSwitching}
-                  onClick={confirmSwitchModel}
-                  type="button"
-                  variant="secondary"
-                >
-                  Confirm switch
-                </Button>
-              </div>
-            </div>
-          )}
-
-          <div className="inline-actions">
-            <Button
-              className="secondary-button"
-              disabled={
-                isSwitching ||
-                !selectedModel ||
-                selectedModel === modelStatus?.active_model
-              }
-              onClick={handleSwitchModel}
-              type="button"
-              variant="secondary"
-            >
-              {switchButtonLabel}
-            </Button>
-          </div>
-
-          <p className="account-note">
-            Pull models with Ollama, then refresh this list. The application
-            shows every local model Ollama reports and never downloads or
-            deletes model files. Switching models does not reset your chats.
-          </p>
         </SettingsCard>
 
         <div className="account-footer">

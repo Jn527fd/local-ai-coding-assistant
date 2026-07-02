@@ -6,6 +6,11 @@ upload size, document chunk count, embedding batch size, `topK`, `candidateK`,
 and prompt budgets are configured through `backend/app/config.py` so tests and
 Docker runs can use conservative defaults.
 
+The backend suite includes a repository hygiene guard that fails when a
+tracked file matches `.gitignore`. This keeps local virtual environments,
+dependency folders, generated indexes, build output, and machine-specific
+artifacts out of future commits.
+
 ## Local Setup
 
 Install backend and frontend test dependencies from the committed app-specific
@@ -34,6 +39,21 @@ Run both:
 make test
 ```
 
+## Continuous Integration
+
+GitHub Actions runs the default hermetic checks on pushes to `main`,
+`phase-*` branches, and pull requests:
+
+- Backend dependency install from `requirements-dev.txt`
+- Backend `python -m pytest`
+- Frontend `npm ci`
+- Frontend lint guard
+- Frontend Vitest suite
+- Frontend production build
+
+The CI workflow sets `RUN_OLLAMA_TESTS=0`, so live Ollama tests remain skipped
+unless a developer runs them explicitly outside the default workflow.
+
 ## Docker Tests
 
 The test Compose file uses separate test images and does not mount local app
@@ -51,6 +71,11 @@ Use smoke checks when you want a faster confidence pass:
 make smoke
 make smoke-docker
 ```
+
+The Dockerized backend/frontend suite is also available as a manual GitHub
+Actions workflow named `Docker Verification`. It is not part of the default CI
+path because Docker image builds are slower than the normal hermetic test
+jobs.
 
 ## Ollama Isolation
 

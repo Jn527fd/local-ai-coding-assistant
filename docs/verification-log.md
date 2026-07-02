@@ -162,3 +162,76 @@ Scope:
 - [x] Documentation updated
 - [x] No new critical or high-severity issues introduced
 - [x] Capability metadata display is read-only and preserves settings behavior
+
+## Phase 5 Repository Hygiene Guard
+
+Date: 2026-07-02
+
+Scope:
+
+- Remove tracked local virtualenv artifacts from the git index while keeping
+  the local `.venv` available on disk.
+- Add an automated guard that fails if tracked files match `.gitignore`.
+- Check the 15-phase roadmap into `docs/development-roadmap.md` before future
+  phase work continues.
+- Do not change runtime behavior, API behavior, UI behavior, or begin Phase 6.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `git ls-files -ci --exclude-standard \| Measure-Object` | Passed | Confirmed 1,948 tracked ignored files before cleanup. |
+| `git rm -r --cached .venv` | Passed | Removed `.venv` from the git index only; local files remained on disk. |
+| `.venv\Scripts\python.exe --version` | Passed | Local Windows venv still launches: Python 3.12.13. |
+| `git ls-files -ci --exclude-standard \| Measure-Object` | Passed | Confirmed 0 tracked ignored files after cleanup. |
+| `.venv\Scripts\python.exe -m pytest tests\test_repository_hygiene.py` | Passed | 1 passed. |
+| `rg -n "Development roadmap\|development-roadmap" README.md docs\development-roadmap.md` | Passed | README links to the checked-in roadmap artifact. |
+| `.venv\Scripts\python.exe -m pytest` | Passed | 76 passed, 4 skipped. Optional live Ollama tests skipped because `RUN_OLLAMA_TESTS=1` was not set. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe scripts\lint-check.mjs` from `frontend/` | Passed | Frontend lint guard passed for 37 frontend files. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vitest\vitest.mjs run` from `frontend/` | Passed | 7 test files passed, 34 tests passed. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vite\bin\vite.js build` from `frontend/` | Passed | Production build completed successfully. |
+
+### Phase 5 Verification Checklist
+
+- [x] Code builds successfully
+- [x] Existing tests pass
+- [x] New tests for this phase pass
+- [x] Linting/static checks pass
+- [x] Documentation updated
+- [x] No new critical or high-severity issues introduced
+- [x] No tracked files match `.gitignore`
+- [x] 15-phase roadmap is checked into the repository
+
+## Phase 6 CI and Repeatable Verification
+
+Date: 2026-07-02
+
+Scope:
+
+- Add GitHub Actions for backend tests.
+- Add GitHub Actions for frontend lint, tests, and production build.
+- Add manual Docker verification workflow.
+- Keep live Ollama tests opt-in and skipped by default.
+- Do not begin Phase 7 frontend state decomposition.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `Test-Path .github\workflows\ci.yml; Test-Path .github\workflows\docker-verification.yml` | Passed | Both workflow files are present. |
+| `rg -n "RUN_OLLAMA_TESTS\|python -m pytest\|npm ci\|npm run lint\|npm run test:run\|npm run build\|workflow_dispatch" .github\workflows docs\testing.md README.md` | Passed | Confirmed default CI commands, manual Docker trigger, and Ollama skip setting. |
+| `.venv\Scripts\python.exe -m pytest` | Passed | 76 passed, 4 skipped. Optional live Ollama tests skipped because `RUN_OLLAMA_TESTS=1` was not set. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe scripts\lint-check.mjs` from `frontend/` | Passed | Frontend lint guard passed for 37 frontend files. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vitest\vitest.mjs run` from `frontend/` | Passed | 7 test files passed, 34 tests passed. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vite\bin\vite.js build` from `frontend/` | Passed | Production build completed successfully. |
+| `git diff --check` | Passed | No whitespace errors. |
+
+### Phase 6 Verification Checklist
+
+- [x] Code builds successfully
+- [x] Existing tests pass
+- [x] New tests for this phase pass
+- [x] Linting/static checks pass
+- [x] Documentation updated
+- [x] No new critical or high-severity issues introduced
+- [x] CI workflow files are present and default CI does not require Ollama

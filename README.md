@@ -530,6 +530,8 @@ Important inference settings:
 
 Real `.env`, credentials, application settings, generated indexes, virtual
 environments, dependencies, and build output are excluded by `.gitignore`.
+The backend test suite includes a repository hygiene check that fails if an
+ignored local artifact becomes tracked.
 
 ## Testing
 
@@ -554,6 +556,10 @@ make test-backend-docker
 make test-frontend-docker
 make test-docker
 ```
+
+GitHub Actions runs backend pytest and frontend lint/test/build on pushes to
+`main`, `phase-*` branches, and pull requests. Docker verification is available
+as a manual workflow so the default CI path stays fast and Ollama-free.
 
 Quick smoke checks are also available:
 
@@ -668,6 +674,7 @@ local-ai-coding-assistant/
 - [API reference](docs/api.md)
 - [Linux Mint setup](docs/setup.md)
 - [Testing](docs/testing.md)
+- [Development roadmap](docs/development-roadmap.md)
 
 ## Contributing
 

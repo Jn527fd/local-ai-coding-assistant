@@ -23,6 +23,7 @@ class InstalledOllamaModel:
     parameters_billion: float | None
     family: str | None
     quantization_level: str | None
+    modified_at: str | None = None
 
 
 def parse_parameter_size_billions(value: str) -> float | None:
@@ -148,6 +149,73 @@ class OllamaService:
         )
         return answer.strip()
 
+    async def embed_texts(self, texts: list[str], model: str) -> list[list[float]]:
+        """Embed text inputs with Ollama's local embedding API."""
+
+        if not texts:
+            return []
+
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+                response = await client.post(
+                    f"{self.base_url}/api/embed",
+                    json={
+                        "model": model,
+                        "input": texts,
+                        "keep_alive": self.keep_alive,
+                    },
+                )
+                response.raise_for_status()
+        except httpx.TimeoutException as exc:
+            raise OllamaTimeoutError(
+                f"Ollama did not embed text within "
+                f"{self.timeout_seconds:g} seconds."
+            ) from exc
+        except httpx.RequestError as exc:
+            raise OllamaUnavailableError(
+                f"Unable to connect to Ollama at {self.base_url}. "
+                "Make sure Ollama is running."
+            ) from exc
+        except httpx.HTTPStatusError as exc:
+            detail = self._error_detail(exc.response)
+            raise OllamaResponseError(
+                f"Ollama returned HTTP {exc.response.status_code}: {detail}"
+            ) from exc
+
+        try:
+            data: Any = response.json()
+        except ValueError as exc:
+            raise OllamaResponseError(
+                "Ollama returned an embedding response that was not valid JSON."
+            ) from exc
+
+        embeddings = data.get("embeddings") if isinstance(data, dict) else None
+        if not isinstance(embeddings, list):
+            raise OllamaResponseError(
+                "Ollama returned an embedding response without embeddings."
+            )
+
+        parsed_embeddings: list[list[float]] = []
+        for embedding in embeddings:
+            if not isinstance(embedding, list):
+                raise OllamaResponseError(
+                    "Ollama returned an invalid embedding vector."
+                )
+            parsed_vector: list[float] = []
+            for value in embedding:
+                if not isinstance(value, int | float):
+                    raise OllamaResponseError(
+                        "Ollama returned a non-numeric embedding value."
+                    )
+                parsed_vector.append(float(value))
+            parsed_embeddings.append(parsed_vector)
+
+        if len(parsed_embeddings) != len(texts):
+            raise OllamaResponseError(
+                "Ollama returned a different number of embeddings than inputs."
+            )
+        return parsed_embeddings
+
     async def is_available(self) -> bool:
         """Return whether the local Ollama API can be reached."""
 
@@ -206,6 +274,7 @@ class OllamaService:
             if not isinstance(parameter_size, str):
                 parameter_size = ""
             size_bytes = item.get("size")
+            modified_at = item.get("modified_at")
             family = details.get("family")
             quantization = details.get("quantization_level")
             installed_models.append(
@@ -224,6 +293,11 @@ class OllamaService:
                     quantization_level=(
                         quantization
                         if isinstance(quantization, str)
+                        else None
+                    ),
+                    modified_at=(
+                        modified_at
+                        if isinstance(modified_at, str)
                         else None
                     ),
                 )

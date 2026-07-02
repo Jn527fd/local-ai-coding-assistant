@@ -15,22 +15,72 @@ function formatMessageTime(value) {
   return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+function formatScore(value) {
+  if (value === null || value === undefined || value === "") {
+    return "";
+  }
+  const score = Number(value);
+  if (!Number.isFinite(score)) {
+    return "";
+  }
+  return score.toFixed(2);
+}
+
 function normalizeSource(source) {
   if (typeof source === "string") {
     return {
+      id: source,
       label: source.split(/[\\/]/).pop() || source,
       path: source,
       snippet: "Inspect the cited local source.",
     };
   }
 
+  const sourceNumber = Number(source?.sourceNumber);
+  const hasSourceNumber = Number.isFinite(sourceNumber) && sourceNumber > 0;
+  const documentName = source?.documentName || source?.file || source?.path;
+  const rerankScore = formatScore(source?.rerankScore);
+  const vectorScore = formatScore(source?.vectorScore);
+  const scoreLabel = rerankScore
+    ? ` · R ${rerankScore}`
+    : vectorScore
+      ? ` · V ${vectorScore}`
+      : "";
+  const label =
+    source?.label ||
+    (hasSourceNumber && documentName
+      ? `Source ${sourceNumber}: ${documentName}${scoreLabel}`
+      : documentName) ||
+    "Source";
+  const path =
+    source?.path ||
+    source?.file ||
+    source?.documentName ||
+    source?.documentId ||
+    label;
+
+  const scoreSnippet = rerankScore
+    ? `Rerank score ${rerankScore}. Vector score ${vectorScore || "n/a"}. `
+    : vectorScore
+      ? `Vector score ${vectorScore}. `
+      : "";
+
   return {
-    label: source?.label || source?.file || source?.path || "Source",
-    path: source?.path || source?.file || source?.label || "Local source",
+    id:
+      source?.chunkId ||
+      source?.documentId ||
+      source?.path ||
+      source?.file ||
+      label,
+    label,
+    path,
     snippet:
-      source?.snippet ||
-      source?.preview ||
-      "Inspect the cited local source.",
+      `${scoreSnippet}${
+        source?.textPreview ||
+        source?.snippet ||
+        source?.preview ||
+        "Inspect the cited local source."
+      }`,
   };
 }
 
@@ -471,10 +521,10 @@ function SourceCitations({ onOpenSourceDetails, sources }) {
         return (
           <Tooltip
             content={`${normalized.path}: ${normalized.snippet}`}
-            key={normalized.path}
+            key={normalized.id}
           >
             <SourceChip
-              aria-label={`Open source ${normalized.path}`}
+              aria-label={`Open source ${normalized.path} ${normalized.label}`}
               className="citation-chip"
               onClick={() => onOpenSourceDetails?.(normalized.path)}
               type="button"
@@ -609,6 +659,18 @@ function AssistantMessage({
   const fullContentBlocks = parseContentBlocks(message.content);
   const contentBlocks = parseContentBlocks(visibleContent);
   const sources = message.sources || [];
+  const ragWarnings = Array.isArray(message.ragWarnings)
+    ? message.ragWarnings
+    : [];
+  const rerankWarnings = Array.isArray(message.rerankWarnings)
+    ? message.rerankWarnings
+    : [];
+  const compressionWarnings = Array.isArray(message.compressionWarnings)
+    ? message.compressionWarnings
+    : [];
+  const retrievalWarnings = Array.from(
+    new Set([...ragWarnings, ...rerankWarnings, ...compressionWarnings]),
+  );
   const generationTime = formatGenerationTime(message.generationTimeMs);
   const tokenCount = estimateTokenCount(message.content);
   const isLongResponse = message.content.length > 1800 || fullContentBlocks.length > 5;
@@ -646,6 +708,16 @@ function AssistantMessage({
               <span className="message-avatar message-avatar--assistant">Assistant</span>
               <time>{formatMessageTime(message.createdAt)}</time>
               {isStreaming && <span className="assistant-live-status">Streaming locally</span>}
+              {message.ragUsed && (
+                <span className="rag-context-badge">
+                  {message.rerankingUsed
+                    ? "Used reranked document context"
+                    : "Used document context"}
+                </span>
+              )}
+              {message.compressionUsed && (
+                <span className="rag-context-badge">Context compressed</span>
+              )}
             </div>
             <div className="assistant-response-card__meta" aria-label="Response metadata">
               <span>{generationTime}</span>
@@ -674,6 +746,17 @@ function AssistantMessage({
               <span className="assistant-stream-cursor" aria-hidden="true" />
             )}
 
+            {retrievalWarnings.length > 0 && (
+              <div
+                aria-label="Retrieval warnings"
+                className="rag-warning-list"
+                role="status"
+              >
+                {retrievalWarnings.map((warning) => (
+                  <p key={warning}>{warning}</p>
+                ))}
+              </div>
+            )}
             <SourceCitations onOpenSourceDetails={onOpenSourceDetails} sources={sources} />
           </div>
 

@@ -54,13 +54,232 @@ function SettingsStatusRow({ detail, label, tone = "neutral", value }) {
   );
 }
 
+function capabilityId(item) {
+  if (!item || typeof item !== "object") {
+    return "";
+  }
+  return typeof item.id === "string"
+    ? item.id
+    : typeof item.name === "string"
+      ? item.name
+      : "";
+}
+
+function capabilityLabel(item) {
+  if (!item || typeof item !== "object") {
+    return "";
+  }
+  return (
+    item.label ||
+    item.name ||
+    item.id ||
+    "Unnamed capability"
+  );
+}
+
+function availableCapabilities(capabilities, category) {
+  const items = capabilities?.[category];
+  if (!Array.isArray(items)) {
+    return [];
+  }
+  return items.filter((item) => item?.available !== false && capabilityId(item));
+}
+
+function noneCapability(type) {
+  return {
+    id: "none",
+    label: "None",
+    type,
+    available: true,
+    source: "builtin",
+  };
+}
+
+function capabilityOptions(capabilities, category, { includeNone = false, type = "" } = {}) {
+  const items = availableCapabilities(capabilities, category);
+  const hasNone = items.some((item) => capabilityId(item) === "none");
+  return includeNone && !hasNone ? [noneCapability(type), ...items] : items;
+}
+
+function CapabilitySelect({
+  capabilities,
+  category,
+  emptyLabel,
+  includeNone = false,
+  label,
+  onChange,
+  settingKey,
+  type,
+  value,
+}) {
+  const options = capabilityOptions(capabilities, category, {
+    includeNone,
+    type,
+  });
+  const hasSelectedOption = options.some((item) => capabilityId(item) === value);
+  const selectedUnavailable = Boolean(value && !hasSelectedOption);
+  const selectValue = value || "";
+
+  return (
+    <label className="field">
+      <span className="field__label">{label}</span>
+      <Select
+        disabled={options.length === 0 && !selectedUnavailable}
+        onChange={(event) => onChange({ [settingKey]: event.target.value })}
+        value={selectValue}
+      >
+        {selectedUnavailable && (
+          <option disabled value={value}>
+            {value} (currently unavailable)
+          </option>
+        )}
+        {options.length === 0 && !selectedUnavailable && (
+          <option disabled value="">
+            {emptyLabel}
+          </option>
+        )}
+        {options.map((item) => {
+          const id = capabilityId(item);
+          return (
+            <option key={id} value={id}>
+              {capabilityLabel(item)}
+            </option>
+          );
+        })}
+      </Select>
+      {selectedUnavailable && (
+        <small className="account-note">
+          Saved value is currently unavailable. Refresh local models/tools after
+          installing it.
+        </small>
+      )}
+    </label>
+  );
+}
+
+const CONVERSATION_SETTING_GROUPS = [
+  {
+    title: "Chat Model",
+    fields: [
+      {
+        key: "llmModel",
+        label: "LLM model",
+        category: "llmModels",
+        emptyLabel: "No local LLMs detected",
+        type: "llmModel",
+      },
+    ],
+  },
+  {
+    title: "Embeddings",
+    fields: [
+      {
+        key: "embedderModel",
+        label: "Embedder",
+        category: "embedderModels",
+        emptyLabel: "No local embedders detected",
+        type: "embedderModel",
+      },
+    ],
+  },
+  {
+    title: "OCR / Document Processing",
+    fields: [
+      {
+        key: "ocrEngine",
+        label: "OCR engine",
+        category: "ocrEngines",
+        emptyLabel: "No OCR engines detected",
+        type: "ocrEngine",
+      },
+      {
+        key: "pdfParser",
+        label: "PDF parser",
+        category: "pdfParsers",
+        emptyLabel: "No local PDF parsers detected",
+        type: "pdfParser",
+      },
+    ],
+  },
+  {
+    title: "RAG",
+    fields: [
+      {
+        key: "chunker",
+        label: "Chunker",
+        category: "chunkers",
+        emptyLabel: "No chunkers available",
+        type: "chunker",
+      },
+      {
+        key: "vectorDatabase",
+        label: "Vector database",
+        category: "vectorDatabases",
+        emptyLabel: "No vector databases available",
+        type: "vectorDatabase",
+      },
+      {
+        key: "ragPipeline",
+        label: "RAG pipeline",
+        category: "ragPipelines",
+        emptyLabel: "No RAG pipelines available",
+        type: "ragPipeline",
+      },
+    ],
+  },
+  {
+    title: "Reranking",
+    fields: [
+      {
+        key: "reranker",
+        label: "Reranker",
+        category: "rerankerModels",
+        emptyLabel: "No local rerankers detected",
+        includeNone: true,
+        type: "rerankerModel",
+      },
+    ],
+  },
+  {
+    title: "Context Management",
+    fields: [
+      {
+        key: "contextCompressor",
+        label: "Context compressor",
+        category: "contextCompressors",
+        emptyLabel: "No context compressors available",
+        type: "contextCompressor",
+      },
+    ],
+  },
+  {
+    title: "Vision / Images",
+    fields: [
+      {
+        key: "visionModel",
+        label: "Vision model",
+        category: "visionModels",
+        emptyLabel: "No local vision models detected",
+        includeNone: true,
+        type: "visionModel",
+      },
+    ],
+  },
+];
+
 function AccountPanel({
+  activeConversationSettings = null,
+  activeConversationTitle = "Untitled thread",
   apiKey,
+  capabilities = null,
+  capabilitiesStatus = { status: "idle", message: "" },
   isOpen,
   onApiKeyChange,
   onClose,
+  onConversationSettingsChange = () => {},
   onLogout,
   onModelStatus,
+  onRefreshCapabilities,
   username,
 }) {
   const [draftApiKey, setDraftApiKey] = useState(apiKey);
@@ -74,6 +293,7 @@ function AccountPanel({
   const [selectedModel, setSelectedModel] = useState("");
   const [pendingModel, setPendingModel] = useState("");
   const [modelError, setModelError] = useState("");
+  const [isRefreshingCapabilities, setIsRefreshingCapabilities] = useState(false);
 
   const selectedDefinition = useMemo(
     () =>
@@ -190,6 +410,18 @@ function AccountPanel({
     }
   }
 
+  async function handleRefreshLocalCapabilities() {
+    setIsRefreshingCapabilities(true);
+    try {
+      await Promise.allSettled([
+        refreshModelStatus(),
+        onRefreshCapabilities?.(),
+      ]);
+    } finally {
+      setIsRefreshingCapabilities(false);
+    }
+  }
+
   if (!isOpen) {
     return null;
   }
@@ -202,6 +434,7 @@ function AccountPanel({
   const apiConnected = Boolean(accountStatus?.api_key_active);
   const ollamaConnected = Boolean(modelStatus?.ollama_connected);
   const installedModelCount = modelStatus?.supported_models?.length || 0;
+  const conversationSettings = activeConversationSettings || {};
 
   return (
     <div className="account-overlay" role="presentation" onMouseDown={onClose}>
@@ -251,6 +484,62 @@ function AccountPanel({
               value={installedModelCount ? "Available" : "Empty"}
             />
           </div>
+        </SettingsCard>
+
+        <SettingsCard
+          actions={
+            <Button
+              className="settings-card__text-action"
+              disabled={isRefreshingCapabilities}
+              onClick={handleRefreshLocalCapabilities}
+              type="button"
+              variant="plain"
+            >
+              {isRefreshingCapabilities ? "Refreshing..." : "Refresh local models/tools"}
+            </Button>
+          }
+          description={`These choices apply only to "${activeConversationTitle}". Other chats keep their own settings.`}
+          eyebrow="Conversation"
+          title="Conversation Settings"
+        >
+          {capabilitiesStatus.status === "error" && (
+            <div className="alert alert--warning">
+              {capabilitiesStatus.message}
+            </div>
+          )}
+          {capabilitiesStatus.status === "ready" && capabilitiesStatus.message && (
+            <div className="alert alert--success">
+              {capabilitiesStatus.message}
+            </div>
+          )}
+
+          <div className="stacked-form conversation-settings-form">
+            {CONVERSATION_SETTING_GROUPS.map((group) => (
+              <section className="conversation-settings-group" key={group.title}>
+                <p className="section-kicker">{group.title}</p>
+                {group.fields.map((field) => (
+                  <CapabilitySelect
+                    capabilities={capabilities}
+                    category={field.category}
+                    emptyLabel={field.emptyLabel}
+                    includeNone={field.includeNone}
+                    key={field.key}
+                    label={field.label}
+                    onChange={onConversationSettingsChange}
+                    settingKey={field.key}
+                    type={field.type}
+                    value={conversationSettings[field.key] || ""}
+                  />
+                ))}
+              </section>
+            ))}
+          </div>
+
+          <p className="account-note">
+            Only the chat model affects generation right now. The other values
+            are stored with this conversation for upcoming document and RAG
+            phases.
+          </p>
         </SettingsCard>
 
         <SettingsCard

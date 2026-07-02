@@ -1,7 +1,153 @@
 export const MAX_CHATS = 5;
 export const CHAT_STORAGE_PREFIX = "local-ai-coding-assistant.chats";
 
-export function createChat() {
+export const CONVERSATION_SETTING_KEYS = [
+  "llmModel",
+  "embedderModel",
+  "ocrEngine",
+  "pdfParser",
+  "chunker",
+  "vectorDatabase",
+  "ragPipeline",
+  "reranker",
+  "contextCompressor",
+  "visionModel",
+];
+
+export const BASE_CONVERSATION_SETTINGS = Object.freeze({
+  llmModel: "",
+  embedderModel: "",
+  ocrEngine: "none",
+  pdfParser: "none",
+  chunker: "recursive",
+  vectorDatabase: "chroma",
+  ragPipeline: "basic",
+  reranker: "none",
+  contextCompressor: "none",
+  visionModel: "none",
+});
+
+function cloneSettings(settings) {
+  return { ...settings };
+}
+
+function capabilityId(item) {
+  if (!item || typeof item !== "object") {
+    return "";
+  }
+  return typeof item.id === "string"
+    ? item.id
+    : typeof item.name === "string"
+      ? item.name
+      : "";
+}
+
+function availableCapabilityIds(capabilities, key) {
+  const items = capabilities?.[key];
+  if (!Array.isArray(items)) {
+    return [];
+  }
+
+  return items
+    .filter((item) => item?.available !== false)
+    .map(capabilityId)
+    .filter(Boolean);
+}
+
+function preferredCapability(ids, preferredId) {
+  return (
+    ids.find(
+      (id) => id === preferredId || id.startsWith(`${preferredId}:`),
+    ) || ""
+  );
+}
+
+function firstAvailable(ids) {
+  return ids[0] || "";
+}
+
+export function buildDefaultConversationSettings({
+  activeModel = "",
+  capabilities = null,
+} = {}) {
+  const llmModels = availableCapabilityIds(capabilities, "llmModels");
+  const embedderModels = availableCapabilityIds(capabilities, "embedderModels");
+  const pdfParsers = availableCapabilityIds(capabilities, "pdfParsers");
+
+  return {
+    ...BASE_CONVERSATION_SETTINGS,
+    llmModel:
+      activeModel && (llmModels.length === 0 || llmModels.includes(activeModel))
+        ? activeModel
+        : firstAvailable(llmModels),
+    embedderModel:
+      preferredCapability(embedderModels, "nomic-embed-text") ||
+      firstAvailable(embedderModels),
+    pdfParser:
+      pdfParsers.includes("pymupdf")
+        ? "pymupdf"
+        : pdfParsers.includes("pdfplumber")
+          ? "pdfplumber"
+          : pdfParsers.includes("docling")
+            ? "docling"
+            : "none",
+  };
+}
+
+export function normalizeConversationSettings(settings, defaults = {}) {
+  const source = settings && typeof settings === "object" ? settings : {};
+  const fallback = {
+    ...BASE_CONVERSATION_SETTINGS,
+    ...defaults,
+  };
+
+  return CONVERSATION_SETTING_KEYS.reduce((normalized, key) => {
+    const value = source[key];
+    normalized[key] =
+      typeof value === "string" && value.trim() ? value : fallback[key];
+    return normalized;
+  }, {});
+}
+
+export function normalizeChat(chat, defaultSettings = BASE_CONVERSATION_SETTINGS) {
+  const normalizedSettings = normalizeConversationSettings(
+    chat?.settings,
+    defaultSettings,
+  );
+
+  return {
+    ...chat,
+    messages: chat.messages.filter(
+      (message) =>
+        message &&
+        (message.role === "user" || message.role === "assistant") &&
+        typeof message.content === "string" &&
+        message.content.length > 0,
+    ),
+    settings: normalizedSettings,
+  };
+}
+
+export function normalizeChats(chats, defaultSettings = BASE_CONVERSATION_SETTINGS) {
+  if (!Array.isArray(chats)) {
+    return [createChat(defaultSettings)];
+  }
+
+  const validChats = chats
+    .filter(
+      (chat) =>
+        chat &&
+        typeof chat.id === "string" &&
+        typeof chat.title === "string" &&
+        Array.isArray(chat.messages),
+    )
+    .map((chat) => normalizeChat(chat, defaultSettings))
+    .slice(0, MAX_CHATS);
+
+  return validChats.length > 0 ? validChats : [createChat(defaultSettings)];
+}
+
+export function createChat(defaultSettings = BASE_CONVERSATION_SETTINGS) {
   return {
     id:
       typeof globalThis.crypto?.randomUUID === "function"
@@ -10,6 +156,7 @@ export function createChat() {
     title: "Untitled thread",
     messages: [],
     updatedAt: new Date().toISOString(),
+    settings: cloneSettings(defaultSettings),
   };
 }
 
@@ -17,38 +164,14 @@ export function chatStorageKey(username) {
   return `${CHAT_STORAGE_PREFIX}.${username}`;
 }
 
-export function loadChats(username) {
+export function loadChats(username, defaultSettings = BASE_CONVERSATION_SETTINGS) {
   try {
     const parsed = JSON.parse(
       window.localStorage.getItem(chatStorageKey(username)) || "[]",
     );
-    if (!Array.isArray(parsed)) {
-      return [createChat()];
-    }
-
-    const validChats = parsed
-      .filter(
-        (chat) =>
-          chat &&
-          typeof chat.id === "string" &&
-          typeof chat.title === "string" &&
-          Array.isArray(chat.messages),
-      )
-      .map((chat) => ({
-        ...chat,
-        messages: chat.messages.filter(
-          (message) =>
-            message &&
-            (message.role === "user" || message.role === "assistant") &&
-            typeof message.content === "string" &&
-            message.content.length > 0,
-        ),
-      }))
-      .slice(0, MAX_CHATS);
-
-    return validChats.length > 0 ? validChats : [createChat()];
+    return normalizeChats(parsed, defaultSettings);
   } catch {
-    return [createChat()];
+    return [createChat(defaultSettings)];
   }
 }
 

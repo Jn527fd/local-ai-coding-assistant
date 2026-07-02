@@ -44,10 +44,41 @@ class Settings(BaseSettings):
         ge=12_000,
         le=100_000,
     )
+    context_compression_max_prompt_chars: int = Field(
+        default=12_000,
+        ge=4_000,
+        le=100_000,
+    )
+    context_compression_recent_messages_to_keep: int = Field(
+        default=10,
+        ge=0,
+        le=30,
+    )
+    context_compression_max_retrieved_context_chars: int = Field(
+        default=6_000,
+        ge=1_000,
+        le=50_000,
+    )
+    context_compression_max_summary_chars: int = Field(
+        default=2_000,
+        ge=400,
+        le=20_000,
+    )
     default_model: str = Field(default="qwen3:4b", min_length=1)
     data_directory: Path = PROJECT_ROOT / "data"
     repo_chunk_size: int = Field(default=2000, ge=200, le=20_000)
     rag_top_k: int = Field(default=5, ge=1, le=20)
+    rag_candidate_k: int = Field(default=20, ge=1, le=50)
+    rag_max_top_k: int = Field(default=20, ge=1, le=20)
+    reranker_max_candidates: int = Field(default=50, ge=1, le=50)
+    document_max_upload_bytes: int = Field(
+        default=25 * 1024 * 1024,
+        ge=1024,
+        le=200 * 1024 * 1024,
+    )
+    document_chunk_size: int = Field(default=2000, ge=200, le=20_000)
+    document_max_chunks: int = Field(default=500, ge=1, le=10_000)
+    embedding_batch_size: int = Field(default=16, ge=1, le=128)
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -71,6 +102,18 @@ class Settings(BaseSettings):
         """Return the directory used for generated repository indexes."""
 
         return self.data_directory.expanduser().resolve() / "indexes"
+
+    @property
+    def upload_directory(self) -> Path:
+        """Return the directory used for uploaded document artifacts."""
+
+        return self.data_directory.expanduser().resolve() / "uploads"
+
+    @property
+    def vector_index_directory(self) -> Path:
+        """Return the directory used for local vector indexes."""
+
+        return self.data_directory.expanduser().resolve() / "vector_indexes"
 
     @property
     def resolved_credentials_file(self) -> Path:

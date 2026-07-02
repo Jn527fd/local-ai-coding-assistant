@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+import os
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,20 @@ TEST_API_KEY = "phase-9-test-key"
 TEST_USERNAME = "test-user"
 TEST_PASSWORD = "test-password-123"
 TEST_PASSWORD_HASH = hash_password(TEST_PASSWORD)
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Skip live Ollama tests unless explicitly requested."""
+
+    if os.environ.get("RUN_OLLAMA_TESTS") == "1":
+        return
+
+    skip_live_ollama = pytest.mark.skip(
+        reason="set RUN_OLLAMA_TESTS=1 to run live Ollama tests"
+    )
+    for item in items:
+        if "ollama" in item.keywords:
+            item.add_marker(skip_live_ollama)
 
 
 @pytest.fixture

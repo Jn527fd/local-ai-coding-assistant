@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { Button, Textarea } from "./ui.jsx";
 
@@ -37,11 +37,26 @@ function PlusIcon() {
 function Composer({
   activeChat,
   composerRef,
+  documentError = "",
+  documentIndexes = [],
+  documentSearchBusy = false,
+  documentSearchError = "",
+  documentSearchQuery = "",
+  documentSearchResults = [],
+  documentSearchWarnings = [],
+  documents = [],
+  indexingDocumentId = "",
+  isUploadingDocument = false,
   isSending,
   message,
+  onIndexDocument,
   onMessageChange,
+  onSearchDocuments,
+  onSearchQueryChange,
   onSendMessage,
+  onUploadDocument,
 }) {
+  const fileInputRef = useRef(null);
   const [focused, setFocused] = useState(false);
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
@@ -57,6 +72,17 @@ function Composer({
     }
     return SLASH_COMMANDS.filter((item) => item.command.startsWith(slashQuery));
   }, [slashQuery]);
+
+  const indexedDocumentIds = useMemo(() => {
+    const ids = new Set();
+    documentIndexes.forEach((index) => {
+      if (!Array.isArray(index?.documentIds)) {
+        return;
+      }
+      index.documentIds.forEach((documentId) => ids.add(documentId));
+    });
+    return ids;
+  }, [documentIndexes]);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -94,6 +120,15 @@ function Composer({
   function applySlashCommand(item) {
     const nextValue = message.replace(/(^|\s)\/[a-z]*$/i, `$1${item.prompt}`);
     applyPrompt(nextValue.trimStart());
+  }
+
+  async function handleFileChange(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !onUploadDocument) {
+      return;
+    }
+    await onUploadDocument(file);
   }
 
   function handleMessageChange(event) {
@@ -150,13 +185,24 @@ function Composer({
           Message assistant
         </label>
         <button
-          aria-label="Attach file"
+          aria-label="Attach document"
           className="composer-attach-button"
-          title="Attachment placeholder"
+          disabled={!activeChat || isUploadingDocument}
+          onClick={() => fileInputRef.current?.click()}
+          title="Attach document"
           type="button"
         >
           <PlusIcon />
         </button>
+        <input
+          accept=".txt,.md,.pdf"
+          aria-label="Document upload"
+          className="composer-file-input"
+          disabled={!activeChat || isUploadingDocument}
+          onChange={handleFileChange}
+          ref={fileInputRef}
+          type="file"
+        />
         <Textarea
           aria-controls={slashOpen ? "slash-command-menu" : undefined}
           disabled={!activeChat}
@@ -210,6 +256,113 @@ function Composer({
               ))
             ) : (
               <p className="composer-empty-menu">No matching command.</p>
+            )}
+          </div>
+        )}
+
+        {(documents.length > 0 || documentError || isUploadingDocument) && (
+          <div className="document-tray" aria-live="polite">
+            {isUploadingDocument && (
+              <span className="document-chip document-chip--working">
+                Processing document...
+              </span>
+            )}
+            {documentError && (
+              <span className="document-chip document-chip--error">
+                {documentError}
+              </span>
+            )}
+            {documents.map((document) => (
+              <span
+                className={`document-chip document-chip--${document.status || "uploaded"}`}
+                key={document.documentId}
+                title={document.originalFilename || "Document"}
+              >
+                <strong>{document.originalFilename || "Document"}</strong>
+                <small>
+                  {document.status === "processed"
+                    ? `${document.chunkCount || 0} chunks`
+                    : document.status || "uploaded"}
+                </small>
+                {document.status === "processed" && onIndexDocument && (
+                  <Button
+                    className="document-chip__action"
+                    disabled={indexingDocumentId === document.documentId}
+                    onClick={() => onIndexDocument(document)}
+                    type="button"
+                    variant="plain"
+                  >
+                    {indexingDocumentId === document.documentId
+                      ? "Indexing"
+                      : indexedDocumentIds.has(document.documentId)
+                        ? "Reindex"
+                        : "Index"}
+                  </Button>
+                )}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {(documentIndexes.length > 0 ||
+          documentSearchResults.length > 0 ||
+          documentSearchError ||
+          documentSearchWarnings.length > 0) && (
+          <div className="document-search-panel">
+            <div className="document-search-controls">
+              <input
+                aria-label="Search indexed documents"
+                className="document-search-input"
+                disabled={!activeChat || documentSearchBusy}
+                onChange={(event) => onSearchQueryChange?.(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    onSearchDocuments?.();
+                  }
+                }}
+                placeholder="Search indexed documents"
+                type="search"
+                value={documentSearchQuery}
+              />
+              <Button
+                disabled={!activeChat || documentSearchBusy || !documentSearchQuery.trim()}
+                onClick={() => onSearchDocuments?.()}
+                type="button"
+                variant="secondary"
+              >
+                {documentSearchBusy ? "Searching..." : "Search"}
+              </Button>
+            </div>
+
+            {documentSearchError && (
+              <p className="document-search-message document-search-message--error">
+                {documentSearchError}
+              </p>
+            )}
+            {documentSearchWarnings.map((warning) => (
+              <p className="document-search-message" key={warning}>
+                {warning}
+              </p>
+            ))}
+            {documentSearchResults.length > 0 && (
+              <div className="document-search-results">
+                {documentSearchResults.map((result) => (
+                  <article
+                    className="document-search-result"
+                    key={`${result.collectionId}:${result.chunkId}`}
+                  >
+                    <div>
+                      <strong>{result.documentName || "Document"}</strong>
+                      <span>
+                        score {Number(result.score || 0).toFixed(3)} · chunk{" "}
+                        {result.chunkIndex ?? 0}
+                      </span>
+                    </div>
+                    <p>{result.text}</p>
+                  </article>
+                ))}
+              </div>
             )}
           </div>
         )}

@@ -42,14 +42,17 @@ function errorMessageFromDetail(detail, status) {
   return `Request failed with status ${status}.`;
 }
 
-async function request(path, { method = "GET", apiKey = "", body } = {}) {
+async function request(
+  path,
+  { method = "GET", apiKey = "", body, formData } = {},
+) {
   const headers = {};
 
   if (apiKey) {
     headers.Authorization = `Bearer ${apiKey}`;
   }
 
-  if (body !== undefined) {
+  if (body !== undefined && formData === undefined) {
     headers["Content-Type"] = "application/json";
   }
 
@@ -59,7 +62,12 @@ async function request(path, { method = "GET", apiKey = "", body } = {}) {
       method,
       headers,
       credentials: "include",
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body:
+        formData !== undefined
+          ? formData
+          : body === undefined
+            ? undefined
+            : JSON.stringify(body),
     });
   } catch {
     throw new ApiError(
@@ -135,6 +143,10 @@ export function getModelStatus() {
   return request("/models/status");
 }
 
+export function getComponentCapabilities() {
+  return request("/components/capabilities");
+}
+
 export function switchModel(model) {
   return request("/models/switch", {
     method: "POST",
@@ -142,12 +154,139 @@ export function switchModel(model) {
   });
 }
 
-export function sendChat(apiKey, message, history = []) {
+export function sendChat(
+  apiKey,
+  message,
+  history = [],
+  conversationSettings = null,
+  conversationId = "",
+  ragOptions = null,
+) {
+  const body = { message, history };
+  if (conversationId) {
+    body.conversationId = conversationId;
+  }
+  if (conversationSettings) {
+    body.conversationSettings = conversationSettings;
+  }
+  if (ragOptions) {
+    body.ragOptions = ragOptions;
+  }
+
   return request("/chat", {
     method: "POST",
     apiKey,
-    body: { message, history },
+    body,
   });
+}
+
+export function uploadDocument(
+  apiKey,
+  conversationId,
+  file,
+  conversationSettings = null,
+) {
+  const formData = new FormData();
+  formData.append("conversationId", conversationId);
+  if (conversationSettings) {
+    formData.append("conversationSettings", JSON.stringify(conversationSettings));
+  }
+  formData.append("file", file);
+
+  return request("/documents/upload", {
+    method: "POST",
+    apiKey,
+    formData,
+  });
+}
+
+export function processDocument(
+  apiKey,
+  documentId,
+  conversationId,
+  conversationSettings = null,
+) {
+  return request(`/documents/${encodeURIComponent(documentId)}/process`, {
+    method: "POST",
+    apiKey,
+    body: {
+      conversationId,
+      conversationSettings,
+    },
+  });
+}
+
+export function listDocuments(apiKey, conversationId) {
+  const params = new URLSearchParams({ conversationId });
+  return request(`/documents?${params.toString()}`, { apiKey });
+}
+
+export function getDocument(apiKey, documentId, conversationId) {
+  const params = new URLSearchParams({ conversationId });
+  return request(
+    `/documents/${encodeURIComponent(documentId)}?${params.toString()}`,
+    { apiKey },
+  );
+}
+
+export function getDocumentChunks(apiKey, documentId, conversationId) {
+  const params = new URLSearchParams({ conversationId });
+  return request(
+    `/documents/${encodeURIComponent(documentId)}/chunks?${params.toString()}`,
+    { apiKey },
+  );
+}
+
+export function indexDocument(
+  apiKey,
+  documentId,
+  conversationId,
+  conversationSettings = null,
+) {
+  return request(`/documents/${encodeURIComponent(documentId)}/index`, {
+    method: "POST",
+    apiKey,
+    body: {
+      conversationId,
+      conversationSettings,
+    },
+  });
+}
+
+export function searchDocuments(
+  apiKey,
+  conversationId,
+  query,
+  conversationSettings = null,
+  { documentIds = [], topK = 5 } = {},
+) {
+  return request("/documents/search", {
+    method: "POST",
+    apiKey,
+    body: {
+      conversationId,
+      query,
+      conversationSettings,
+      documentIds,
+      topK,
+    },
+  });
+}
+
+export function listDocumentIndexes(apiKey, conversationId) {
+  const params = new URLSearchParams({ conversationId });
+  return request(`/documents/indexes?${params.toString()}`, { apiKey });
+}
+
+export function deleteDocumentIndex(apiKey, collectionId, conversationId) {
+  const params = new URLSearchParams({ conversationId });
+  return request(
+    `/documents/indexes/${encodeURIComponent(collectionId)}?${params.toString()}`,
+    {
+      method: "DELETE",
+      apiKey,
+    },
+  );
 }
 
 export function indexLocalRepository(apiKey, path) {

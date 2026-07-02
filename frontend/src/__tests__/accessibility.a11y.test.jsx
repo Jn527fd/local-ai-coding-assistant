@@ -52,8 +52,8 @@ describe("accessibility", () => {
 
     await screen.findByText("Where should we begin?");
 
-    expect(screen.getByRole("button", { name: /open ask workspace/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /new chat/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /menu and recents/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /open account settings/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^settings$/i })).toBeInTheDocument();
   });
 });

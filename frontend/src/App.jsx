@@ -1,11 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { checkHealth, getCurrentUser, getModelStatus, logout, sendChat } from "./api.js";
 import {
+  checkHealth,
+  getComponentCapabilities,
+  getCurrentUser,
+  getModelStatus,
+  indexDocument,
+  listDocumentIndexes,
+  listDocuments,
+  logout,
+  processDocument,
+  searchDocuments,
+  sendChat,
+  uploadDocument,
+} from "./api.js";
+import {
+  buildDefaultConversationSettings,
   chatStorageKey,
   createChat,
   loadChats,
   MAX_CHATS,
+  normalizeChats,
+  normalizeConversationSettings,
   titleFromMessage,
 } from "./chatState.js";
 import AccountPanel from "./components/AccountPanel.jsx";
@@ -29,6 +45,11 @@ function App() {
   );
   const [accountOpen, setAccountOpen] = useState(false);
   const [modelStatus, setModelStatus] = useState(null);
+  const [capabilities, setCapabilities] = useState(null);
+  const [capabilitiesStatus, setCapabilitiesStatus] = useState({
+    status: "idle",
+    message: "",
+  });
   const [apiStatus, setApiStatus] = useState({
     status: "checking",
     message: "Checking backend connection...",
@@ -37,6 +58,16 @@ function App() {
   const [chats, setChats] = useState([]);
   const [activeChatId, setActiveChatId] = useState("");
   const [sendingChatId, setSendingChatId] = useState("");
+  const [documentsByChat, setDocumentsByChat] = useState({});
+  const [documentIndexesByChat, setDocumentIndexesByChat] = useState({});
+  const [documentBusy, setDocumentBusy] = useState(false);
+  const [documentError, setDocumentError] = useState("");
+  const [indexingDocumentId, setIndexingDocumentId] = useState("");
+  const [documentSearchQuery, setDocumentSearchQuery] = useState("");
+  const [documentSearchResults, setDocumentSearchResults] = useState([]);
+  const [documentSearchWarnings, setDocumentSearchWarnings] = useState([]);
+  const [documentSearchBusy, setDocumentSearchBusy] = useState(false);
+  const [documentSearchError, setDocumentSearchError] = useState("");
   const [draftMessage, setDraftMessage] = useState("");
   const [chatError, setChatError] = useState("");
   const [toast, setToast] = useState(null);
@@ -54,11 +85,27 @@ function App() {
     () => chats.find((chat) => chat.id === activeChatId) || null,
     [activeChatId, chats],
   );
+  const activeDocuments = useMemo(
+    () => documentsByChat[activeChatId] || [],
+    [activeChatId, documentsByChat],
+  );
+  const activeDocumentIndexes = useMemo(
+    () => documentIndexesByChat[activeChatId] || [],
+    [activeChatId, documentIndexesByChat],
+  );
   const dialogChat = useMemo(
     () => chats.find((chat) => chat.id === chatDialog.chatId) || null,
     [chatDialog.chatId, chats],
   );
   const activeModel = modelStatus?.active_model || "";
+  const defaultConversationSettings = useMemo(
+    () =>
+      buildDefaultConversationSettings({
+        activeModel,
+        capabilities,
+      }),
+    [activeModel, capabilities],
+  );
 
   const focusComposer = useCallback((nextMessage = "") => {
     if (nextMessage) {
@@ -79,6 +126,29 @@ function App() {
     const status = await getModelStatus();
     setModelStatus(status);
     return status;
+  }, []);
+
+  const refreshCapabilities = useCallback(async () => {
+    setCapabilitiesStatus({
+      status: "checking",
+      message: "Checking local models and tools...",
+    });
+
+    try {
+      const result = await getComponentCapabilities();
+      setCapabilities(result);
+      setCapabilitiesStatus({
+        status: "ready",
+        message: "Local models and tools refreshed.",
+      });
+      return result;
+    } catch (error) {
+      setCapabilitiesStatus({
+        status: "error",
+        message: error.message,
+      });
+      return null;
+    }
   }, []);
 
   const refreshApiStatus = useCallback(async () => {
@@ -102,16 +172,82 @@ function App() {
     }
   }, []);
 
+  const refreshDocuments = useCallback(
+    async (conversationId) => {
+      if (!apiKey || !conversationId) {
+        return [];
+      }
+
+      try {
+        const result = await listDocuments(apiKey, conversationId);
+        const documents = Array.isArray(result?.documents) ? result.documents : [];
+        setDocumentsByChat((current) => ({
+          ...current,
+          [conversationId]: documents,
+        }));
+        return documents;
+      } catch (error) {
+        setDocumentError(error.message);
+        return [];
+      }
+    },
+    [apiKey],
+  );
+
+  const refreshDocumentIndexes = useCallback(
+    async (conversationId) => {
+      if (!apiKey || !conversationId) {
+        return [];
+      }
+
+      try {
+        const result = await listDocumentIndexes(apiKey, conversationId);
+        const indexes = Array.isArray(result?.indexes) ? result.indexes : [];
+        setDocumentIndexesByChat((current) => ({
+          ...current,
+          [conversationId]: indexes,
+        }));
+        return indexes;
+      } catch (error) {
+        setDocumentSearchError(error.message);
+        return [];
+      }
+    },
+    [apiKey],
+  );
+
+  const initializeAuthenticatedSession = useCallback(
+    async (session) => {
+      const [modelResult, capabilitiesResult] = await Promise.allSettled([
+        refreshModelStatus(),
+        refreshCapabilities(),
+        refreshApiStatus(),
+      ]);
+      const nextModelStatus =
+        modelResult.status === "fulfilled" ? modelResult.value : null;
+      const nextCapabilities =
+        capabilitiesResult.status === "fulfilled"
+          ? capabilitiesResult.value
+          : null;
+      const defaults = buildDefaultConversationSettings({
+        activeModel: nextModelStatus?.active_model || "",
+        capabilities: nextCapabilities,
+      });
+      const savedChats = loadChats(session.username, defaults);
+
+      setUser(session);
+      setChats(savedChats);
+      setActiveChatId(savedChats[0]?.id || "");
+      setAuthState("authenticated");
+    },
+    [refreshApiStatus, refreshCapabilities, refreshModelStatus],
+  );
+
   useEffect(() => {
     async function restoreSession() {
       try {
         const session = await getCurrentUser();
-        const savedChats = loadChats(session.username);
-        setUser(session);
-        setChats(savedChats);
-        setActiveChatId(savedChats[0]?.id || "");
-        setAuthState("authenticated");
-        await Promise.allSettled([refreshModelStatus(), refreshApiStatus()]);
+        await initializeAuthenticatedSession(session);
       } catch {
         setUser(null);
         setAuthState("anonymous");
@@ -119,7 +255,20 @@ function App() {
     }
 
     restoreSession();
-  }, [refreshApiStatus, refreshModelStatus]);
+  }, [initializeAuthenticatedSession]);
+
+  useEffect(() => {
+    if (authState !== "authenticated") {
+      return;
+    }
+
+    setChats((current) => {
+      const normalized = normalizeChats(current, defaultConversationSettings);
+      return JSON.stringify(normalized) === JSON.stringify(current)
+        ? current
+        : normalized;
+    });
+  }, [authState, defaultConversationSettings]);
 
   useEffect(() => {
     if (authState !== "authenticated" || !user) {
@@ -128,6 +277,24 @@ function App() {
 
     window.localStorage.setItem(chatStorageKey(user.username), JSON.stringify(chats));
   }, [authState, chats, user]);
+
+  useEffect(() => {
+    if (authState !== "authenticated" || !activeChatId || !apiKey) {
+      return;
+    }
+
+    refreshDocuments(activeChatId);
+    refreshDocumentIndexes(activeChatId);
+    setDocumentSearchResults([]);
+    setDocumentSearchWarnings([]);
+    setDocumentSearchError("");
+  }, [
+    activeChatId,
+    apiKey,
+    authState,
+    refreshDocumentIndexes,
+    refreshDocuments,
+  ]);
 
   useEffect(() => {
     if (authState !== "authenticated") {
@@ -143,13 +310,7 @@ function App() {
   }, [authState, refreshApiStatus, refreshModelStatus]);
 
   function handleLogin(session) {
-    const savedChats = loadChats(session.username);
-    setUser(session);
-    setChats(savedChats);
-    setActiveChatId(savedChats[0]?.id || "");
-    setAuthState("authenticated");
-    refreshModelStatus().catch(() => setModelStatus(null));
-    refreshApiStatus();
+    initializeAuthenticatedSession(session);
   }
 
   async function handleLogout() {
@@ -160,8 +321,20 @@ function App() {
       setUser(null);
       setAuthState("anonymous");
       setModelStatus(null);
+      setCapabilities(null);
+      setCapabilitiesStatus({ status: "idle", message: "" });
       setChats([]);
       setActiveChatId("");
+      setDocumentsByChat({});
+      setDocumentIndexesByChat({});
+      setDocumentBusy(false);
+      setDocumentError("");
+      setIndexingDocumentId("");
+      setDocumentSearchQuery("");
+      setDocumentSearchResults([]);
+      setDocumentSearchWarnings([]);
+      setDocumentSearchBusy(false);
+      setDocumentSearchError("");
       setDraftMessage("");
     }
   }
@@ -171,21 +344,268 @@ function App() {
     window.localStorage.setItem(API_KEY_STORAGE_KEY, nextKey);
   }
 
+  const getActiveConversationSettings = useCallback(
+    () => normalizeConversationSettings(activeChat?.settings, defaultConversationSettings),
+    [activeChat, defaultConversationSettings],
+  );
+
+  const activeConversationSettings = useMemo(
+    () => getActiveConversationSettings(),
+    [getActiveConversationSettings],
+  );
+
+  const updateConversationSettings = useCallback(
+    (conversationId, patch) => {
+      setChats((current) =>
+        current.map((chat) =>
+          chat.id === conversationId
+            ? {
+                ...chat,
+                settings: normalizeConversationSettings(
+                  {
+                    ...chat.settings,
+                    ...patch,
+                  },
+                  defaultConversationSettings,
+                ),
+                updatedAt: new Date().toISOString(),
+              }
+            : chat,
+        ),
+      );
+    },
+    [defaultConversationSettings],
+  );
+
+  const updateActiveConversationSettings = useCallback(
+    (patch) => {
+      if (!activeChatId) {
+        return;
+      }
+      updateConversationSettings(activeChatId, patch);
+    },
+    [activeChatId, updateConversationSettings],
+  );
+
+  const rememberDocument = useCallback((conversationId, document) => {
+    if (!conversationId || !document?.documentId) {
+      return;
+    }
+
+    setDocumentsByChat((current) => {
+      const existing = current[conversationId] || [];
+      const withoutDocument = existing.filter(
+        (item) => item.documentId !== document.documentId,
+      );
+      return {
+        ...current,
+        [conversationId]: [document, ...withoutDocument],
+      };
+    });
+  }, []);
+
+  const handleUploadDocument = useCallback(
+    async (file) => {
+      if (!apiKey) {
+        setDocumentError("Save and verify your API key before uploading documents.");
+        return false;
+      }
+
+      if (!activeChat) {
+        setDocumentError("Create a chat before uploading documents.");
+        return false;
+      }
+
+      const extension = file.name.split(".").pop()?.toLowerCase() || "";
+      if (!["txt", "md", "pdf"].includes(extension)) {
+        setDocumentError("Only .txt, .md, and .pdf files are supported.");
+        return false;
+      }
+
+      const conversationId = activeChat.id;
+      const conversationSettings = normalizeConversationSettings(
+        activeChat.settings,
+        defaultConversationSettings,
+      );
+
+      setDocumentBusy(true);
+      setDocumentError("");
+
+      try {
+        const uploaded = await uploadDocument(
+          apiKey,
+          conversationId,
+          file,
+          conversationSettings,
+        );
+        rememberDocument(conversationId, uploaded);
+
+        const processed = await processDocument(
+          apiKey,
+          uploaded.documentId,
+          conversationId,
+          conversationSettings,
+        );
+        const processedDocument = processed.document || uploaded;
+        rememberDocument(conversationId, processedDocument);
+        await refreshDocuments(conversationId);
+
+        if (processed.status === "processed") {
+          showToast(
+            `${processedDocument.originalFilename || file.name} processed (${processed.chunkCount || 0} chunks).`,
+            "success",
+          );
+        } else {
+          setDocumentError(processed.error || "Document processing failed.");
+          showToast("Document uploaded, but processing failed.", "error");
+        }
+        return processed.status === "processed";
+      } catch (error) {
+        setDocumentError(error.message);
+        showToast("Document upload failed.", "error");
+        return false;
+      } finally {
+        setDocumentBusy(false);
+      }
+    },
+    [
+      activeChat,
+      apiKey,
+      defaultConversationSettings,
+      refreshDocuments,
+      rememberDocument,
+      showToast,
+    ],
+  );
+
+  const handleIndexDocument = useCallback(
+    async (document) => {
+      if (!apiKey) {
+        setDocumentSearchError("Save and verify your API key before indexing documents.");
+        return false;
+      }
+
+      if (!activeChat || !document?.documentId) {
+        return false;
+      }
+
+      if (document.status !== "processed") {
+        setDocumentSearchError("Process the document before indexing it.");
+        return false;
+      }
+
+      const conversationSettings = normalizeConversationSettings(
+        activeChat.settings,
+        defaultConversationSettings,
+      );
+      setIndexingDocumentId(document.documentId);
+      setDocumentSearchError("");
+
+      try {
+        const result = await indexDocument(
+          apiKey,
+          document.documentId,
+          activeChat.id,
+          conversationSettings,
+        );
+        await refreshDocumentIndexes(activeChat.id);
+        showToast(
+          `${document.originalFilename || "Document"} indexed (${result.indexedChunks || 0} chunks).`,
+          "success",
+        );
+        return true;
+      } catch (error) {
+        setDocumentSearchError(error.message);
+        showToast("Document indexing failed.", "error");
+        return false;
+      } finally {
+        setIndexingDocumentId("");
+      }
+    },
+    [
+      activeChat,
+      apiKey,
+      defaultConversationSettings,
+      refreshDocumentIndexes,
+      showToast,
+    ],
+  );
+
+  const handleSearchDocuments = useCallback(async () => {
+    const query = documentSearchQuery.trim();
+    if (!query) {
+      setDocumentSearchError("");
+      setDocumentSearchResults([]);
+      return false;
+    }
+
+    if (!apiKey) {
+      setDocumentSearchError("Save and verify your API key before searching documents.");
+      return false;
+    }
+
+    if (!activeChat) {
+      setDocumentSearchError("Create a chat before searching documents.");
+      return false;
+    }
+
+    const conversationSettings = normalizeConversationSettings(
+      activeChat.settings,
+      defaultConversationSettings,
+    );
+    setDocumentSearchBusy(true);
+    setDocumentSearchError("");
+    setDocumentSearchWarnings([]);
+
+    try {
+      const result = await searchDocuments(
+        apiKey,
+        activeChat.id,
+        query,
+        conversationSettings,
+        { topK: 5 },
+      );
+      setDocumentSearchResults(
+        Array.isArray(result?.results) ? result.results : [],
+      );
+      setDocumentSearchWarnings(
+        Array.isArray(result?.warnings) ? result.warnings : [],
+      );
+      return true;
+    } catch (error) {
+      setDocumentSearchError(error.message);
+      setDocumentSearchResults([]);
+      return false;
+    } finally {
+      setDocumentSearchBusy(false);
+    }
+  }, [
+    activeChat,
+    apiKey,
+    defaultConversationSettings,
+    documentSearchQuery,
+  ]);
+
   const handleNewChat = useCallback(() => {
     if (chats.length >= MAX_CHATS) {
       setChatError("You already have five chats. Delete one before creating another.");
       return;
     }
 
-    const nextChat = createChat();
+    const nextChat = createChat(defaultConversationSettings);
     setChats((current) => [nextChat, ...current]);
     setActiveChatId(nextChat.id);
     setChatError("");
+    setDocumentError("");
     setCurrentSection("ask");
     setDraftMessage("");
+    setDocumentSearchQuery("");
+    setDocumentSearchResults([]);
+    setDocumentSearchWarnings([]);
+    setDocumentSearchError("");
     focusComposer();
     showToast("New private thread ready.", "success");
-  }, [chats.length, focusComposer, showToast]);
+  }, [chats.length, defaultConversationSettings, focusComposer, showToast]);
 
   function handleDeleteChat(chatId = activeChat?.id) {
     const targetChat = chats.find((chat) => chat.id === chatId);
@@ -206,7 +626,7 @@ function App() {
     setChats((current) => {
       const remaining = current.filter((chat) => chat.id !== targetChat.id);
       if (remaining.length === 0) {
-        const replacement = createChat();
+        const replacement = createChat(defaultConversationSettings);
         setActiveChatId(replacement.id);
         return [replacement];
       }
@@ -336,12 +756,31 @@ function App() {
         typeof globalThis.performance?.now === "function"
           ? globalThis.performance.now()
           : Date.now();
-      const result = await sendChat(apiKey, message, history);
+      const conversationSettings = normalizeConversationSettings(
+        activeChat.settings,
+        defaultConversationSettings,
+      );
+      const result = await sendChat(
+        apiKey,
+        message,
+        history,
+        conversationSettings,
+        chatId,
+      );
       const generationEndedAt =
         typeof globalThis.performance?.now === "function"
           ? globalThis.performance.now()
           : Date.now();
       const sources = Array.isArray(result.sources) ? result.sources : [];
+      const ragWarnings = Array.isArray(result.ragWarnings)
+        ? result.ragWarnings
+        : [];
+      const rerankWarnings = Array.isArray(result.rerankWarnings)
+        ? result.rerankWarnings
+        : [];
+      const compressionWarnings = Array.isArray(result.compressionWarnings)
+        ? result.compressionWarnings
+        : [];
       setChats((current) =>
         current.map((chat) =>
           chat.id === chatId
@@ -354,6 +793,15 @@ function App() {
                     content: result.answer,
                     generationTimeMs: Math.max(0, Math.round(generationEndedAt - generationStartedAt)),
                     model: result.model || result.model_used || activeModel || "Local model",
+                    ragUsed: Boolean(result.ragUsed),
+                    ragWarnings,
+                    rerankingUsed: Boolean(result.rerankingUsed),
+                    rerankerModel: result.rerankerModel || "",
+                    rerankWarnings,
+                    compressionUsed: Boolean(result.compressionUsed),
+                    compressorMode: result.compressorMode || "none",
+                    compressionWarnings,
+                    compressionStats: result.compressionStats || null,
                     sources,
                     createdAt: new Date().toISOString(),
                   },
@@ -460,7 +908,12 @@ function App() {
           setActiveChatId(chatId);
           setCurrentSection("ask");
           setChatError("");
+          setDocumentError("");
           setDraftMessage("");
+          setDocumentSearchQuery("");
+          setDocumentSearchResults([]);
+          setDocumentSearchWarnings([]);
+          setDocumentSearchError("");
           setRecentsDrawerOpen(false);
         }}
         onSelectSection={setCurrentSection}
@@ -480,10 +933,24 @@ function App() {
     <Composer
       activeChat={activeChat}
       composerRef={composerRef}
+      documentError={documentError}
+      documentIndexes={activeDocumentIndexes}
+      documents={activeDocuments}
+      documentSearchBusy={documentSearchBusy}
+      documentSearchError={documentSearchError}
+      documentSearchQuery={documentSearchQuery}
+      documentSearchResults={documentSearchResults}
+      documentSearchWarnings={documentSearchWarnings}
+      indexingDocumentId={indexingDocumentId}
+      isUploadingDocument={documentBusy}
       isSending={sendingChatId === activeChatId}
       message={draftMessage}
+      onIndexDocument={handleIndexDocument}
       onMessageChange={setDraftMessage}
+      onSearchDocuments={handleSearchDocuments}
+      onSearchQueryChange={setDocumentSearchQuery}
       onSendMessage={handleSendMessage}
+      onUploadDocument={handleUploadDocument}
     />
   );
 
@@ -554,12 +1021,18 @@ function App() {
     <AppLayout
       accountPanel={
         <AccountPanel
+          activeConversationSettings={activeConversationSettings}
+          activeConversationTitle={activeChat?.title || "Untitled thread"}
           apiKey={apiKey}
+          capabilities={capabilities}
+          capabilitiesStatus={capabilitiesStatus}
           isOpen={accountOpen}
           onApiKeyChange={handleApiKeyChange}
           onClose={() => setAccountOpen(false)}
+          onConversationSettingsChange={updateActiveConversationSettings}
           onLogout={handleLogout}
           onModelStatus={setModelStatus}
+          onRefreshCapabilities={refreshCapabilities}
           username={user.username}
         />
       }

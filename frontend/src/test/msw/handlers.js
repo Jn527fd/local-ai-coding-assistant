@@ -1,6 +1,6 @@
 import { delay, http, HttpResponse } from "msw";
 
-export const API_BASE_URL = "http://localhost:8000";
+export const API_BASE_URL = "*";
 
 const models = [
   {
@@ -42,6 +42,99 @@ export function modelStatus(overrides = {}) {
   };
 }
 
+export function componentCapabilities(overrides = {}) {
+  return {
+    llmModels: models.map((model) => ({
+      id: model.name,
+      label: model.label,
+      type: "llmModel",
+      available: true,
+      source: "ollama",
+      name: model.name,
+      size: model.size_bytes,
+      details: {
+        family: model.family,
+        parameterSize: model.parameter_size,
+        quantizationLevel: model.quantization_level,
+      },
+    })),
+    embedderModels: [
+      {
+        id: "nomic-embed-text:latest",
+        label: "nomic-embed-text:latest",
+        type: "embedderModel",
+        available: true,
+        source: "ollama",
+        name: "nomic-embed-text:latest",
+      },
+    ],
+    rerankerModels: [],
+    visionModels: [],
+    ocrEngines: [
+      {
+        id: "none",
+        label: "None",
+        type: "ocrEngine",
+        available: true,
+        source: "builtin",
+      },
+    ],
+    pdfParsers: [
+      {
+        id: "pymupdf",
+        label: "PyMuPDF",
+        type: "pdfParser",
+        available: true,
+        source: "local",
+      },
+    ],
+    chunkers: [
+      { id: "fixed", label: "Fixed", type: "chunker", available: true },
+      { id: "recursive", label: "Recursive", type: "chunker", available: true },
+    ],
+    vectorDatabases: [
+      {
+        id: "chroma",
+        label: "Chroma",
+        type: "vectorDatabase",
+        available: true,
+      },
+    ],
+    ragPipelines: [
+      { id: "basic", label: "Basic", type: "ragPipeline", available: true },
+    ],
+    contextCompressors: [
+      {
+        id: "none",
+        label: "None",
+        type: "contextCompressor",
+        available: true,
+      },
+    ],
+    unknownOllamaModels: [],
+    ...overrides,
+  };
+}
+
+const documentsByConversation = new Map();
+const indexesByConversation = new Map();
+
+function rememberDocument(conversationId, document) {
+  const existing = documentsByConversation.get(conversationId) || [];
+  const withoutDocument = existing.filter(
+    (item) => item.documentId !== document.documentId,
+  );
+  documentsByConversation.set(conversationId, [document, ...withoutDocument]);
+}
+
+function rememberIndex(conversationId, collection) {
+  const existing = indexesByConversation.get(conversationId) || [];
+  const withoutCollection = existing.filter(
+    (item) => item.collectionId !== collection.collectionId,
+  );
+  indexesByConversation.set(conversationId, [collection, ...withoutCollection]);
+}
+
 export const runtimeOnlineHandlers = [
   http.get(`${API_BASE_URL}/health`, () => HttpResponse.json({ status: "ok" })),
   http.post(`${API_BASE_URL}/auth/login`, () =>
@@ -67,6 +160,9 @@ export const runtimeOnlineHandlers = [
     });
   }),
   http.get(`${API_BASE_URL}/models/status`, () => HttpResponse.json(modelStatus())),
+  http.get(`${API_BASE_URL}/components/capabilities`, () =>
+    HttpResponse.json(componentCapabilities()),
+  ),
   http.post(`${API_BASE_URL}/models/switch`, async ({ request }) => {
     const body = await request.json();
     return HttpResponse.json(
@@ -81,6 +177,166 @@ export const runtimeOnlineHandlers = [
       model: "qwen3:4b",
       answer: `Fake Ollama answer for: ${body.message}`,
       sources: ["backend/app/main.py", "frontend/src/App.jsx"],
+    });
+  }),
+  http.post(`${API_BASE_URL}/documents/upload`, async ({ request }) => {
+    const formData = await request.formData();
+    const conversationId = String(formData.get("conversationId") || "chat-1");
+    const file = formData.get("file");
+    const document = {
+      documentId:
+        globalThis.crypto?.randomUUID?.() || `doc-${Date.now()}`,
+      conversationId,
+      originalFilename: file?.name || "Document",
+      status: "uploaded",
+      chunkCount: 0,
+      createdAt: new Date().toISOString(),
+    };
+    rememberDocument(conversationId, document);
+    return HttpResponse.json(document);
+  }),
+  http.post(`${API_BASE_URL}/documents/:documentId/process`, async ({ params, request }) => {
+    const body = await request.json();
+    const conversationId = body.conversationId || "chat-1";
+    const existing = documentsByConversation
+      .get(conversationId)
+      ?.find((item) => item.documentId === params.documentId);
+    const document = {
+      ...(existing || {
+        documentId: params.documentId,
+        conversationId,
+        originalFilename: "Document",
+      }),
+      status: "processed",
+      chunkCount: 3,
+      processedAt: new Date().toISOString(),
+    };
+    rememberDocument(conversationId, document);
+    return HttpResponse.json({
+      document,
+      documentId: document.documentId,
+      conversationId,
+      status: "processed",
+      chunkCount: 3,
+      charLength: 120,
+      warnings: [],
+      error: null,
+    });
+  }),
+  http.post(`${API_BASE_URL}/documents/:documentId/index`, async ({ params, request }) => {
+    const body = await request.json();
+    const conversationId = body.conversationId || "chat-1";
+    const collection = {
+      collectionId: "json-demo",
+      conversationId,
+      embedderModel:
+        body.conversationSettings?.embedderModel || "nomic-embed-text:latest",
+      vectorDatabase:
+        body.conversationSettings?.vectorDatabase || "chroma",
+      documentIds: [params.documentId],
+      recordCount: 3,
+      updatedAt: new Date().toISOString(),
+      source: "json",
+    };
+    rememberIndex(conversationId, collection);
+    return HttpResponse.json({
+      collection,
+      collectionId: collection.collectionId,
+      conversationId,
+      documentId: params.documentId,
+      indexedChunks: 3,
+      embedderModel: collection.embedderModel,
+      vectorDatabase: collection.vectorDatabase,
+      internalStore: "json",
+      warning: "Using local JSON vector store.",
+    });
+  }),
+  http.post(`${API_BASE_URL}/documents/search`, async ({ request }) => {
+    const body = await request.json();
+    return HttpResponse.json({
+      conversationId: body.conversationId,
+      query: body.query,
+      embedderModel:
+        body.conversationSettings?.embedderModel || "nomic-embed-text:latest",
+      vectorDatabase:
+        body.conversationSettings?.vectorDatabase || "chroma",
+      topK: body.topK || 5,
+      warnings: [],
+      results: [
+        {
+          score: 0.91,
+          collectionId: "json-demo",
+          documentId: "doc-demo",
+          documentName: "notes.txt",
+          chunkId: "doc-demo:0",
+          chunkIndex: 0,
+          text: `Mock document result for ${body.query}`,
+          metadata: { chunker: "recursive" },
+        },
+      ],
+    });
+  }),
+  http.get(`${API_BASE_URL}/documents`, ({ request }) => {
+    const url = new URL(request.url);
+    const conversationId = url.searchParams.get("conversationId") || "";
+    return HttpResponse.json({
+      conversationId,
+      documents: documentsByConversation.get(conversationId) || [],
+    });
+  }),
+  http.get(`${API_BASE_URL}/documents/indexes`, ({ request }) => {
+    const url = new URL(request.url);
+    const conversationId = url.searchParams.get("conversationId") || "";
+    return HttpResponse.json({
+      conversationId,
+      indexes: indexesByConversation.get(conversationId) || [],
+    });
+  }),
+  http.delete(`${API_BASE_URL}/documents/indexes/:collectionId`, ({ params, request }) => {
+    const url = new URL(request.url);
+    const conversationId = url.searchParams.get("conversationId") || "";
+    const existing = indexesByConversation.get(conversationId) || [];
+    indexesByConversation.set(
+      conversationId,
+      existing.filter((item) => item.collectionId !== params.collectionId),
+    );
+    return HttpResponse.json({
+      deleted: true,
+      collectionId: params.collectionId,
+      conversationId,
+    });
+  }),
+  http.get(`${API_BASE_URL}/documents/:documentId`, ({ params, request }) => {
+    const url = new URL(request.url);
+    const conversationId = url.searchParams.get("conversationId") || "";
+    const document = documentsByConversation
+      .get(conversationId)
+      ?.find((item) => item.documentId === params.documentId);
+    return document
+      ? HttpResponse.json(document)
+      : HttpResponse.json({ detail: "Document was not found." }, { status: 404 });
+  }),
+  http.get(`${API_BASE_URL}/documents/:documentId/chunks`, ({ params, request }) => {
+    const url = new URL(request.url);
+    const conversationId = url.searchParams.get("conversationId") || "";
+    return HttpResponse.json({
+      documentId: params.documentId,
+      conversationId,
+      status: "processed",
+      chunks: [
+        {
+          chunkId: `${params.documentId}:0`,
+          documentId: params.documentId,
+          conversationId,
+          index: 0,
+          text: "Mock document chunk",
+          charStart: 0,
+          charEnd: 19,
+          charLength: 19,
+          tokenEstimate: 5,
+          metadata: { chunker: "recursive" },
+        },
+      ],
     });
   }),
   http.post(`${API_BASE_URL}/repos/index-local`, () =>

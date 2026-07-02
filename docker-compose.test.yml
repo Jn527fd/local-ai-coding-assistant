@@ -1,0 +1,22 @@
+name: local-ai-coding-assistant-test
+
+services:
+  backend-test:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.test
+    environment:
+      APP_ENVIRONMENT: test
+      API_KEY: phase-9-test-key
+      RUN_OLLAMA_TESTS: "0"
+      OLLAMA_BASE_URL: http://ollama.test
+    command: ["python", "-m", "pytest"]
+
+  frontend-test:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.test
+    environment:
+      CI: "true"
+      VITE_API_BASE_URL: http://127.0.0.1:8000
+    command: ["sh", "-c", "npm run lint && npm run test:run && npm run build"]

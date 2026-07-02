@@ -10,12 +10,14 @@
     "lint": "node scripts/lint-check.mjs",
     "typecheck": "node scripts/typecheck-check.mjs",
     "test": "vitest run",
+    "test:run": "vitest run",
+    "test:unit": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:a11y": "vitest run src/**/*.a11y.test.jsx src/**/*.a11y.test.js",
-    "test:ci": "vitest run --coverage && playwright test"
+    "test:ci": "npm run lint && npm run test:run && npm run build"
   },
   "dependencies": {
     "react": "^18.3.1",

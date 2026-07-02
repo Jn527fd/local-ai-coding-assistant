@@ -6,15 +6,26 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from app.ai.compressors import ContextCompressionManager
+from app.ai.embedders import OllamaEmbedderProvider
+from app.ai.execution_context import AISettingsResolver
+from app.ai.pipelines import DocumentRetrievalPipeline
+from app.ai.providers import OllamaLLMProvider
+from app.ai.rerankers import OllamaRerankerProvider
+from app.ai.vectorstores import JsonVectorStore
 from app.config import Settings, get_settings
 from app.auth.credentials import CredentialsService
 from app.auth.session import SessionService
 from app.routers.account import router as account_router
 from app.routers.auth import router as auth_router
 from app.routers.chat import router as chat_router
+from app.routers.components import router as components_router
+from app.routers.documents import router as documents_router
 from app.routers.health import router as health_router
 from app.routers.models import router as models_router
 from app.routers.repos import router as repos_router
+from app.services.component_registry import ComponentRegistry
+from app.services.document_service import DocumentService
 from app.services.local_settings_service import LocalSettingsService
 from app.services.model_manager import ModelManager
 from app.services.ollama_service import OllamaService
@@ -55,6 +66,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         local_settings=local_settings_service,
         default_model=app_settings.default_model,
     )
+    component_registry = ComponentRegistry(
+        ollama_service=model_manager.ollama_service,
+    )
+    document_service = DocumentService(
+        upload_directory=app_settings.upload_directory,
+        max_upload_bytes=app_settings.document_max_upload_bytes,
+        chunk_size=app_settings.document_chunk_size,
+        max_chunks=app_settings.document_max_chunks,
+    )
+    vector_store = JsonVectorStore(
+        index_directory=app_settings.vector_index_directory,
+    )
+    ai_settings_resolver = AISettingsResolver(
+        component_registry=component_registry,
+    )
+    llm_provider = OllamaLLMProvider(
+        ollama_service=model_manager.ollama_service,
+    )
+    embedder_provider = OllamaEmbedderProvider(
+        ollama_service=model_manager.ollama_service,
+    )
+    reranker_provider = OllamaRerankerProvider(
+        ollama_service=model_manager.ollama_service,
+    )
+    retrieval_pipeline = DocumentRetrievalPipeline(
+        embedder_provider=embedder_provider,
+        vector_store=vector_store,
+    )
+    context_compression_manager = ContextCompressionManager(
+        llm_provider=llm_provider,
+    )
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
@@ -68,6 +110,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.state.session_service = session_service
         application.state.local_settings_service = local_settings_service
         application.state.model_manager = model_manager
+        application.state.component_registry = component_registry
+        application.state.document_service = document_service
+        application.state.vector_store = vector_store
+        application.state.ai_settings_resolver = ai_settings_resolver
+        application.state.llm_provider = llm_provider
+        application.state.embedder_provider = embedder_provider
+        application.state.reranker_provider = reranker_provider
+        application.state.retrieval_pipeline = retrieval_pipeline
+        application.state.context_compression_manager = context_compression_manager
         try:
             yield
         finally:
@@ -86,6 +137,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.session_service = session_service
     application.state.local_settings_service = local_settings_service
     application.state.model_manager = model_manager
+    application.state.component_registry = component_registry
+    application.state.document_service = document_service
+    application.state.vector_store = vector_store
+    application.state.ai_settings_resolver = ai_settings_resolver
+    application.state.llm_provider = llm_provider
+    application.state.embedder_provider = embedder_provider
+    application.state.reranker_provider = reranker_provider
+    application.state.retrieval_pipeline = retrieval_pipeline
+    application.state.context_compression_manager = context_compression_manager
 
     application.add_middleware(
         CORSMiddleware,
@@ -100,6 +160,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(auth_router)
     application.include_router(account_router)
     application.include_router(models_router)
+    application.include_router(components_router)
+    application.include_router(documents_router)
     application.include_router(chat_router)
     application.include_router(repos_router)
 

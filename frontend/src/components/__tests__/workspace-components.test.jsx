@@ -156,19 +156,16 @@ describe("Workspace / Conversation / Composer", () => {
     expect(screen.queryByRole("button", { name: /index repository/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /configure models/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /drop a local folder here/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: /ask about your codebase/i })).toHaveAttribute(
+    expect(screen.getByRole("textbox", { name: /message assistant/i })).toHaveAttribute(
       "placeholder",
       "Ask anything",
     );
-    expect(screen.getByRole("button", { name: /open composer model selector/i })).toBeInTheDocument();
     expect(screen.queryByText(/No repository/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /explain this repository/i })).not.toBeInTheDocument();
     expect(screen.queryByText("0 files")).not.toBeInTheDocument();
   });
 
-  it("renders a repository-ready empty state with summary and prompt shortcuts", async () => {
-    const user = userEvent.setup();
-
+  it("keeps the generic empty state when legacy repository metadata is present", () => {
     render(
       <WorkspaceHarness
         hasIndexedRepository
@@ -181,19 +178,9 @@ describe("Workspace / Conversation / Composer", () => {
       />,
     );
 
-    expect(screen.getByText("Repository ready")).toBeInTheDocument();
-    expect(
-      screen.getByText("local-ai-coding-assistant is indexed and ready."),
-    ).toBeInTheDocument();
-    expect(screen.getByText("42")).toBeInTheDocument();
-    expect(screen.getByText("Python, JavaScript")).toBeInTheDocument();
-    expect(screen.getByText("2026-06-25 12:00")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /trace the auth flow/i }));
-
-    expect(screen.getByRole("textbox", { name: /ask about your codebase/i })).toHaveValue(
-      "Trace the auth flow in local-ai-coding-assistant",
-    );
+    expect(screen.getByText("Where should we begin?")).toBeInTheDocument();
+    expect(screen.queryByText("Repository ready")).not.toBeInTheDocument();
+    expect(screen.queryByText("local-ai-coding-assistant is indexed and ready.")).not.toBeInTheDocument();
   });
 
   it("submits with Ctrl+Enter and opens source details from citations", async () => {
@@ -234,14 +221,14 @@ describe("Workspace / Conversation / Composer", () => {
 
     render(<WorkspaceHarness />);
 
-    await user.type(screen.getByRole("textbox", { name: /ask about your codebase/i }), "/te");
+    await user.type(screen.getByRole("textbox", { name: /message assistant/i }), "/te");
 
     expect(screen.getByRole("listbox", { name: /slash commands/i })).toBeInTheDocument();
 
     await user.keyboard("{Enter}");
 
-    expect(screen.getByRole("textbox", { name: /ask about your codebase/i })).toHaveValue(
-      "/tests Generate tests for the selected flow",
+    expect(screen.getByRole("textbox", { name: /message assistant/i })).toHaveValue(
+      "/tests Review coverage for the selected flow",
     );
   });
 });
@@ -259,11 +246,11 @@ describe("CommandPalette", () => {
       />,
     );
 
-    await user.type(screen.getByPlaceholderText(/search, ask, or run/i), "model");
-    await user.click(screen.getByRole("button", { name: /switch model/i }));
+    await user.type(screen.getByPlaceholderText(/search, ask, or run/i), "settings");
+    await user.click(screen.getByRole("button", { name: /open settings/i }));
 
     expect(screen.queryByText("Clear thread")).not.toBeInTheDocument();
-    expect(onRunCommand).toHaveBeenCalledWith("switch-model");
+    expect(onRunCommand).toHaveBeenCalledWith("settings");
   });
 });
 

@@ -417,35 +417,75 @@ Important inference settings:
 | `OLLAMA_KEEP_ALIVE` | `10m` | Keep the active model loaded between requests |
 | `CHAT_CONTEXT_MAX_CHARS` | `12000` | Bound conversation context size |
 | `RAG_TOP_K` | `5` | Maximum retrieved chunks added to a RAG prompt |
+| `RAG_CANDIDATE_K` | `20` | Default candidate chunks fetched before reranking |
+| `RAG_MAX_TOP_K` | `20` | Hard cap for requested RAG result count |
+| `RERANKER_MAX_CANDIDATES` | `50` | Hard cap for reranker candidate scoring |
+| `DOCUMENT_MAX_UPLOAD_BYTES` | `26214400` | Maximum uploaded document size |
+| `DOCUMENT_MAX_CHUNKS` | `500` | Maximum chunks kept from one processed document |
+| `EMBEDDING_BATCH_SIZE` | `16` | Maximum chunks embedded per local batch |
 
 Real `.env`, credentials, application settings, generated indexes, virtual
 environments, dependencies, and build output are excluded by `.gitignore`.
 
 ## Testing
 
-The test suite uses isolated temporary configuration and a fake Ollama service,
-so it does not require a model download, Docker, or network access:
+The default test path is hermetic. Backend tests use temporary local
+configuration and mocked Ollama clients; frontend unit tests use MSW handlers;
+browser tests can boot `tests/fakes/fake_ollama.py`. No default test requires
+Ollama, a GPU, downloaded models, host data, or network access.
 
 ```bash
-source .venv/bin/activate
-python -m pip install -r backend/requirements-dev.txt
-python -m pytest
+python -m pip install -r requirements-dev.txt
+npm --prefix frontend install
 
-cd frontend
-npm test
+make test-backend
+make test-frontend
+make test
 ```
 
-Current coverage includes:
+Dockerized checks build clean test images from the committed dependency files:
 
-- Health and application metadata
-- Missing and invalid Bearer authentication
-- Login, logout, and invalid local credentials
-- API-key persistence and status checks
-- Dynamic local model discovery and installed-model reuse
-- Mocked chat generation and context-size regression protection
-- Ollama generation limits and request options
-- Frontend API-host resolution for LAN access
-- Login session-cookie verification before entering the dashboard
+```bash
+make test-backend-docker
+make test-frontend-docker
+make test-docker
+```
+
+Quick smoke checks are also available:
+
+```bash
+make smoke
+make smoke-docker
+```
+
+Live Ollama tests are opt-in and skipped by default. They never run unless
+`RUN_OLLAMA_TESTS=1` is set:
+
+```bash
+RUN_OLLAMA_TESTS=1 make test-ollama
+OLLAMA_TEST_MODEL=qwen3:4b RUN_OLLAMA_TESTS=1 make test-ollama
+```
+
+CPU-friendly live app-flow smoke tests are also opt-in. They use tiny models
+only to validate wiring on a CPU laptop:
+
+```bash
+make setup-ollama-smoke
+RUN_OLLAMA_TESTS=1 make test-ollama-smoke
+```
+
+The default smoke models are `smollm2:135m` for chat and `all-minilm` for
+embeddings. Set `PULL_RERANKER=1` only if you also want to pull the optional
+reranker smoke model.
+
+Playwright tests remain separate from the default frontend CI script:
+
+```bash
+cd frontend
+npm run test:e2e
+```
+
+See [docs/testing.md](docs/testing.md) for the full testing workflow.
 
 ## Security and Privacy
 
@@ -514,6 +554,7 @@ local-ai-coding-assistant/
 - [Architecture](docs/architecture.md)
 - [API reference](docs/api.md)
 - [Linux Mint setup](docs/setup.md)
+- [Testing](docs/testing.md)
 
 ## Contributing
 

@@ -3226,6 +3226,36 @@ kbd {
   min-width: 0;
 }
 
+.rag-context-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border: 1px solid rgba(47, 128, 237, 0.24);
+  border-radius: var(--radius-pill);
+  color: #1d5ea8;
+  background: rgba(47, 128, 237, 0.1);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.rag-warning-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(181, 92, 0, 0.24);
+  border-radius: var(--radius-control);
+  color: #7a4200;
+  background: rgba(255, 169, 77, 0.12);
+  font-size: 0.78rem;
+}
+
+.rag-warning-list p {
+  margin: 0;
+}
+
 .citation-chip,
 .drawer-source {
   max-width: 100%;
@@ -8136,4 +8166,152 @@ textarea:disabled,
 
 .conversation-scroll {
   padding-bottom: 180px !important;
+}
+
+.composer-file-input {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+.document-tray {
+  grid-column: 1 / -1 !important;
+  grid-row: 3 !important;
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 6px !important;
+  min-width: 0 !important;
+}
+
+.document-chip {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 7px !important;
+  max-width: 100% !important;
+  min-height: 28px !important;
+  padding: 0 9px !important;
+  overflow: hidden !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: 999px !important;
+  color: var(--color-text-subtle) !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+  font-size: 0.72rem !important;
+}
+
+.document-chip strong {
+  overflow: hidden !important;
+  max-width: 220px !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.document-chip small {
+  color: var(--muted-2) !important;
+  white-space: nowrap !important;
+}
+
+.document-chip__action {
+  min-height: 20px !important;
+  padding: 0 3px !important;
+  color: inherit !important;
+  font-size: 0.7rem !important;
+  text-decoration: underline !important;
+  text-underline-offset: 3px !important;
+}
+
+.document-chip--processed {
+  border-color: var(--border-success) !important;
+  color: var(--color-success) !important;
+  background: var(--color-success-soft) !important;
+}
+
+.document-chip--failed,
+.document-chip--error {
+  border-color: var(--border-danger) !important;
+  color: var(--color-danger-text) !important;
+  background: var(--color-danger-soft) !important;
+}
+
+.document-chip--working {
+  border-color: var(--border-primary) !important;
+  color: var(--accent) !important;
+  background: var(--color-primary-softer) !important;
+}
+
+.document-search-panel {
+  grid-column: 1 / -1 !important;
+  display: grid !important;
+  gap: 8px !important;
+  min-width: 0 !important;
+  padding-top: 2px !important;
+}
+
+.document-search-controls {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  gap: 8px !important;
+  align-items: center !important;
+}
+
+.document-search-input {
+  min-width: 0 !important;
+  height: 36px !important;
+  padding: 0 11px !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: 999px !important;
+  color: var(--text) !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+
+.document-search-message {
+  margin: 0 !important;
+  color: var(--muted) !important;
+  font-size: 0.76rem !important;
+}
+
+.document-search-message--error {
+  color: var(--color-danger-text) !important;
+}
+
+.document-search-results {
+  display: grid !important;
+  gap: 7px !important;
+}
+
+.document-search-result {
+  display: grid !important;
+  gap: 5px !important;
+  padding: 9px 10px !important;
+  overflow: hidden !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: var(--radius-control) !important;
+  background: rgba(255, 255, 255, 0.035) !important;
+}
+
+.document-search-result div {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  justify-content: space-between !important;
+  gap: 6px !important;
+  color: var(--muted-2) !important;
+  font-size: 0.72rem !important;
+}
+
+.document-search-result strong {
+  color: var(--color-text-soft) !important;
+}
+
+.document-search-result p {
+  display: -webkit-box !important;
+  max-height: 4.3em !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+  color: var(--muted) !important;
+  font-size: 0.78rem !important;
+  line-height: 1.45 !important;
+  -webkit-box-orient: vertical !important;
+  -webkit-line-clamp: 3 !important;
 }

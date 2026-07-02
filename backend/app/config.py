@@ -79,6 +79,7 @@ class Settings(BaseSettings):
     document_chunk_size: int = Field(default=2000, ge=200, le=20_000)
     document_max_chunks: int = Field(default=500, ge=1, le=10_000)
     embedding_batch_size: int = Field(default=16, ge=1, le=128)
+    vector_store_backend: str = Field(default="json", min_length=1, max_length=40)
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.ai.vectorstores import VectorStoreManager
 from app.services.component_registry import (
     CAPABILITY_KEYS,
     CAPABILITY_STATUS_DISCOVERY_ONLY,
@@ -223,6 +224,7 @@ def test_component_capabilities_reports_execution_status_for_static_options(
         CAPABILITY_STATUS_FALLBACK,
         False,
     )
+    assert capability_by_id(data, "vectorDatabases", "chroma")["fallbackStore"] == "json"
     assert_execution_metadata(
         capability_by_id(data, "contextCompressors", "token"),
         CAPABILITY_STATUS_IMPLEMENTED,
@@ -233,6 +235,31 @@ def test_component_capabilities_reports_execution_status_for_static_options(
         CAPABILITY_STATUS_FALLBACK,
         False,
     )
+
+
+def test_component_capabilities_reports_chroma_adapter_when_available(
+    app: FastAPI,
+    logged_in_client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(
+        "app.ai.vectorstores.chroma.ChromaVectorStore.package_available",
+        staticmethod(lambda: True),
+    )
+    app.state.component_registry = ComponentRegistry(
+        FakeComponentOllamaService([installed_model("qwen3:4b")]),
+        vector_store_manager=VectorStoreManager(tmp_path / "vectors", backend="json"),
+    )
+
+    response = logged_in_client.get("/components/capabilities")
+
+    assert response.status_code == 200
+    data = response.json()
+    chroma = capability_by_id(data, "vectorDatabases", "chroma")
+    assert_execution_metadata(chroma, CAPABILITY_STATUS_IMPLEMENTED, True)
+    assert chroma["adapter"]["id"] == "chroma"
+    assert chroma["fallbackStore"] == "json"
 
 
 def test_component_capabilities_reports_tool_execution_metadata(
@@ -276,6 +303,32 @@ def test_component_capabilities_reports_tool_execution_metadata(
         capability_by_id(data, "pdfParsers", "docling"),
         CAPABILITY_STATUS_UNAVAILABLE,
         False,
+    )
+
+
+def test_component_capabilities_marks_ocrmypdf_implemented_when_binary_exists(
+    app: FastAPI,
+    logged_in_client: TestClient,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.services.component_registry.find_spec",
+        lambda _name: None,
+    )
+    monkeypatch.setattr(
+        "app.services.component_registry.shutil.which",
+        lambda name: "ocrmypdf" if name == "ocrmypdf" else None,
+    )
+    app.state.component_registry = ComponentRegistry(UnavailableOllamaService())
+
+    response = logged_in_client.get("/components/capabilities")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert_execution_metadata(
+        capability_by_id(data, "ocrEngines", "ocrmypdf"),
+        CAPABILITY_STATUS_IMPLEMENTED,
+        True,
     )
 
 

@@ -280,7 +280,9 @@ Common errors:
 
 Document endpoints are scoped by `conversationId`. Supported uploads are
 `.txt`, `.md`, and `.pdf`. PDFs require an available parser such as PyMuPDF or
-pdfplumber inside the backend runtime.
+pdfplumber inside the backend runtime. When `ocrEngine` is set to `ocrmypdf`
+and the selected parser extracts very little text, processing attempts an
+OCRmyPDF fallback if the `ocrmypdf` binary is available.
 
 Upload uses multipart form data. `conversationSettings` is a JSON string:
 
@@ -323,8 +325,10 @@ curl -X POST http://localhost:8000/documents/DOCUMENT_ID/index \
   }'
 ```
 
-The current phase persists vectors in the local JSON store even when the
+By default, vectors are persisted in the local JSON store even when the
 selected `vectorDatabase` records a future backend such as `chroma`.
+`VECTOR_STORE_BACKEND=chroma` enables the optional Chroma adapter only when the
+`chromadb` Python package is installed; otherwise JSON remains the fallback.
 
 Document artifacts are checked before processing and indexing. Missing
 documents return `404`, invalid requests return `400`, unreadable artifacts
@@ -396,8 +400,9 @@ prompt after vector ranking, optional reranking, and optional compression.
 context. `vectorScore` is the original vector similarity score, `rerankScore`
 is present only when reranking succeeded, and `score` is the final score used
 for the displayed ordering. `textPreview` is normalized and bounded for UI
-display, and `collectionId` identifies the local JSON vector collection that
-produced the source when available.
+display, and `collectionId` identifies the vector collection that produced the
+source when available. Component discovery reports vector backend adapter
+health and JSON fallback metadata.
 
 ## Repository Indexing
 

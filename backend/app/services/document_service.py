@@ -9,7 +9,12 @@ import re
 import uuid
 from typing import Any
 
-from app.ai.components import ComponentNotImplementedError
+from app.ai.ocr import (
+    OCREngineError,
+    OCREngineUnavailableError,
+    OCRmyPDFEngine,
+    PDFOCREngine,
+)
 from app.ai.execution_context import AIExecutionContext
 from app.schemas.chat import ConversationSettings
 
@@ -54,11 +59,17 @@ class DocumentService:
         max_upload_bytes: int,
         chunk_size: int,
         max_chunks: int = 500,
+        ocr_engines: dict[str, PDFOCREngine] | None = None,
     ) -> None:
         self.upload_directory = upload_directory.expanduser().resolve()
         self.max_upload_bytes = max_upload_bytes
         self.chunk_size = chunk_size
         self.max_chunks = max(1, max_chunks)
+        self.ocr_engines = (
+            self._default_ocr_engines()
+            if ocr_engines is None
+            else ocr_engines
+        )
 
     def upload(
         self,
@@ -363,12 +374,11 @@ class DocumentService:
 
         if len(text.strip()) < 20 and execution_context.resolved_ocr_engine != "none":
             try:
-                ocr_result = self._run_ocr(file_path, execution_context)
-                if ocr_result.strip():
-                    text = ocr_result
-            except ComponentNotImplementedError as exc:
-                warnings.append(str(exc))
-            except DocumentServiceError as exc:
+                ocr_text, ocr_warnings = self._run_ocr(file_path, execution_context)
+                warnings.extend(ocr_warnings)
+                if ocr_text.strip():
+                    text = ocr_text
+            except (OCREngineError, DocumentServiceError) as exc:
                 warnings.append(str(exc))
 
         if not text.strip():
@@ -413,13 +423,28 @@ class DocumentService:
         self,
         file_path: Path,
         execution_context: AIExecutionContext,
-    ) -> str:
-        if execution_context.resolved_ocr_engine == "none":
-            return ""
-        raise ComponentNotImplementedError(
-            "OCR engines are discoverable but no OCR extraction adapter is "
-            "registered yet."
+    ) -> tuple[str, list[str]]:
+        engine_id = execution_context.resolved_ocr_engine
+        if engine_id == "none":
+            return "", []
+
+        engine = self.ocr_engines.get(engine_id)
+        if engine is None:
+            raise OCREngineUnavailableError(
+                f"OCR engine '{engine_id}' is not available for PDF OCR execution."
+            )
+
+        result = engine.extract_pdf_text(
+            file_path=file_path,
+            settings={
+                "conversationSettings": execution_context.conversation_settings.model_dump(),
+            },
         )
+        warnings = [
+            f"OCR fallback used '{engine_id}' because selectable PDF text was limited.",
+            *result.warnings,
+        ]
+        return result.text, warnings
 
     def _chunk_text(
         self,
@@ -585,6 +610,13 @@ class DocumentService:
         data.setdefault("documentId", document_id)
         data.setdefault("conversationId", conversation_id)
         return data
+
+    def _default_ocr_engines(self) -> dict[str, PDFOCREngine]:
+        return {
+            "ocrmypdf": OCRmyPDFEngine(
+                text_extractor=self._extract_with_pymupdf,
+            )
+        }
 
     def _fallback_metadata(
         self,

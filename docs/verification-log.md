@@ -378,3 +378,81 @@ Scope:
 - [x] Documentation updated
 - [x] No new critical or high-severity issues introduced
 - [x] Source metadata remains stable across RAG modes
+
+## Phase 11 Real Vector Store Adapter Layer
+
+Date: 2026-07-02
+
+Scope:
+
+- Add a vector store backend protocol and adapter health metadata.
+- Keep `JsonVectorStore` as the default active backend.
+- Add `VectorStoreManager` for backend selection and JSON fallback behavior.
+- Add an optional `ChromaVectorStore` adapter behind the `chromadb` package and
+  `VECTOR_STORE_BACKEND=chroma`.
+- Update component discovery with vector adapter health and JSON fallback
+  metadata.
+- Add vector adapter selection and contract tests, including an optional Chroma
+  contract test that skips when `chromadb` is missing.
+- Document vector backend configuration and fallback behavior.
+- Do not begin Phase 12 OCR expansion.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `.venv\Scripts\python.exe -m pytest tests\test_vector_store_adapters.py tests\test_component_capabilities.py` | Passed | 11 tests passed after fixing staticmethod monkeypatching. |
+| `.venv\Scripts\python.exe -m pytest tests\test_vector_store_adapters.py` | Passed | 5 passed, 1 skipped. Chroma contract skipped because `chromadb` is not installed. |
+| `.venv\Scripts\python.exe -m pytest` | Passed | 94 passed, 5 skipped. Optional live Ollama tests and optional Chroma contract skipped. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe scripts\lint-check.mjs` from `frontend/` | Passed | Frontend lint guard passed for 39 frontend files. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vitest\vitest.mjs run` from `frontend/` | Passed | 8 test files passed, 40 tests passed. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vite\bin\vite.js build` from `frontend/` | Passed | Production build completed successfully. |
+| `git diff --check` | Passed | No whitespace errors. Git reported existing CRLF normalization warnings. |
+
+### Phase 11 Verification Checklist
+
+- [x] Code builds successfully
+- [x] Existing tests pass
+- [x] New tests for this phase pass
+- [x] Linting/static checks pass
+- [x] Documentation updated
+- [x] No new critical or high-severity issues introduced
+- [x] JSON store behavior remains the default and still passes tests
+
+## Phase 12 OCR Expansion
+
+Date: 2026-07-02
+
+Scope:
+
+- Add a PDF OCR provider interface with safe unavailable and execution errors.
+- Add an OCRmyPDF provider for low-text PDF fallback when the `ocrmypdf`
+  binary is installed and selected.
+- Keep other OCR engines discoverable but unwired until provider adapters are
+  added.
+- Preserve normal PDF parsing when selectable text is sufficient.
+- Surface OCR fallback warnings and selected engine metadata in document
+  processing results.
+- Do not begin Phase 13 vision chat.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `.venv\Scripts\python.exe -m pytest tests\test_documents.py tests\test_component_capabilities.py` | Passed | 24 passed, 1 skipped. Optional OCRmyPDF smoke skipped because the binary is not installed. |
+| `.venv\Scripts\python.exe -m pytest tests\test_component_capabilities.py` | Passed | 8 passed. |
+| `.venv\Scripts\python.exe -m pytest` | Passed | 97 passed, 6 skipped. Optional live Ollama, OCRmyPDF binary, and Chroma tests skipped. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe scripts\lint-check.mjs` from `frontend/` | Passed | Frontend lint guard passed for 39 frontend files. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vitest\vitest.mjs run` from `frontend/` | Passed | Initial sandbox run failed because esbuild could not read a parent directory; rerun outside the sandbox passed with 8 test files and 40 tests. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vite\bin\vite.js build` from `frontend/` | Passed | Production build completed successfully. |
+| `git diff --check` | Passed | No whitespace errors. Git reported existing CRLF normalization warnings. |
+
+### Phase 12 Verification Checklist
+
+- [x] Code builds successfully
+- [x] Existing tests pass
+- [x] New tests for this phase pass
+- [x] Linting/static checks pass
+- [x] Documentation updated
+- [x] No new critical or high-severity issues introduced
+- [x] Missing OCR tools never break document processing unexpectedly

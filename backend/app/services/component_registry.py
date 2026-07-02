@@ -3,6 +3,7 @@ from importlib.util import find_spec
 import shutil
 from typing import Any
 
+from app.ai.vectorstores import VectorStoreManager
 from app.services.ollama_service import (
     InstalledOllamaModel,
     OllamaService,
@@ -83,7 +84,7 @@ STATIC_CAPABILITY_METADATA = {
         "chroma": (
             CAPABILITY_STATUS_FALLBACK,
             False,
-            "Selection is recorded; vectors are stored in the local JSON index.",
+            "Optional Chroma adapter is unavailable; vectors use the local JSON index.",
         ),
         "faiss": (
             CAPABILITY_STATUS_FALLBACK,
@@ -180,8 +181,13 @@ def classify_ollama_model(model: InstalledOllamaModel) -> tuple[str, str]:
 class ComponentRegistry:
     """Discover local AI-adjacent capabilities without changing runtime behavior."""
 
-    def __init__(self, ollama_service: OllamaService) -> None:
+    def __init__(
+        self,
+        ollama_service: OllamaService,
+        vector_store_manager: VectorStoreManager | None = None,
+    ) -> None:
         self.ollama_service = ollama_service
+        self.vector_store_manager = vector_store_manager
 
     async def capabilities(self) -> dict[str, list[dict[str, Any]]]:
         """Return a categorized, frontend-friendly capabilities object."""
@@ -195,10 +201,7 @@ class ComponentRegistry:
             "chunker",
             ("fixed", "recursive", "semantic", "document-aware"),
         )
-        capabilities["vectorDatabases"] = self._static_capabilities(
-            "vectorDatabase",
-            ("chroma", "faiss", "qdrant", "lancedb"),
-        )
+        capabilities["vectorDatabases"] = self._vector_databases()
         capabilities["ragPipelines"] = self._static_capabilities(
             "ragPipeline",
             ("basic", "hybrid", "reranked", "graph", "agentic"),
@@ -304,8 +307,12 @@ class ComponentRegistry:
                 capability_id="ocrmypdf",
                 label="OCRmyPDF",
                 capability_type="ocrEngine",
-                packages=("ocrmypdf",),
                 binaries=("ocrmypdf",),
+                available_status=CAPABILITY_STATUS_IMPLEMENTED,
+                available_implemented=True,
+                available_description=(
+                    "Runs OCRmyPDF for low-text PDFs and extracts the OCR text."
+                ),
             ),
             self._local_tool_capability(
                 capability_id="paddleocr",
@@ -354,6 +361,45 @@ class ComponentRegistry:
                 packages=("docling",),
             ),
         ]
+
+    def _vector_databases(self) -> list[dict[str, Any]]:
+        capabilities = self._static_capabilities(
+            "vectorDatabase",
+            ("chroma", "faiss", "qdrant", "lancedb"),
+        )
+        health_items = (
+            self.vector_store_manager.health()
+            if self.vector_store_manager
+            else []
+        )
+        health_by_id = {item.id: item for item in health_items}
+        json_health = health_by_id.get("json")
+        for capability in capabilities:
+            if capability["id"] == "chroma":
+                chroma_health = health_by_id.get("chroma")
+                if chroma_health and chroma_health.available:
+                    self._with_execution_metadata(
+                        capability,
+                        status=CAPABILITY_STATUS_IMPLEMENTED,
+                        implemented=True,
+                        description=chroma_health.description,
+                    )
+                    capability["source"] = chroma_health.source
+                    capability["checks"] = chroma_health.checks
+                    capability["adapter"] = {
+                        "id": chroma_health.id,
+                        "mode": chroma_health.mode,
+                    }
+                elif chroma_health:
+                    capability["checks"] = chroma_health.checks
+                    capability["adapter"] = {
+                        "id": chroma_health.id,
+                        "mode": chroma_health.mode,
+                    }
+            capability["fallbackStore"] = "json"
+            if json_health:
+                capability["fallbackAvailable"] = json_health.available
+        return capabilities
 
     def _static_capabilities(
         self,

@@ -108,6 +108,8 @@ This project demonstrates more than a basic LLM chat interface:
 
 - Upload and process local documents through the backend.
 - Extract PDF text with PyMuPDF or pdfplumber when installed.
+- Runs OCRmyPDF as a safe low-text PDF fallback when that binary is available
+  and selected for the chat.
 - Chunk documents with fixed and recursive chunking modes.
 - Embed chunks with local Ollama embedding models.
 - Store document chunks and vectors in a local JSON-backed index.
@@ -379,8 +381,9 @@ sources can include both vector and rerank scores. When context compression is
 enabled, responses include compression metadata and warnings when trimming or
 fallbacks occur.
 
-OCR expansion and vision chat are not implemented yet. OCR engine discovery is
-present so the UI can show which local tools are available for future phases.
+OCRmyPDF fallback is implemented for scanned or low-text PDFs. Other detected
+OCR engines are surfaced for capability visibility but are not wired into the
+document pipeline yet. Vision chat is not implemented yet.
 
 ### Index a Repository
 
@@ -527,6 +530,7 @@ Important inference settings:
 | `DOCUMENT_CHUNK_SIZE` | `2000` | Target document chunk size |
 | `DOCUMENT_MAX_CHUNKS` | `500` | Maximum chunks kept from one processed document |
 | `EMBEDDING_BATCH_SIZE` | `16` | Maximum chunks embedded per local batch |
+| `VECTOR_STORE_BACKEND` | `json` | Active vector backend; `chroma` is optional when `chromadb` is installed |
 
 Real `.env`, credentials, application settings, generated indexes, virtual
 environments, dependencies, and build output are excluded by `.gitignore`.
@@ -644,8 +648,8 @@ local-ai-coding-assistant/
   names are recorded for compatibility but external Chroma, FAISS, Qdrant, and
   LanceDB backends are not wired yet.
 - Legacy repository RAG still uses keyword overlap.
-- OCR engine discovery exists, and PDF OCR fallback can call supported local
-  tools, but broad OCR expansion and UI workflows are still early.
+- OCRmyPDF fallback exists for low-text PDFs, but broad OCR expansion and UI
+  workflows are still early.
 - Vision model discovery exists, but vision chat is not implemented yet.
 - Semantic and memory context compression modes currently fall back safely to
   implemented compressors.

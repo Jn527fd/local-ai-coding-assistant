@@ -4,6 +4,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.ai.ocr import OCRResult
 from app.ai.execution_context import AISettingsResolver
 from app.routers.chat import get_ollama_service
 from app.services.component_registry import CAPABILITY_KEYS
@@ -34,6 +35,7 @@ def document_capabilities(
     capabilities["ocrEngines"] = [
         capability("none", "ocrEngine"),
         capability("tesseract", "ocrEngine", False),
+        capability("ocrmypdf", "ocrEngine"),
     ]
     capabilities["pdfParsers"] = [
         capability("pymupdf", "pdfParser", False),
@@ -76,18 +78,36 @@ class FakeOllamaService:
         return []
 
 
+class FakePDFOCREngine:
+    engine_id = "ocrmypdf"
+
+    def __init__(self, text: str = "OCR text from scanned PDF") -> None:
+        self.text = text
+        self.calls: list[Path] = []
+
+    def extract_pdf_text(self, file_path: Path, settings: dict[str, object]) -> OCRResult:
+        self.calls.append(file_path)
+        return OCRResult(
+            text=self.text,
+            warnings=["Fake OCR warning."],
+            metadata={"engine": self.engine_id},
+        )
+
+
 def configure_documents(
     app: FastAPI,
     tmp_path: Path,
     capabilities: dict[str, list[dict[str, object]]] | None = None,
     chunk_size: int = 24,
     max_chunks: int = 500,
+    ocr_engines: dict[str, object] | None = None,
 ) -> None:
     app.state.document_service = DocumentService(
         upload_directory=tmp_path / "uploads",
         max_upload_bytes=1024 * 1024,
         chunk_size=chunk_size,
         max_chunks=max_chunks,
+        ocr_engines=ocr_engines,
     )
     app.state.ai_settings_resolver = AISettingsResolver(
         FakeComponentRegistry(capabilities)
@@ -366,6 +386,101 @@ def test_pdf_parser_fallback_is_safe_when_parser_is_unavailable(
     assert summary["status"] == "failed"
     assert summary["document"]["resolvedParser"] == "pdfplumber"
     assert summary["document"]["selectedSettings"]["pdfParser"] == "pymupdf"
+
+
+def test_low_text_pdf_uses_selected_ocr_engine(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    fake_ocr = FakePDFOCREngine("OCR replacement text for scanned PDF")
+    configure_documents(
+        app,
+        tmp_path,
+        document_capabilities(),
+        ocr_engines={"ocrmypdf": fake_ocr},
+    )
+    monkeypatch.setattr(
+        app.state.document_service,
+        "_extract_with_pdfplumber",
+        lambda _path: "tiny",
+    )
+    metadata = upload_document(
+        client,
+        auth_headers,
+        "conversation-a",
+        "scan.pdf",
+        b"%PDF-1.4\nfake low text pdf",
+        {"pdfParser": "pdfplumber", "ocrEngine": "ocrmypdf"},
+        "application/pdf",
+    )
+
+    summary = process_document(
+        client,
+        auth_headers,
+        "conversation-a",
+        metadata["documentId"],
+        {"pdfParser": "pdfplumber", "ocrEngine": "ocrmypdf"},
+    )
+
+    assert summary["status"] == "processed"
+    assert summary["charLength"] == len("OCR replacement text for scanned PDF")
+    assert summary["document"]["resolvedOcrEngine"] == "ocrmypdf"
+    assert any("OCR fallback used 'ocrmypdf'" in warning for warning in summary["warnings"])
+    assert any("Fake OCR warning" in warning for warning in summary["warnings"])
+    assert fake_ocr.calls
+
+
+def test_missing_ocr_engine_warns_without_breaking_selectable_pdf_text(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    capabilities = document_capabilities()
+    capabilities["ocrEngines"] = [
+        capability("none", "ocrEngine"),
+        capability("ocrmypdf", "ocrEngine"),
+    ]
+    configure_documents(app, tmp_path, capabilities, ocr_engines={})
+    monkeypatch.setattr(
+        app.state.document_service,
+        "_extract_with_pdfplumber",
+        lambda _path: "short text",
+    )
+    metadata = upload_document(
+        client,
+        auth_headers,
+        "conversation-a",
+        "short.pdf",
+        b"%PDF-1.4\nfake short text pdf",
+        {"pdfParser": "pdfplumber", "ocrEngine": "ocrmypdf"},
+        "application/pdf",
+    )
+
+    summary = process_document(
+        client,
+        auth_headers,
+        "conversation-a",
+        metadata["documentId"],
+        {"pdfParser": "pdfplumber", "ocrEngine": "ocrmypdf"},
+    )
+
+    assert summary["status"] == "processed"
+    assert summary["charLength"] == len("short text")
+    assert any("not available for PDF OCR" in warning for warning in summary["warnings"])
+
+
+def test_optional_live_ocrmypdf_smoke_skips_when_binary_is_missing() -> None:
+    import shutil
+
+    if shutil.which("ocrmypdf") is None:
+        import pytest
+
+        pytest.skip("ocrmypdf binary is not installed")
 
 
 def test_recursive_and_fixed_chunkers_work(

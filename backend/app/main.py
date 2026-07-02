@@ -12,7 +12,7 @@ from app.ai.execution_context import AISettingsResolver
 from app.ai.pipelines import DocumentRetrievalPipeline
 from app.ai.providers import OllamaLLMProvider
 from app.ai.rerankers import OllamaRerankerProvider
-from app.ai.vectorstores import JsonVectorStore
+from app.ai.vectorstores import VectorStoreManager
 from app.config import Settings, get_settings
 from app.auth.credentials import CredentialsService
 from app.auth.session import SessionService
@@ -66,8 +66,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         local_settings=local_settings_service,
         default_model=app_settings.default_model,
     )
+    vector_store_manager = VectorStoreManager(
+        index_directory=app_settings.vector_index_directory,
+        backend=app_settings.vector_store_backend,
+    )
     component_registry = ComponentRegistry(
         ollama_service=model_manager.ollama_service,
+        vector_store_manager=vector_store_manager,
     )
     document_service = DocumentService(
         upload_directory=app_settings.upload_directory,
@@ -75,9 +80,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         chunk_size=app_settings.document_chunk_size,
         max_chunks=app_settings.document_max_chunks,
     )
-    vector_store = JsonVectorStore(
-        index_directory=app_settings.vector_index_directory,
-    )
+    vector_store = vector_store_manager.default_store()
     ai_settings_resolver = AISettingsResolver(
         component_registry=component_registry,
     )
@@ -112,6 +115,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.state.model_manager = model_manager
         application.state.component_registry = component_registry
         application.state.document_service = document_service
+        application.state.vector_store_manager = vector_store_manager
         application.state.vector_store = vector_store
         application.state.ai_settings_resolver = ai_settings_resolver
         application.state.llm_provider = llm_provider
@@ -139,6 +143,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.model_manager = model_manager
     application.state.component_registry = component_registry
     application.state.document_service = document_service
+    application.state.vector_store_manager = vector_store_manager
     application.state.vector_store = vector_store
     application.state.ai_settings_resolver = ai_settings_resolver
     application.state.llm_provider = llm_provider

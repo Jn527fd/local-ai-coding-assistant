@@ -11,6 +11,7 @@ import shutil
 from typing import Any
 
 from app.ai.components import Chunk, RetrievedChunk
+from app.ai.vectorstores.base import VectorStoreHealth
 
 CONVERSATION_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,100}$")
 COLLECTION_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,120}$")
@@ -44,8 +45,23 @@ class VectorSearchResult:
 class JsonVectorStore:
     """Small local JSON vector store for retrieval-only document search."""
 
+    backend_id = "json"
+    label = "Local JSON"
+
     def __init__(self, index_directory: Path) -> None:
         self.index_directory = index_directory.expanduser().resolve()
+
+    def health(self) -> VectorStoreHealth:
+        return VectorStoreHealth(
+            id=self.backend_id,
+            label=self.label,
+            available=True,
+            implemented=True,
+            source="builtin",
+            mode="direct",
+            description="Default local JSON vector store used by this app.",
+            checks=[],
+        )
 
     @staticmethod
     def collection_id(

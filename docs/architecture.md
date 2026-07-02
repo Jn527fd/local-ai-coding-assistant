@@ -259,19 +259,28 @@ indexed.
 
 PDF text extraction supports PyMuPDF and pdfplumber when installed in the
 backend runtime. Docling is discoverable but not implemented for parsing yet.
-OCR execution is still an implementation gap; OCR-related settings and
-discovery exist so future OCR work can be integrated cleanly.
+When selected and available, OCRmyPDF is used as a fallback for PDFs whose
+parser output has too little selectable text. OCR warnings and resolved engine
+metadata are preserved in document metadata. Other OCR engines remain
+discoverable until provider adapters are added.
 
-## JSON Vector Store
+## Vector Store Adapter Layer
 
-`JsonVectorStore` stores vectors under `DATA_DIRECTORY/vector_indexes`.
-Collections are scoped by conversation, embedder model, and selected vector
-database name. The selected vector database is recorded as metadata, but the
-current implementation persists all vectors in JSON.
+`VectorStoreManager` selects the active vector backend and reports adapter
+health. `JsonVectorStore` remains the default backend and stores vectors under
+`DATA_DIRECTORY/vector_indexes`. Collections are scoped by conversation,
+embedder model, and selected vector database name.
 
 Search computes cosine similarity in Python and returns the top results. This
 is excellent for transparent local testing and small document sets. It is not
 intended to replace Chroma, FAISS, Qdrant, or LanceDB for large collections.
+
+`ChromaVectorStore` is the first optional real backend adapter. It is only
+available when the `chromadb` Python package is installed and
+`VECTOR_STORE_BACKEND=chroma` is configured. If Chroma is not installed or the
+backend is left at the default `json`, document indexing and RAG continue to
+use the JSON store. Component discovery exposes adapter health and JSON
+fallback metadata for vector database settings.
 
 ## Chat, RAG, Reranking, and Compression
 

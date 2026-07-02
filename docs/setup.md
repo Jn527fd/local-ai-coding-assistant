@@ -176,15 +176,17 @@ These support detection for:
 
 - PDF parser: `pymupdf`
 - PDF parser: `pdfplumber`
-- OCR engine: `ocrmypdf`
+- OCR engine and low-text PDF fallback: `ocrmypdf`
 
 Tesseract is a system binary, not a Python-only package. To detect
 `tesseract`, install it in the runtime where the backend actually runs. If the
 backend runs in Docker, install it in the image/container, not only in a host
 virtual environment.
 
-OCR execution is still limited. Detection may show available tools before full
-OCR workflows are implemented.
+When `ocrmypdf` is selected for a chat and the selected PDF parser returns very
+little selectable text, document processing can run OCRmyPDF and extract text
+from the OCR output. Other OCR engines may appear in discovery before they are
+wired into document processing.
 
 ## Documents and RAG
 
@@ -258,7 +260,13 @@ DOCUMENT_MAX_UPLOAD_BYTES=26214400
 DOCUMENT_CHUNK_SIZE=2000
 DOCUMENT_MAX_CHUNKS=500
 EMBEDDING_BATCH_SIZE=16
+VECTOR_STORE_BACKEND=json
 ```
+
+`VECTOR_STORE_BACKEND=json` is the default and requires no extra services.
+`VECTOR_STORE_BACKEND=chroma` uses the optional local Chroma adapter only when
+the `chromadb` Python package is installed in the backend runtime; otherwise
+the app falls back to JSON.
 
 Login sessions are stored in memory and end when the backend restarts. Set
 `SESSION_COOKIE_SECURE=true` only when the site is served over HTTPS.
@@ -410,7 +418,7 @@ Confirm the package or binary exists in the backend runtime:
 ```bash
 docker compose exec backend python -c "import fitz; print('pymupdf ok')"
 docker compose exec backend python -c "import pdfplumber; print('pdfplumber ok')"
-docker compose exec backend python -c "import ocrmypdf; print('ocrmypdf ok')"
+docker compose exec backend which ocrmypdf
 docker compose exec backend which tesseract
 ```
 

@@ -95,6 +95,9 @@ This project demonstrates more than a basic LLM chat interface:
 - Isolated history and context for each conversation.
 - Per-chat settings for LLM, embedder, OCR engine, PDF parser, chunker, vector
   database, RAG pipeline, reranker, context compressor, and vision model.
+- Compact setting status lines show whether a selected capability is
+  implemented, fallback-backed, detected but not wired, planned, or
+  unavailable when that metadata is available.
 - A visible verification button confirms the active chat's selected settings.
 - New chats default to the first available LLM alphabetically.
 - Complete chat deletion so removed messages are excluded from future prompts.

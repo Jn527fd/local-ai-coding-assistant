@@ -3561,6 +3561,28 @@ kbd {
   text-transform: uppercase;
 }
 
+.capability-status {
+  display: block;
+  margin-top: -2px;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.capability-status--success {
+  color: var(--color-success-text);
+}
+
+.capability-status--warning {
+  color: var(--color-warning-text);
+}
+
+.capability-status--muted,
+.capability-status--neutral {
+  color: var(--muted);
+}
+
 input,
 select {
   width: 100%;

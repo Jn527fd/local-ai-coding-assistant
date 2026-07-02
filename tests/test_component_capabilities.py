@@ -1,7 +1,14 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.services.component_registry import CAPABILITY_KEYS, ComponentRegistry
+from app.services.component_registry import (
+    CAPABILITY_KEYS,
+    CAPABILITY_STATUS_DISCOVERY_ONLY,
+    CAPABILITY_STATUS_FALLBACK,
+    CAPABILITY_STATUS_IMPLEMENTED,
+    CAPABILITY_STATUS_UNAVAILABLE,
+    ComponentRegistry,
+)
 from app.services.ollama_service import (
     InstalledOllamaModel,
     OllamaUnavailableError,
@@ -74,6 +81,30 @@ def capability_ids(
     key: str,
 ) -> set[str]:
     return {str(item["id"]) for item in response_json[key]}
+
+
+def capability_by_id(
+    response_json: dict[str, list[dict[str, object]]],
+    key: str,
+    capability_id: str,
+) -> dict[str, object]:
+    return next(item for item in response_json[key] if item["id"] == capability_id)
+
+
+def assert_execution_metadata(
+    item: dict[str, object],
+    status: str,
+    implemented: bool,
+) -> None:
+    assert item["implementationStatus"] == status
+    assert item["implemented"] is implemented
+    assert isinstance(item["execution"], dict)
+    execution = item["execution"]
+    assert execution["status"] == status
+    assert execution["implemented"] is implemented
+    assert isinstance(execution["mode"], str)
+    assert isinstance(execution["description"], str)
+    assert execution["description"]
 
 
 def test_component_capabilities_endpoint_returns_required_categories(
@@ -155,10 +186,97 @@ def test_component_capabilities_categorizes_known_ollama_model_names(
     assert llm["source"] == "ollama"
     assert llm["type"] == "llmModel"
     assert llm["available"] is True
+    assert_execution_metadata(llm, CAPABILITY_STATUS_IMPLEMENTED, True)
     assert llm["name"] == "qwen3:4b"
     assert llm["size"] == 2_500_000_000
     assert llm["modifiedAt"] == "2026-06-27T00:00:00Z"
     assert llm["details"]["family"] == "qwen3"
+
+    vision = capability_by_id(data, "visionModels", "llava:latest")
+    assert_execution_metadata(vision, CAPABILITY_STATUS_DISCOVERY_ONLY, False)
+
+
+def test_component_capabilities_reports_execution_status_for_static_options(
+    app: FastAPI,
+    logged_in_client: TestClient,
+) -> None:
+    app.state.component_registry = ComponentRegistry(
+        FakeComponentOllamaService([installed_model("qwen3:4b")])
+    )
+
+    response = logged_in_client.get("/components/capabilities")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert_execution_metadata(
+        capability_by_id(data, "chunkers", "recursive"),
+        CAPABILITY_STATUS_IMPLEMENTED,
+        True,
+    )
+    assert_execution_metadata(
+        capability_by_id(data, "chunkers", "semantic"),
+        CAPABILITY_STATUS_FALLBACK,
+        False,
+    )
+    assert_execution_metadata(
+        capability_by_id(data, "vectorDatabases", "chroma"),
+        CAPABILITY_STATUS_FALLBACK,
+        False,
+    )
+    assert_execution_metadata(
+        capability_by_id(data, "contextCompressors", "token"),
+        CAPABILITY_STATUS_IMPLEMENTED,
+        True,
+    )
+    assert_execution_metadata(
+        capability_by_id(data, "contextCompressors", "memory"),
+        CAPABILITY_STATUS_FALLBACK,
+        False,
+    )
+
+
+def test_component_capabilities_reports_tool_execution_metadata(
+    app: FastAPI,
+    logged_in_client: TestClient,
+    monkeypatch,
+) -> None:
+    def fake_find_spec(name: str) -> object | None:
+        return object() if name == "pdfplumber" else None
+
+    monkeypatch.setattr(
+        "app.services.component_registry.find_spec",
+        fake_find_spec,
+    )
+    monkeypatch.setattr(
+        "app.services.component_registry.shutil.which",
+        lambda _name: None,
+    )
+    app.state.component_registry = ComponentRegistry(UnavailableOllamaService())
+
+    response = logged_in_client.get("/components/capabilities")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert_execution_metadata(
+        capability_by_id(data, "ocrEngines", "none"),
+        CAPABILITY_STATUS_IMPLEMENTED,
+        True,
+    )
+    assert_execution_metadata(
+        capability_by_id(data, "ocrEngines", "tesseract"),
+        CAPABILITY_STATUS_UNAVAILABLE,
+        False,
+    )
+    assert_execution_metadata(
+        capability_by_id(data, "pdfParsers", "pdfplumber"),
+        CAPABILITY_STATUS_IMPLEMENTED,
+        True,
+    )
+    assert_execution_metadata(
+        capability_by_id(data, "pdfParsers", "docling"),
+        CAPABILITY_STATUS_UNAVAILABLE,
+        False,
+    )
 
 
 def test_component_capabilities_preserves_models_status_behavior(

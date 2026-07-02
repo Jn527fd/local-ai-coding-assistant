@@ -13,7 +13,7 @@ const baseChat = {
   id: "chat-1",
   title: "Architecture thread",
   messages: [],
-  updatedAt: "2026-06-25T12:00:00.000Z",
+  updatedAt: new Date().toISOString(),
 };
 
 const modelStatus = {

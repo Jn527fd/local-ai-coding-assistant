@@ -2,11 +2,10 @@
 
 ## Overview
 
-Local AI Coding Assistant is a self-hosted React and FastAPI application. It
-uses Ollama for local text generation and stores repository indexes as JSON.
-The current retrieval strategy is intentionally simple and explainable:
-question keywords are compared with indexed code and file paths before the
-best chunks are placed into a grounded prompt.
+Local AI Coding Assistant is a self-hosted React and FastAPI application for
+local Ollama chat, per-conversation AI configuration, document indexing, and
+source-grounded RAG. It keeps prompts, uploaded documents, generated indexes,
+credentials, and settings on the local machine.
 
 ```text
 Browser
@@ -14,17 +13,33 @@ Browser
   v
 React frontend
   |
-  | JSON over HTTP
+  | JSON / multipart HTTP
   | HttpOnly login cookie + Authorization: Bearer <API_KEY>
   v
 FastAPI backend
-  |--------------------------|
-  v                          v
-Ollama /api/generate   Repository service
-                              |
-                              v
-                    JSON indexes + retriever
+  |-----------------------------|--------------------------|
+  v                             v                          v
+Ollama service             Document service          Legacy repo RAG
+  |                             |                          |
+  | /api/tags                   v                          v
+  | /api/generate        uploads / chunks JSON       repository JSON indexes
+  | /api/embed                  |
+  v                             v
+component registry        JSON vector store
+                                |
+                                v
+                      retrieval -> optional rerank
+                                |
+                                v
+                     optional context compression
+                                |
+                                v
+                          final chat prompt
 ```
+
+The current production storage model is deliberately simple: local JSON files
+under `data/`. This makes the app easy to inspect and test, but it is not a
+large-scale vector database or multi-user persistence layer.
 
 ## Frontend
 
@@ -32,216 +47,247 @@ The frontend is a React single-page application built by Vite.
 
 ```text
 frontend/src/
-|-- App.jsx
-|-- api.js
+|-- App.jsx                 # Main state container
+|-- api.js                  # Fetch helpers and error handling
+|-- apiBase.js              # Runtime API base URL resolution
+|-- chatState.js            # Browser-local chat/settings persistence
 |-- main.jsx
 |-- styles.css
 `-- components/
-    |-- ChatBox.jsx
-    |-- LoginPage.jsx
-    |-- AccountPanel.jsx
-    `-- StatusPanel.jsx
+    |-- AccountPanel.jsx    # API key, capabilities, per-chat settings
+    |-- Conversation.jsx
+    |-- NavigationRail.jsx
+    |-- Workspace.jsx
+    |-- WorkspaceSidebar.jsx
+    `-- ...
 ```
 
-`App.jsx` restores the HttpOnly login session and owns the browser copy of the
-API key. The key is persisted in local storage and passed to protected
-AI requests. `api.js` centralizes cookies, the Bearer header, JSON
-parsing, network errors, and FastAPI error extraction.
+`App.jsx` currently owns most application state: authentication, API key,
+capabilities, chats, active chat settings, document lists, indexes, search
+results, chat sending, dialogs, and toasts. This is functional but large; a
+future roadmap phase should extract focused hooks.
 
-The components provide:
+Browser-local chat behavior:
 
-- Public backend health checks
-- Local login and logout
-- Account/API-key settings and connection checks
-- Local installed-model switching with progress
-- Direct chat with the active Ollama model
-- Five username-scoped local chats with isolated context and deletion
+- Up to five chats per username are stored in local storage.
+- Each chat stores its own `settings` object.
+- New chat defaults are built from discovered capabilities.
+- The frontend sends the active chat's recent history and settings with each
+  request.
+- The backend does not persist browser chat history.
 
-The earlier repository workspace is intentionally hidden from the dashboard
-while a future upload-oriented flow is designed. Repository endpoints remain
-available through the backend API.
+The Account panel no longer switches one global UI model as the main workflow.
+It exposes Conversation Settings for the active chat and a verification button
+so users can confirm which settings are selected. When the backend provides
+capability execution metadata, each selected setting also shows a compact
+status line such as implemented, fallback, detected but not wired, planned, or
+unavailable.
 
-For production, Vite builds static assets that Nginx serves from the frontend
-container.
-
-## Backend
+## Backend Application
 
 `backend/app/main.py` exposes an application factory. It loads settings,
-configures CORS and startup logging, stores settings on `app.state`, and
-registers the health, chat, and repository routers.
+configures CORS and logging, creates services, stores them on `app.state`, and
+registers routers.
 
 ```text
 backend/app/
 |-- main.py
 |-- config.py
 |-- auth/
-|   |-- api_key.py
-|   |-- credentials.py
-|   |-- session.py
-|   `-- user_session.py
 |-- routers/
 |   |-- auth.py
 |   |-- account.py
 |   |-- models.py
-|   |-- health.py
+|   |-- components.py
+|   |-- documents.py
 |   |-- chat.py
-|   `-- repos.py
+|   |-- repos.py
+|   `-- health.py
 |-- schemas/
 |-- services/
+|   |-- component_registry.py
+|   |-- document_service.py
 |   |-- local_settings_service.py
 |   |-- model_manager.py
 |   |-- ollama_service.py
 |   `-- repo_service.py
-`-- rag/
-    |-- chunker.py
-    |-- indexer.py
-    `-- retriever.py
+|-- ai/
+|   |-- execution_context.py
+|   |-- embedders/
+|   |-- rerankers/
+|   |-- compressors/
+|   |-- pipelines/
+|   `-- vectorstores/
+`-- rag/                    # Legacy repository keyword RAG
 ```
 
-Pydantic request and response models validate all JSON payloads. Blocking
-filesystem indexing and index loading run in Starlette's thread pool so they
-do not block the async request loop.
+Pydantic models validate request bodies. Blocking file work runs in
+Starlette's thread pool where needed.
 
 ## Authentication
 
 The browser login flow verifies salted PBKDF2 hashes from the ignored
 credentials file and creates a random, in-memory session. The session token is
-sent only in an HttpOnly SameSite=Lax cookie. Account and model-management
-routes require this session.
+sent in an HttpOnly SameSite=Lax cookie.
 
-`GET /` and `GET /health` are public. The `/chat` and `/repos` routers retain
-Bearer API-key protection for programmatic and UI requests.
+Session-protected endpoints:
+
+- `/auth/me`
+- `/auth/logout`
+- `/account/*`
+- `/models/*`
+- `/components/*`
+
+Bearer-protected endpoints:
+
+- `/chat`
+- `/documents/*`
+- `/repos/*`
+
+The expected Bearer key comes from ignored `data/config/app-settings.json`,
+with `API_KEY` as a fallback. `hmac.compare_digest` performs the comparison.
+
+This auth model is intended for one operator or a trusted local network. It is
+not a public multi-tenant security model.
+
+## Ollama and Component Discovery
+
+`OllamaService` is the backend boundary around Ollama HTTP calls. It handles:
+
+- `GET /api/tags`
+- `POST /api/generate`
+- embedding endpoints used by the embedder provider
+
+`ComponentRegistry` reuses Ollama model discovery and categorizes local
+models into:
+
+- LLMs
+- embedders
+- rerankers
+- vision models
+- unknown Ollama models
+
+It also checks local Python packages and binaries for OCR engines and PDF
+parsers. Static categories such as chunkers, vector databases, RAG pipelines,
+and context compressors are returned so the frontend can present consistent
+settings. Some static choices are compatibility placeholders or fallback modes
+rather than fully implemented execution paths.
+
+Each capability entry includes explicit execution metadata:
+
+- `implementationStatus` and `implemented` for quick UI decisions.
+- `execution.status`, `execution.mode`, and `execution.description` for
+  user-facing explanation.
+- Package or binary `checks` for local tools.
+
+This metadata is additive. Existing runtime resolution still uses `available`
+and the selected capability ID, so the enriched contract does not change chat,
+document, RAG, reranking, or compression behavior by itself.
+
+## AI Execution Context
+
+`AISettingsResolver` combines the active conversation settings, component
+registry data, and legacy active model fallback into a resolved execution
+context. Chat, document processing, indexing, and search use this resolved
+context to decide which LLM, embedder, parser, chunker, vector database,
+pipeline, reranker, and compressor should be used.
+
+The resolver is the main boundary between frontend settings and backend
+execution. It allows invalid or unavailable choices to produce controlled
+warnings or validation errors instead of crashing.
+
+## Document Pipeline
+
+Document flow:
 
 ```text
-Authorization: Bearer <API_KEY>
-              |
-              v
-HTTPBearer -> constant-time comparison -> route handler
+POST /documents/upload
+  -> validate conversationId, extension, and size
+  -> store original file under data/uploads/<conversation>/<document>
+  -> write metadata.json
+
+POST /documents/{document_id}/process
+  -> resolve conversation settings
+  -> extract text from .txt, .md, or .pdf
+  -> chunk text with fixed or recursive chunking
+  -> write extracted.json, chunks.json, metadata.json
+
+POST /documents/{document_id}/index
+  -> require valid embedderModel
+  -> embed chunks through Ollama
+  -> upsert vectors into local JSON vector store
 ```
 
-The expected key comes from ignored `data/config/app-settings.json`, with
-`API_KEY` as a fallback. `hmac.compare_digest` performs the comparison.
+PDF text extraction supports PyMuPDF and pdfplumber when installed in the
+backend runtime. Docling is discoverable but not implemented for parsing yet.
+OCR execution is still an implementation gap; OCR-related settings and
+discovery exist so future OCR work can be integrated cleanly.
 
-The local login and shared API key are suitable for a private, trusted
-deployment. They are not a replacement for multi-user roles, TLS, or rate
-limiting.
+## JSON Vector Store
 
-## Ollama Integration
+`JsonVectorStore` stores vectors under `DATA_DIRECTORY/vector_indexes`.
+Collections are scoped by conversation, embedder model, and selected vector
+database name. The selected vector database is recorded as metadata, but the
+current implementation persists all vectors in JSON.
 
-`OllamaService` is the only backend component that knows Ollama's HTTP API.
-It sends a non-streaming request to:
+Search computes cosine similarity in Python and returns the top results. This
+is excellent for transparent local testing and small document sets. It is not
+intended to replace Chroma, FAISS, Qdrant, or LanceDB for large collections.
+
+## Chat, RAG, Reranking, and Compression
+
+Chat flow:
 
 ```text
-POST <OLLAMA_BASE_URL>/api/generate
+POST /chat
+  -> authenticate Bearer key
+  -> resolve conversation settings
+  -> optionally retrieve document chunks
+  -> optionally rerank candidates
+  -> optionally compress history/context
+  -> build final prompt
+  -> generate with Ollama
+  -> return answer, warnings, sources, rerank metadata, compression metadata
 ```
 
-The service translates connection failures, timeouts, upstream HTTP failures,
-invalid JSON, and empty model responses into application-specific exceptions.
-Routers map those exceptions to clear `502`, `503`, or `504` responses.
+Document RAG retrieves local vector-indexed chunks when the selected pipeline
+requires retrieval or request `ragOptions` enables it. Sources include stable
+source numbers, vector scores, optional rerank scores, final rank, and text
+previews.
 
-FastAPI dependency injection creates the service from active settings. Tests
-replace that dependency with a fake, so the test suite never calls a real
-model.
+Reranking uses an Ollama generation prompt that asks the selected reranker
+model for a numeric relevance score. This avoids assuming a native Ollama
+rerank endpoint. Failures fall back to vector-ranked order with warnings.
 
-## Model Management
+Compression modes:
 
-`ModelManager` derives the selectable catalog from Ollama's `/api/tags`
-response and exposes every installed model Ollama reports. It preserves
-reported metadata for display when available, but it does not enforce a
-parameter-size ceiling. There is no model-name allowlist and the application
-does not download or delete model files.
+- `none`: unchanged prompt behavior.
+- `token`: deterministic trimming.
+- `summarizer`: LLM summary of older history.
+- `semantic`: currently falls back to token compression.
+- `memory`: currently falls back to summarizer or token compression.
 
-One async lock prevents concurrent switches, and generation endpoints return
-`409` while model state is changing. Mutable state is persisted in ignored
-`data/config/app-settings.json`.
+## Legacy Repository RAG
 
-## Chat Context Lifecycle
-
-The frontend stores at most five chats per username in browser local storage.
-FastAPI is stateless: a chat request contains the current message plus up to 30
-recent messages from only the selected chat. The router formats that explicit
-history into the prompt sent to Ollama. It keeps the newest history that fits
-the configured total-character budget, preventing accumulated assistant
-answers from producing an unbounded prompt. Ollama generation also uses a
-configurable output-token limit and disables extended thinking by default.
-The conversation is independent of the active model, so its retained history
-is passed to the next selected model.
-
-Deleting a chat removes its local-storage record. Because neither FastAPI nor
-Ollama receives a server-side conversation identifier or stores chat history,
-that deleted chat is absent from all future context.
-
-## Repository Indexing
-
-The indexing request flow is:
+Repository indexing remains available through `/repos/index-local` and
+`/repos/ask`.
 
 ```text
 POST /repos/index-local
-  -> authenticate
-  -> resolve and validate directory
-  -> recursively discover supported files
-  -> prune ignored directories
-  -> read UTF-8 text
-  -> split into line-aware chunks
-  -> atomically write data/indexes/<safe-name>.json
-```
+  -> validate directory
+  -> recursively discover supported source files
+  -> split text into line-aware chunks
+  -> write data/indexes/<safe-name>.json
 
-Supported source and documentation formats are `.py`, `.js`, `.jsx`, `.ts`,
-`.tsx`, `.md`, `.json`, `.yaml`, `.yml`, `.html`, and `.css`. The indexer
-ignores `.git`, `node_modules`, `.venv`, `__pycache__`, `dist`, and `build`.
-
-Each JSON index contains:
-
-```json
-{
-  "version": 1,
-  "repo_name": "example",
-  "source_path": "/absolute/path/example",
-  "indexed_at": "UTC timestamp",
-  "files": ["relative/path.py"],
-  "chunks": [
-    {
-      "id": "relative/path.py:1",
-      "file_path": "relative/path.py",
-      "start_line": 1,
-      "end_line": 40,
-      "content": "..."
-    }
-  ],
-  "skipped_files": []
-}
-```
-
-The service writes a temporary file and replaces the destination only after a
-complete JSON serialization, reducing the chance of a partial index.
-
-## RAG Flow
-
-Repository questions use retrieval-augmented generation:
-
-```text
 POST /repos/ask
-  -> authenticate
   -> load repository JSON index
-  -> normalize question terms
-  -> score content and file-path overlap
-  -> choose up to RAG_TOP_K chunks
-  -> build a guarded prompt with paths and line ranges
-  -> generate with the active size-approved local model through Ollama
-  -> return answer and unique source paths
+  -> keyword score chunks
+  -> build guarded prompt
+  -> generate with Ollama
 ```
 
-The tokenizer splits prose, `snake_case`, and `camelCase`, removes common stop
-words, and compares unique terms. Content matches score one point; file-path
-matches receive a two-point bonus. Zero-overlap chunks are excluded.
-
-The prompt instructs the model to use only supplied repository context, treat
-code and comments as untrusted data rather than instructions, and state when
-the available context is insufficient.
-
-Keyword retrieval is transparent and dependency-light, but it cannot reliably
-match synonyms or concepts that use different words. Embeddings are the
-natural next retrieval upgrade.
+This path uses keyword overlap, not embeddings. It is intentionally preserved
+while document RAG evolves separately.
 
 ## Container Deployment
 
@@ -258,40 +304,54 @@ Host LOCAL_REPOS_ROOT     -> /repositories (read-only)
 ```
 
 The backend image uses Python 3.12 and runs as a non-root user whose UID can
-match the Linux host user. The frontend uses a Node build stage followed by a
-small Nginx runtime stage. Both services define health checks and use
+match the host user. The frontend uses a Node build stage followed by an
+Nginx runtime stage. Both services define health checks and use
 `restart: unless-stopped`.
 
 Linux host networking lets the backend reach Ollama on
 `127.0.0.1:11434` without exposing Ollama to the LAN. Repository mounts are
-read-only; only generated indexes are written through the `data/` mount.
+read-only; generated data is written through the `data/` mount.
 
-`VITE_API_BASE_URL=auto` is compiled into the frontend during its Docker build
-by default. At runtime the browser resolves that value to the same hostname or
-IP address used to open the frontend, with port `8000` for FastAPI. Explicit
-non-loopback API URLs are still supported for custom deployments.
+`VITE_API_BASE_URL=auto` is compiled into the frontend by default. At runtime
+the browser resolves it to the same hostname or IP address used to open the
+frontend, with port `8000` for FastAPI.
 
 ## Testing
 
-Pytest creates a fresh FastAPI application with:
+Default tests are hermetic:
 
-- A fixed test-only API key
-- A temporary data directory
-- An Ollama URL that is never contacted
-- A dependency-injected fake Ollama service for chat
+- Backend pytest uses temporary local config and fake/mocked Ollama behavior.
+- Frontend tests use Vitest, Testing Library, MSW, and axe.
+- Docker test images are built from committed dependency files.
+- Optional live Ollama tests are skipped unless `RUN_OLLAMA_TESTS=1`.
 
-The current suite covers public health, missing/invalid authentication, and a
-successful mocked chat request. Frontend `node:test` coverage checks LAN API
-host resolution and login session-cookie verification. The tests run without
-Docker, network access, or Ollama.
+Important commands:
+
+```bash
+make test-backend
+make test-frontend
+make test-docker
+make smoke-docker
+```
+
+The CPU-friendly live Ollama smoke profile is opt-in:
+
+```bash
+make setup-ollama-smoke
+RUN_OLLAMA_TESTS=1 make test-ollama-smoke
+```
 
 ## Trust Boundary and Limits
 
 The application is intended for one operator on a trusted machine or home
-network. An authenticated caller can request indexing of directories readable
-by the backend process. For Docker deployments, the read-only repository mount
-provides a useful filesystem boundary.
+network. Current limits include:
 
-Current limits include one shared API key, non-streaming generation,
-keyword-only retrieval, JSON storage, local-path indexing only, and no
-multi-user isolation.
+- one shared API key
+- in-memory login sessions
+- browser-local chat persistence
+- non-streaming generation
+- JSON vector storage
+- discovery-only or fallback-only component options
+- no vision chat yet
+- incomplete OCR execution
+- no public-internet hardening

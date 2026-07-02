@@ -100,6 +100,60 @@ function capabilityOptions(capabilities, category, { includeNone = false, type =
   return includeNone && !hasNone ? [noneCapability(type), ...items] : items;
 }
 
+function capabilityStatusLabel(status) {
+  switch (status) {
+    case "implemented":
+      return "Implemented";
+    case "fallback":
+      return "Fallback";
+    case "placeholder":
+      return "Planned";
+    case "discovery-only":
+      return "Detected, not wired";
+    case "unavailable":
+      return "Unavailable";
+    default:
+      return "";
+  }
+}
+
+function capabilityStatusTone(status) {
+  switch (status) {
+    case "implemented":
+      return "success";
+    case "fallback":
+      return "warning";
+    case "placeholder":
+    case "discovery-only":
+    case "unavailable":
+      return "muted";
+    default:
+      return "neutral";
+  }
+}
+
+function capabilityExecutionStatus(item) {
+  if (!item || typeof item !== "object") {
+    return "";
+  }
+  if (typeof item.implementationStatus === "string") {
+    return item.implementationStatus;
+  }
+  if (item.execution && typeof item.execution.status === "string") {
+    return item.execution.status;
+  }
+  return "";
+}
+
+function capabilityExecutionDescription(item) {
+  if (!item || typeof item !== "object") {
+    return "";
+  }
+  return item.execution && typeof item.execution.description === "string"
+    ? item.execution.description
+    : "";
+}
+
 function CapabilitySelect({
   capabilities,
   category,
@@ -117,6 +171,10 @@ function CapabilitySelect({
   });
   const hasSelectedOption = options.some((item) => capabilityId(item) === value);
   const selectedUnavailable = Boolean(value && !hasSelectedOption);
+  const selectedCapability = options.find((item) => capabilityId(item) === value);
+  const selectedStatus = capabilityExecutionStatus(selectedCapability);
+  const selectedStatusLabel = capabilityStatusLabel(selectedStatus);
+  const selectedDescription = capabilityExecutionDescription(selectedCapability);
   const selectValue = value || "";
 
   return (
@@ -146,6 +204,15 @@ function CapabilitySelect({
           );
         })}
       </Select>
+      {selectedStatusLabel && (
+        <small
+          className={`capability-status capability-status--${capabilityStatusTone(selectedStatus)}`}
+        >
+          {selectedDescription
+            ? `${selectedStatusLabel}: ${selectedDescription}`
+            : selectedStatusLabel}
+        </small>
+      )}
       {selectedUnavailable && (
         <small className="account-note">
           Saved value is currently unavailable. Refresh local models/tools after

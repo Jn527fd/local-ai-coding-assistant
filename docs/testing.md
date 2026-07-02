@@ -1,11 +1,10 @@
 # Testing
 
-Phase 9 standardizes the local and Dockerized test workflow. The default suite
-is designed to run on a clean machine without Ollama, downloaded models, GPU
-drivers, or host-specific data. Runtime limits such as upload size, document
-chunk count, embedding batch size, `topK`, `candidateK`, and prompt budgets are
-configured through `backend/app/config.py` so tests and Docker runs can use
-conservative defaults.
+The default suite is designed to run on a clean machine without Ollama,
+downloaded models, GPU drivers, or host-specific data. Runtime limits such as
+upload size, document chunk count, embedding batch size, `topK`, `candidateK`,
+and prompt budgets are configured through `backend/app/config.py` so tests and
+Docker runs can use conservative defaults.
 
 ## Local Setup
 

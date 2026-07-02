@@ -50,6 +50,113 @@ VISION_MODEL_MARKERS = (
     "granite3.2-vision",
 )
 
+CAPABILITY_STATUS_IMPLEMENTED = "implemented"
+CAPABILITY_STATUS_FALLBACK = "fallback"
+CAPABILITY_STATUS_PLACEHOLDER = "placeholder"
+CAPABILITY_STATUS_DISCOVERY_ONLY = "discovery-only"
+CAPABILITY_STATUS_UNAVAILABLE = "unavailable"
+
+STATIC_CAPABILITY_METADATA = {
+    "chunker": {
+        "fixed": (
+            CAPABILITY_STATUS_IMPLEMENTED,
+            True,
+            "Splits documents into fixed-size character windows.",
+        ),
+        "recursive": (
+            CAPABILITY_STATUS_IMPLEMENTED,
+            True,
+            "Splits documents on paragraph-aware recursive boundaries.",
+        ),
+        "semantic": (
+            CAPABILITY_STATUS_FALLBACK,
+            False,
+            "Accepted by settings, but currently falls back to recursive chunking.",
+        ),
+        "document-aware": (
+            CAPABILITY_STATUS_FALLBACK,
+            False,
+            "Accepted by settings, but currently falls back to recursive chunking.",
+        ),
+    },
+    "vectorDatabase": {
+        "chroma": (
+            CAPABILITY_STATUS_FALLBACK,
+            False,
+            "Selection is recorded; vectors are stored in the local JSON index.",
+        ),
+        "faiss": (
+            CAPABILITY_STATUS_FALLBACK,
+            False,
+            "Selection is recorded; vectors are stored in the local JSON index.",
+        ),
+        "qdrant": (
+            CAPABILITY_STATUS_FALLBACK,
+            False,
+            "Selection is recorded; vectors are stored in the local JSON index.",
+        ),
+        "lancedb": (
+            CAPABILITY_STATUS_FALLBACK,
+            False,
+            "Selection is recorded; vectors are stored in the local JSON index.",
+        ),
+    },
+    "ragPipeline": {
+        "basic": (
+            CAPABILITY_STATUS_IMPLEMENTED,
+            True,
+            "Uses local vector retrieval when document RAG is enabled.",
+        ),
+        "hybrid": (
+            CAPABILITY_STATUS_IMPLEMENTED,
+            True,
+            "Uses local vector retrieval; keyword/vector fusion is not separate yet.",
+        ),
+        "reranked": (
+            CAPABILITY_STATUS_IMPLEMENTED,
+            True,
+            "Retrieves candidate chunks and reranks them when a reranker is selected.",
+        ),
+        "graph": (
+            CAPABILITY_STATUS_FALLBACK,
+            False,
+            "Accepted by settings, but currently uses the local retrieval path.",
+        ),
+        "agentic": (
+            CAPABILITY_STATUS_FALLBACK,
+            False,
+            "Accepted by settings, but currently uses the local retrieval path.",
+        ),
+    },
+    "contextCompressor": {
+        "none": (
+            CAPABILITY_STATUS_IMPLEMENTED,
+            True,
+            "Leaves chat history and retrieved context unchanged.",
+        ),
+        "summarizer": (
+            CAPABILITY_STATUS_IMPLEMENTED,
+            True,
+            "Summarizes older chat history with the active LLM when needed.",
+        ),
+        "semantic": (
+            CAPABILITY_STATUS_FALLBACK,
+            False,
+            "Accepted by settings, but currently falls back to token compression.",
+        ),
+        "token": (
+            CAPABILITY_STATUS_IMPLEMENTED,
+            True,
+            "Deterministically trims older history and retrieved context to budget.",
+        ),
+        "memory": (
+            CAPABILITY_STATUS_FALLBACK,
+            False,
+            "Accepted by settings, but currently falls back to summarizer or token compression.",
+        ),
+    },
+}
+
 
 def contains_marker(name: str, markers: Iterable[str]) -> bool:
     return any(marker in name for marker in markers)
@@ -109,7 +216,7 @@ class ComponentRegistry:
         for model in installed_models:
             category, capability_type = self._classify_ollama_model(model)
             capabilities[category].append(
-                self._ollama_model_capability(model, capability_type)
+                self._ollama_model_capability(model, category, capability_type)
             )
 
         for key in (
@@ -132,6 +239,7 @@ class ComponentRegistry:
     def _ollama_model_capability(
         self,
         model: InstalledOllamaModel,
+        category: str,
         capability_type: str,
     ) -> dict[str, Any]:
         details = {
@@ -140,7 +248,7 @@ class ComponentRegistry:
             "family": model.family,
             "quantizationLevel": model.quantization_level,
         }
-        return {
+        capability = {
             "id": model.name,
             "label": model.name,
             "type": capability_type,
@@ -152,6 +260,22 @@ class ComponentRegistry:
             "modifiedAt": model.modified_at,
             "details": details,
         }
+        if category in {"visionModels", "unknownOllamaModels"}:
+            return self._with_execution_metadata(
+                capability,
+                status=CAPABILITY_STATUS_DISCOVERY_ONLY,
+                implemented=False,
+                description=(
+                    "Model is discoverable through Ollama, but this capability "
+                    "does not have an execution path in the app yet."
+                ),
+            )
+        return self._with_execution_metadata(
+            capability,
+            status=CAPABILITY_STATUS_IMPLEMENTED,
+            implemented=True,
+            description="Model can be used through the local Ollama provider.",
+        )
 
     def _ocr_engines(self) -> list[dict[str, Any]]:
         return [
@@ -161,6 +285,14 @@ class ComponentRegistry:
                 "type": "ocrEngine",
                 "available": True,
                 "source": "builtin",
+                "implementationStatus": CAPABILITY_STATUS_IMPLEMENTED,
+                "implemented": True,
+                "execution": {
+                    "status": CAPABILITY_STATUS_IMPLEMENTED,
+                    "implemented": True,
+                    "mode": "disabled",
+                    "description": "Disables OCR for document processing.",
+                },
             },
             self._local_tool_capability(
                 capability_id="tesseract",
@@ -202,12 +334,18 @@ class ComponentRegistry:
                 label="PyMuPDF",
                 capability_type="pdfParser",
                 packages=("fitz", "pymupdf"),
+                available_status=CAPABILITY_STATUS_IMPLEMENTED,
+                available_implemented=True,
+                available_description="Extracts selectable PDF text with PyMuPDF.",
             ),
             self._local_tool_capability(
                 capability_id="pdfplumber",
                 label="pdfplumber",
                 capability_type="pdfParser",
                 packages=("pdfplumber",),
+                available_status=CAPABILITY_STATUS_IMPLEMENTED,
+                available_implemented=True,
+                available_description="Extracts selectable PDF text with pdfplumber.",
             ),
             self._local_tool_capability(
                 capability_id="docling",
@@ -222,16 +360,27 @@ class ComponentRegistry:
         capability_type: str,
         capability_ids: Iterable[str],
     ) -> list[dict[str, Any]]:
-        return [
-            {
-                "id": capability_id,
-                "label": self._label_from_id(capability_id),
-                "type": capability_type,
-                "available": True,
-                "source": "static",
-            }
-            for capability_id in capability_ids
-        ]
+        capabilities = []
+        for capability_id in capability_ids:
+            status, implemented, description = self._static_capability_metadata(
+                capability_type,
+                capability_id,
+            )
+            capabilities.append(
+                self._with_execution_metadata(
+                    {
+                        "id": capability_id,
+                        "label": self._label_from_id(capability_id),
+                        "type": capability_type,
+                        "available": True,
+                        "source": "static",
+                    },
+                    status=status,
+                    implemented=implemented,
+                    description=description,
+                )
+            )
+        return capabilities
 
     def _local_tool_capability(
         self,
@@ -240,6 +389,9 @@ class ComponentRegistry:
         capability_type: str,
         packages: Iterable[str] = (),
         binaries: Iterable[str] = (),
+        available_status: str = CAPABILITY_STATUS_DISCOVERY_ONLY,
+        available_implemented: bool = False,
+        available_description: str | None = None,
     ) -> dict[str, Any]:
         checks = [
             {
@@ -257,14 +409,78 @@ class ComponentRegistry:
             }
             for binary in binaries
         )
-        return {
-            "id": capability_id,
-            "label": label,
-            "type": capability_type,
-            "available": any(check["available"] for check in checks),
-            "source": "local",
-            "checks": checks,
+        available = any(check["available"] for check in checks)
+        status = (
+            available_status
+            if available
+            else CAPABILITY_STATUS_UNAVAILABLE
+        )
+        implemented = available and available_implemented
+        return self._with_execution_metadata(
+            {
+                "id": capability_id,
+                "label": label,
+                "type": capability_type,
+                "available": available,
+                "source": "local",
+                "checks": checks,
+            },
+            status=status,
+            implemented=implemented,
+            description=(
+                available_description
+                if available and available_description
+                else "Tool was not detected in the backend runtime."
+                if not available
+                else (
+                    "Tool is detected for capability selection, but full "
+                    "execution is not wired for this capability yet."
+                )
+            ),
+        )
+
+    def _with_execution_metadata(
+        self,
+        capability: dict[str, Any],
+        status: str,
+        implemented: bool,
+        description: str,
+    ) -> dict[str, Any]:
+        capability["implementationStatus"] = status
+        capability["implemented"] = implemented
+        capability["execution"] = {
+            "status": status,
+            "implemented": implemented,
+            "mode": self._execution_mode(status),
+            "description": description,
         }
+        return capability
+
+    def _static_capability_metadata(
+        self,
+        capability_type: str,
+        capability_id: str,
+    ) -> tuple[str, bool, str]:
+        return STATIC_CAPABILITY_METADATA.get(capability_type, {}).get(
+            capability_id,
+            (
+                CAPABILITY_STATUS_PLACEHOLDER,
+                False,
+                "Static option is exposed for compatibility with future phases.",
+            ),
+        )
+
+    @staticmethod
+    def _execution_mode(status: str) -> str:
+        if status == CAPABILITY_STATUS_IMPLEMENTED:
+            return "direct"
+        if status == CAPABILITY_STATUS_FALLBACK:
+            return "fallback"
+        if status == CAPABILITY_STATUS_DISCOVERY_ONLY:
+            return "discovery"
+        if status == CAPABILITY_STATUS_UNAVAILABLE:
+            return "unavailable"
+        return "placeholder"
 
     @staticmethod
     def _python_package_available(package_name: str) -> bool:

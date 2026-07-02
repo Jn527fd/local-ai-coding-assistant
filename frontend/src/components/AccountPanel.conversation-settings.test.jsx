@@ -7,20 +7,98 @@ import AccountPanel from "./AccountPanel.jsx";
 
 const capabilities = {
   llmModels: [
-    { id: "qwen3:4b", label: "qwen3:4b", available: true },
-    { id: "llama3.2:3b", label: "llama3.2:3b", available: true },
+    {
+      id: "qwen3:4b",
+      label: "qwen3:4b",
+      available: true,
+      implementationStatus: "implemented",
+      execution: {
+        description: "Model can be used through the local Ollama provider.",
+      },
+    },
+    {
+      id: "llama3.2:3b",
+      label: "llama3.2:3b",
+      available: true,
+      implementationStatus: "implemented",
+      execution: {
+        description: "Model can be used through the local Ollama provider.",
+      },
+    },
   ],
   embedderModels: [
-    { id: "nomic-embed-text:latest", label: "nomic-embed-text:latest", available: true },
+    {
+      id: "nomic-embed-text:latest",
+      label: "nomic-embed-text:latest",
+      available: true,
+      implementationStatus: "implemented",
+      execution: {
+        description: "Model can be used through the local Ollama provider.",
+      },
+    },
   ],
   rerankerModels: [],
   visionModels: [],
-  ocrEngines: [{ id: "none", label: "None", available: true }],
-  pdfParsers: [{ id: "pymupdf", label: "PyMuPDF", available: true }],
-  chunkers: [{ id: "recursive", label: "Recursive", available: true }],
-  vectorDatabases: [{ id: "chroma", label: "Chroma", available: true }],
-  ragPipelines: [{ id: "basic", label: "Basic", available: true }],
-  contextCompressors: [{ id: "none", label: "None", available: true }],
+  ocrEngines: [
+    {
+      id: "none",
+      label: "None",
+      available: true,
+      implementationStatus: "implemented",
+      execution: { description: "Disables OCR for document processing." },
+    },
+  ],
+  pdfParsers: [
+    {
+      id: "pymupdf",
+      label: "PyMuPDF",
+      available: true,
+      implementationStatus: "implemented",
+      execution: { description: "Extracts selectable PDF text with PyMuPDF." },
+    },
+  ],
+  chunkers: [
+    {
+      id: "recursive",
+      label: "Recursive",
+      available: true,
+      implementationStatus: "implemented",
+      execution: {
+        description: "Splits documents on paragraph-aware recursive boundaries.",
+      },
+    },
+  ],
+  vectorDatabases: [
+    {
+      id: "chroma",
+      label: "Chroma",
+      available: true,
+      implementationStatus: "fallback",
+      execution: {
+        description: "Selection is recorded; vectors are stored in the local JSON index.",
+      },
+    },
+  ],
+  ragPipelines: [
+    {
+      id: "basic",
+      label: "Basic",
+      available: true,
+      implementationStatus: "implemented",
+      execution: {
+        description: "Uses local vector retrieval when document RAG is enabled.",
+      },
+    },
+  ],
+  contextCompressors: [
+    {
+      id: "none",
+      label: "None",
+      available: true,
+      implementationStatus: "implemented",
+      execution: { description: "Leaves chat history and retrieved context unchanged." },
+    },
+  ],
 };
 
 function renderAccountPanel(props = {}) {
@@ -135,5 +213,17 @@ describe("AccountPanel conversation settings", () => {
     expect(
       screen.queryByText(/settings verified for "chat a"/i),
     ).not.toBeInTheDocument();
+  });
+
+  it("shows execution metadata for selected capabilities", () => {
+    renderAccountPanel();
+
+    expect(
+      screen.getAllByText(/implemented: model can be used/i).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByText(/fallback: selection is recorded/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/implemented: extracts selectable pdf text/i),
+    ).toBeInTheDocument();
   });
 });

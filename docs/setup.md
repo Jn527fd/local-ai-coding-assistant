@@ -2,35 +2,58 @@
 
 ## Prerequisites
 
-- Linux Mint and a working NVIDIA driver
+- Linux Mint
 - Python 3.10+ with `venv`
 - Node.js `20.19+` or `22.12+` with npm
 - Docker Engine with the Compose plugin
 - Ollama
 - Git and curl
+- An NVIDIA GPU is useful for larger models, but CPU-only smoke testing is
+  supported with tiny models
 
 Verify:
 
 ```bash
-nvidia-smi
 python3 --version
 node --version
 npm --version
 docker compose version
+ollama --version
+```
+
+Optional GPU check:
+
+```bash
+nvidia-smi
 ```
 
 ## Prepare Ollama
 
-Follow the [official Ollama Linux guide](https://docs.ollama.com/linux), then:
+Follow the official Ollama Linux guide, then:
 
 ```bash
 sudo systemctl enable --now ollama
-ollama pull qwen3:4b
 curl http://127.0.0.1:11434/api/tags
 ```
 
-The application manages later model downloads through Ollama. It never writes
-directly into Ollama's model directory.
+Pull models directly with Ollama. The application discovers local models but
+does not pull or delete model files.
+
+Useful small models:
+
+```bash
+ollama pull smollm2:135m
+ollama pull all-minilm
+```
+
+Larger examples:
+
+```bash
+ollama pull qwen3:4b
+ollama pull qwen2.5-coder:3b
+ollama pull llama3.2:3b
+ollama list
+```
 
 ## Project Setup
 
@@ -79,8 +102,7 @@ script to generate or update hashes:
 .venv/bin/python scripts/manage_credentials.py remove OLD_USER
 ```
 
-The backend rereads this file on each login, so username entries may be
-reviewed manually without restarting.
+The backend rereads this file on each login.
 
 ## Start Locally
 
@@ -88,76 +110,125 @@ reviewed manually without restarting.
 bash scripts/start.sh
 ```
 
-Open `http://localhost:5173` and sign in. The start script runs FastAPI on
-port `8000` and Vite on `5173`; `Ctrl+C` stops both.
+Open:
+
+- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:8000`
+- OpenAPI docs: `http://localhost:8000/docs`
+
+Press `Ctrl+C` in the startup terminal to stop both development servers.
 
 ## Add and Verify the API Key
 
 After login:
 
-1. Select the circular account avatar in the top-right.
-2. Enter a private key. Short keys are accepted for local testing, but a
-   longer private key is recommended for normal use.
+1. Open Settings from the app shell.
+2. Enter a private API key.
 3. Select **Save key**.
-4. Select **Check connection**.
+4. Select **Check** in API access.
 
 The key is stored in two local places:
 
-- Browser local storage, so the UI remembers it between sessions
-- `data/config/app-settings.json`, so FastAPI knows the active key
+- Browser local storage, so the UI remembers it between sessions.
+- `data/config/app-settings.json`, so FastAPI knows the active key.
 
-The UI never displays the saved backend key. The Account status says
-**Connected** only when the browser key matches the active backend value.
+The Account status says connected only when the browser key matches the active
+backend value. For programmatic setup, `API_KEY` in `backend/.env` remains a
+fallback. A key saved through the Account UI overrides that fallback.
 
-For programmatic setup, `API_KEY` in `backend/.env` remains a fallback. A key
-saved through the Account UI overrides that fallback.
+## Per-Chat AI Settings
 
-## Switch Models
+Open Settings and use **Conversation Settings** for the active chat. These
+settings are saved with that browser-local chat and do not change other chats.
 
-Open the Account drawer to see the models installed in Ollama. The list
-is generated dynamically from Ollama's local inventory. Select
-**Refresh local models** after pulling a model, or wait up to five seconds for
-the open drawer to refresh automatically, then choose **Use installed model**.
+Current setting categories:
 
-The backend:
+- LLM model
+- Embedder model
+- OCR engine
+- PDF parser
+- Chunker
+- Vector database
+- RAG pipeline
+- Reranker
+- Context compressor
+- Vision model
 
-1. Reads models from Ollama's `/api/tags` endpoint
-2. Lists every installed model Ollama reports
-3. Rejects only switch requests for models that are not installed locally
-4. Persists the selected installed model name as active
+Select **Refresh local models/tools** after pulling Ollama models or changing
+installed parser/OCR packages. Select **Verify chat settings** for an explicit
+confirmation of the active chat's selections.
 
-The application does not download models. Pull them directly with Ollama:
+New chats default to the first available LLM alphabetically. The legacy
+`/models/status` and `/models/switch` endpoints still exist for compatibility,
+but the main UI workflow is per-chat settings.
 
-```bash
-ollama pull qwen3:4b
-ollama pull qwen2.5-coder:3b
-ollama pull llama3.2:3b
-ollama list
+## PDF Parsers and OCR Detection
+
+Python packages in `backend/requirements.txt` currently include:
+
+```text
+pymupdf
+pdfplumber
+ocrmypdf
 ```
 
-The application never deletes model files automatically. Remove one manually
-only when desired with `ollama rm MODEL_NAME`.
+These support detection for:
+
+- PDF parser: `pymupdf`
+- PDF parser: `pdfplumber`
+- OCR engine: `ocrmypdf`
+
+Tesseract is a system binary, not a Python-only package. To detect
+`tesseract`, install it in the runtime where the backend actually runs. If the
+backend runs in Docker, install it in the image/container, not only in a host
+virtual environment.
+
+OCR execution is still limited. Detection may show available tools before full
+OCR workflows are implemented.
+
+## Documents and RAG
+
+Typical document workflow:
+
+1. Pull a chat model and an embedding model with Ollama.
+2. Save an API key.
+3. Select the active chat's LLM and embedder in Conversation Settings.
+4. Upload a `.txt`, `.md`, or `.pdf` document.
+5. Process the document.
+6. Build an index.
+7. Search indexed chunks or ask a RAG-enabled chat question.
+
+Document vectors are currently stored in local JSON files under `data/`.
+Selected vector database names are recorded for future compatibility, but
+external vector database backends are not wired yet.
+
+RAG responses can include:
+
+- source numbers
+- document and chunk IDs
+- vector scores
+- optional rerank scores
+- RAG warnings
+- rerank warnings
+- compression warnings and stats
 
 ## Manage Chats and Context
 
-The Chat panel stores up to five chats per logged-in username in that browser.
-Use **New** to create a chat. At five chats, the button is disabled until one
-is deleted.
+The browser stores up to five chats per logged-in username. Use the new-chat
+button to create a chat. At five chats, the button is disabled until one is
+deleted.
 
-Each chat has separate model context. Select **Delete** beside a chat and
-confirm to remove its messages from browser local storage. FastAPI never
-stores chat history; it receives only the selected chat's recent context with
-the current request. Switching models does not clear this browser history, so
-the next active model receives the same selected-chat context. Deleted chats
-cannot be included in later prompts. The backend also bounds the total prompt
-size so a long saved chat does not make local inference progressively slower.
+Each chat has isolated messages and settings. Deleting a chat removes its
+browser-local record. FastAPI receives only the selected chat's recent context
+with the current request.
 
-Browser storage is application-local persistence, not guaranteed forensic
-disk erasure. Clear site data in the browser when decommissioning a device.
+Browser storage is application-local persistence, not guaranteed forensic disk
+erasure. Clear site data in the browser when decommissioning a device.
 
 ## Local Configuration Files
 
-`backend/.env` includes:
+`backend/.env` includes the main backend settings. Keep it ignored and local.
+Common values:
 
 ```dotenv
 API_KEY=
@@ -172,18 +243,25 @@ OLLAMA_NUM_PREDICT=768
 OLLAMA_THINK=false
 OLLAMA_KEEP_ALIVE=10m
 CHAT_CONTEXT_MAX_CHARS=12000
+CONTEXT_COMPRESSION_MAX_PROMPT_CHARS=12000
+CONTEXT_COMPRESSION_RECENT_MESSAGES_TO_KEEP=10
+CONTEXT_COMPRESSION_MAX_RETRIEVED_CONTEXT_CHARS=6000
+CONTEXT_COMPRESSION_MAX_SUMMARY_CHARS=2000
 DEFAULT_MODEL=qwen3:4b
 DATA_DIRECTORY=../data
 REPO_CHUNK_SIZE=2000
 RAG_TOP_K=5
+RAG_CANDIDATE_K=20
+RAG_MAX_TOP_K=20
+RERANKER_MAX_CANDIDATES=50
+DOCUMENT_MAX_UPLOAD_BYTES=26214400
+DOCUMENT_CHUNK_SIZE=2000
+DOCUMENT_MAX_CHUNKS=500
+EMBEDDING_BATCH_SIZE=16
 ```
 
 Login sessions are stored in memory and end when the backend restarts. Set
 `SESSION_COOKIE_SECURE=true` only when the site is served over HTTPS.
-
-`OLLAMA_THINK=false` keeps reasoning-capable models responsive for normal
-chat. Increase `OLLAMA_NUM_PREDICT` only when longer answers are worth the
-additional generation time. `CHAT_CONTEXT_MAX_CHARS` must be at least 12000.
 
 ## Files Intentionally Ignored by Git
 
@@ -234,9 +312,17 @@ docker compose up --build --detach
 docker compose ps
 ```
 
-`./data` is mounted at `/app/data`, so credentials, API settings, the active
-model name, and repository indexes persist across container replacement.
-Ollama continues running on the Linux host at `127.0.0.1:11434`.
+`./data` is mounted at `/app/data`, so credentials, API settings, uploaded
+documents, repository indexes, and vector indexes persist across container
+replacement. Ollama continues running on the Linux host at
+`127.0.0.1:11434`.
+
+If Docker Compose complains that `backend/.env` is missing, create it from the
+template:
+
+```bash
+cp backend/.env.example backend/.env
+```
 
 ## Home-Network Access
 
@@ -265,16 +351,30 @@ proxy before accessing the app across an untrusted network.
 
 ## Tests
 
-Docker and Ollama may remain running because tests use isolated temporary
-files and a fake model service:
+Default tests do not require Ollama, a GPU, downloaded models, or host data:
 
 ```bash
-source .venv/bin/activate
-python -m pytest
-
-cd frontend
-npm test
+make test-backend
+make test-frontend
+make test
 ```
+
+Docker tests use clean test images:
+
+```bash
+make test-backend-docker
+make test-frontend-docker
+make test-docker
+```
+
+Optional live Ollama smoke tests:
+
+```bash
+make setup-ollama-smoke
+RUN_OLLAMA_TESTS=1 make test-ollama-smoke
+```
+
+These use tiny models to validate wiring, not response quality.
 
 ## Troubleshooting
 
@@ -287,10 +387,11 @@ ls -l data/config/credentials.json
 
 ### API key says not connected
 
-Open Account, save the key again, then check connection. The browser copy must
-match `data/config/app-settings.json` or the `API_KEY` environment fallback.
+Open Settings, save the key again, then check API access. The browser copy
+must match `data/config/app-settings.json` or the `API_KEY` environment
+fallback.
 
-### Model switch fails
+### Ollama or model discovery fails
 
 ```bash
 systemctl status ollama
@@ -299,8 +400,22 @@ docker compose logs backend
 df -h
 ```
 
-Use `ollama list` to verify the model is stored locally, then select
-**Refresh local models** in the Account drawer.
+Use `ollama list` to verify models are stored locally, then select
+**Refresh local models/tools** in Settings.
+
+### PDF parser or OCR engine is not detected
+
+Confirm the package or binary exists in the backend runtime:
+
+```bash
+docker compose exec backend python -c "import fitz; print('pymupdf ok')"
+docker compose exec backend python -c "import pdfplumber; print('pdfplumber ok')"
+docker compose exec backend python -c "import ocrmypdf; print('ocrmypdf ok')"
+docker compose exec backend which tesseract
+```
+
+If the backend runs in Docker, host virtualenv installs are not visible inside
+the container.
 
 ### Port already in use
 
@@ -308,4 +423,8 @@ Use `ollama list` to verify the model is stored locally, then select
 ss -ltnp | grep -E ':8000|:5173'
 ```
 
-Stop the previous local process or run `docker compose down`.
+Stop the previous local process or run:
+
+```bash
+docker compose down
+```

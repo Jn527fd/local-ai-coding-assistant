@@ -456,3 +456,123 @@ Scope:
 - [x] Documentation updated
 - [x] No new critical or high-severity issues introduced
 - [x] Missing OCR tools never break document processing unexpectedly
+
+## Phase 13 Vision Chat
+
+Date: 2026-07-03
+
+Scope:
+
+- Add optional image attachments to chat requests.
+- Validate image count, MIME type, base64 payload, and decoded byte size before
+  sending image data to Ollama.
+- Use the selected per-chat `visionModel` for image-bearing chat requests.
+- Preserve the existing text-only chat path and provider call shape.
+- Mark discovered Ollama vision models as implemented capabilities.
+- Add frontend composer image attachment controls without redesigning the UI.
+- Add optional live Ollama vision smoke coverage that skips unless explicitly
+  enabled.
+- Do not begin Phase 14 streaming responses.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `.venv\Scripts\python.exe -m pytest tests\test_chat.py tests\test_component_capabilities.py tests\test_ollama_smoke.py` | Passed | 36 passed, 4 skipped. Live Ollama smoke tests skipped because `RUN_OLLAMA_TESTS=1` was not set. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vitest\vitest.mjs run src/api.test.js src/components/__tests__/workspace-components.test.jsx` from `frontend/` | Passed | Initial sandbox run failed because esbuild could not read a parent directory. First outside-sandbox run exposed a missing `File.arrayBuffer` fallback; rerun passed with 2 files and 16 tests. |
+| `.venv\Scripts\python.exe -m pytest` | Passed | 100 passed, 7 skipped. Optional OCRmyPDF, live Ollama, and Chroma tests skipped. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe scripts\lint-check.mjs` from `frontend/` | Passed | Frontend lint guard passed for 39 frontend files. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vitest\vitest.mjs run` from `frontend/` | Passed | 8 test files passed, 42 tests passed. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vite\bin\vite.js build` from `frontend/` | Passed | Production build completed successfully. |
+| `git diff --check` | Passed | No whitespace errors. Git reported existing CRLF normalization warnings. |
+
+### Phase 13 Verification Checklist
+
+- [x] Code builds successfully
+- [x] Existing tests pass
+- [x] New tests for this phase pass
+- [x] Linting/static checks pass
+- [x] Documentation updated
+- [x] No new critical or high-severity issues introduced
+- [x] Text-only chat remains unchanged
+
+## Phase 14 Streaming Responses and Runtime Events
+
+Date: 2026-07-03
+
+Scope:
+
+- Add Ollama streaming generation support while preserving complete
+  non-streaming generation.
+- Add `POST /chat/stream` as an authenticated server-sent-events endpoint.
+- Emit `progress`, `metadata`, `token`, `done`, and `error` stream events.
+- Update the frontend chat send path to render one assistant message as tokens
+  arrive.
+- Preserve the existing `/chat` response contract and metadata shape.
+- Add backend, API, and integration tests for streaming success and failure.
+- Do not begin Phase 15 release hardening.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `.venv\Scripts\python.exe -m pytest tests\test_chat.py tests\test_ollama_service.py` | Passed | 38 passed. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vitest\vitest.mjs run src/api.test.js src/__tests__/app.integration.test.jsx src/components/__tests__/workspace-components.test.jsx` from `frontend/` | Passed | Initial run caught stream metadata/source fixture adjustments; final targeted run passed with 3 files and 25 tests. |
+| `.venv\Scripts\python.exe -m pytest` | Passed | 103 passed, 7 skipped. Optional OCRmyPDF, live Ollama, and Chroma tests skipped. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe scripts\lint-check.mjs` from `frontend/` | Passed | Frontend lint guard passed for 39 frontend files. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vitest\vitest.mjs run` from `frontend/` | Passed | 8 test files passed, 44 tests passed. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vite\bin\vite.js build` from `frontend/` | Passed | Production build completed successfully. |
+| `git diff --check` | Passed | No whitespace errors. Git reported existing CRLF normalization warnings. |
+
+### Phase 14 Verification Checklist
+
+- [x] Code builds successfully
+- [x] Existing tests pass
+- [x] New tests for this phase pass
+- [x] Linting/static checks pass
+- [x] Documentation updated
+- [x] No new critical or high-severity issues introduced
+- [x] Streaming failures degrade safely
+
+## Phase 15 Production Hardening and Release Readiness
+
+Date: 2026-07-03
+
+Scope:
+
+- Add release-readiness documentation for security posture, deployment
+  hardening, backup/restore, dependency review, and release verification.
+- Add a versioned changelog and root security policy.
+- Add repository hygiene coverage for release-readiness documents.
+- Ensure Docker backend tests include release documentation files.
+- Create `roadmap_v2.md` with the next 15 development phases for the public
+  release track.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `.venv\Scripts\python.exe -m pytest tests\test_repository_hygiene.py` | Passed | 2 passed. |
+| `.venv\Scripts\python.exe -m pytest` | Passed | 104 passed, 7 skipped. Optional OCRmyPDF, live Ollama, and Chroma tests skipped. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe scripts\lint-check.mjs` from `frontend/` | Passed | Frontend lint guard passed for 39 frontend files. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vitest\vitest.mjs run` from `frontend/` | Passed | Initial sandbox run failed due restricted parent-directory access for esbuild config resolution; outside-sandbox run passed with 8 files and 44 tests. Existing React `act(...)` warnings remain in the accessibility test output. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vite\bin\vite.js build` from `frontend/` | Passed | Production build completed successfully. |
+| `.venv\Scripts\python.exe -m pip check` | Passed | No broken requirements found. |
+| `npm audit --audit-level=high` from `frontend/` | Not run | No `npm` executable was available in this PowerShell environment; frontend dependency integrity was covered by installed lockfile tests, lint, and production build. |
+| `docker compose -f docker-compose.test.yml build backend-test frontend-test` | Passed | Rebuilt current Docker test images. |
+| `docker compose -f docker-compose.test.yml run --rm backend-test` | Failed, then passed | First rebuilt run found the new release docs were not copied into the backend test image. After updating `backend/Dockerfile.test`, rerun passed with 104 passed and 7 skipped. |
+| `docker compose -f docker-compose.test.yml run --rm frontend-test` | Passed | Frontend Docker lint, Vitest, and production build passed. |
+| `make smoke-docker` | Not run | `make` is not installed in this PowerShell environment, so the target's commands were run manually. |
+| `docker compose -f docker-compose.test.yml run --rm backend-test python -m pytest tests/test_health.py tests/test_component_capabilities.py` | Passed | 9 passed. |
+| `docker compose -f docker-compose.test.yml run --rm frontend-test npm run lint` | Passed | Frontend lint guard passed. |
+| `docker compose -f docker-compose.test.yml down --remove-orphans` | Passed | Test network was removed after verification. |
+
+### Phase 15 Verification Checklist
+
+- [x] Code builds successfully
+- [x] Existing tests pass
+- [x] New tests for this phase pass
+- [x] Linting/static checks pass
+- [x] Documentation updated
+- [x] No new critical or high-severity issues introduced
+- [x] Release checklist, hardening docs, changelog, and roadmap v2 are present

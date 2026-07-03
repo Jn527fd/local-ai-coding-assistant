@@ -357,6 +357,10 @@ docker compose up --build --detach
 HTTP does not encrypt passwords, cookies, or API keys; use an HTTPS reverse
 proxy before accessing the app across an untrusted network.
 
+For production-style deployment, review
+`docs/deployment-hardening.md`, `docs/backup-restore.md`, and
+`docs/release-checklist.md` before exposing the app beyond a trusted LAN.
+
 ## Tests
 
 Default tests do not require Ollama, a GPU, downloaded models, or host data:

@@ -24,13 +24,18 @@ class FakeOllamaService:
         summary_response: str = "Condensed memory summary.",
         fail_summary: bool = False,
     ) -> None:
-        self.calls: list[tuple[str, str]] = []
+        self.calls: list[tuple[str, str, list[str]]] = []
         self.installed_models = installed_models or []
         self.summary_response = summary_response
         self.fail_summary = fail_summary
 
-    async def generate(self, model: str, prompt: str) -> str:
-        self.calls.append((model, prompt))
+    async def generate(
+        self,
+        model: str,
+        prompt: str,
+        images: list[str] | None = None,
+    ) -> str:
+        self.calls.append((model, prompt, list(images or [])))
         if "Memory summary:" in prompt:
             if self.fail_summary:
                 raise ComponentUnavailableError("summary failed")
@@ -119,6 +124,34 @@ class FakeRerankerProvider:
         return RerankResult(sources=scored, warnings=[])
 
 
+class FakeStreamingLLMProvider:
+    def __init__(
+        self,
+        chunks: list[str] | None = None,
+        fail: bool = False,
+    ) -> None:
+        self.chunks = chunks or ["Streamed ", "answer"]
+        self.fail = fail
+        self.calls: list[dict[str, object]] = []
+        self.ollama_service: object | None = None
+
+    async def generate(self, prompt, history, settings):
+        return "".join(self.chunks)
+
+    async def stream_generate(self, prompt, history, settings):
+        self.calls.append(
+            {
+                "prompt": prompt,
+                "history": history,
+                "settings": settings,
+            }
+        )
+        if self.fail:
+            raise ComponentUnavailableError("streaming failed")
+        for chunk in self.chunks:
+            yield chunk
+
+
 class FailingVectorStore:
     async def list_collections(
         self,
@@ -155,6 +188,7 @@ def capability(
 def chat_capabilities(
     embedder_models: list[str] | None = None,
     reranker_models: list[str] | None = None,
+    vision_models: list[str] | None = None,
 ) -> dict[str, list[dict[str, object]]]:
     capabilities: dict[str, list[dict[str, object]]] = {
         key: [] for key in CAPABILITY_KEYS
@@ -169,6 +203,10 @@ def chat_capabilities(
         for model in (
             ["rerank-a"] if reranker_models is None else reranker_models
         )
+    ]
+    capabilities["visionModels"] = [
+        capability(model, "visionModel")
+        for model in ([] if vision_models is None else vision_models)
     ]
     capabilities["ocrEngines"] = [capability("none", "ocrEngine")]
     capabilities["chunkers"] = [
@@ -312,7 +350,7 @@ def test_chat_returns_mocked_ollama_answer(
     assert response.json()["rerankWarnings"] == []
     assert response.json()["sources"] == []
     assert fake_ollama.calls == [
-        ("qwen3:4b", "Explain dependency injection briefly.")
+        ("qwen3:4b", "Explain dependency injection briefly.", [])
     ]
 
 
@@ -728,6 +766,193 @@ def test_chat_falls_back_to_global_model_when_conversation_llm_is_invalid(
     assert response.status_code == 200
     assert response.json()["model"] == "qwen3:4b"
     assert fake_ollama.calls[0][0] == "qwen3:4b"
+
+
+def test_chat_uses_selected_vision_model_for_image_request(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService()
+    configure_chat_rag_tests(
+        app,
+        tmp_path,
+        capabilities=chat_capabilities(vision_models=["llava:latest"]),
+    )
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        response = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "message": "Describe this image.",
+                "conversationSettings": {
+                    "llmModel": "qwen3:4b",
+                    "visionModel": "llava:latest",
+                },
+                "images": [
+                    {
+                        "name": "tiny.png",
+                        "mimeType": "image/png",
+                        "data": "aW1hZ2UtYnl0ZXM=",
+                    }
+                ],
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["model"] == "llava:latest"
+    assert payload["visionUsed"] is True
+    assert payload["visionModel"] == "llava:latest"
+    assert fake_ollama.calls[0][0] == "llava:latest"
+    assert fake_ollama.calls[0][2] == ["aW1hZ2UtYnl0ZXM="]
+
+
+def test_chat_rejects_image_request_without_available_vision_model(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService()
+    configure_chat_rag_tests(app, tmp_path)
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        response = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "message": "Describe this image.",
+                "conversationSettings": {"llmModel": "qwen3:4b"},
+                "images": [
+                    {
+                        "name": "tiny.png",
+                        "mimeType": "image/png",
+                        "data": "aW1hZ2UtYnl0ZXM=",
+                    }
+                ],
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 400
+    assert "requires a valid available vision model" in response.json()["detail"]
+    assert fake_ollama.calls == []
+
+
+def test_chat_rejects_invalid_image_base64(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService()
+    configure_chat_rag_tests(
+        app,
+        tmp_path,
+        capabilities=chat_capabilities(vision_models=["llava:latest"]),
+    )
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        response = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "message": "Describe this image.",
+                "conversationSettings": {"visionModel": "llava:latest"},
+                "images": [
+                    {
+                        "name": "broken.png",
+                        "mimeType": "image/png",
+                        "data": "not base64!",
+                    }
+                ],
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 400
+    assert "not valid base64" in response.json()["detail"]
+    assert fake_ollama.calls == []
+
+
+def test_chat_stream_returns_progress_tokens_and_done(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService([installed_model("qwen3:4b")])
+    streaming_provider = FakeStreamingLLMProvider(["Hello", " stream"])
+    streaming_provider.ollama_service = fake_ollama
+    app.state.llm_provider = streaming_provider
+    configure_chat_rag_tests(app, tmp_path)
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        with client.stream(
+            "POST",
+            "/chat/stream",
+            headers=auth_headers,
+            json={
+                "message": "Stream please.",
+                "conversationSettings": {"llmModel": "qwen3:4b"},
+            },
+        ) as response:
+            body = "".join(response.iter_text())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert "event: progress" in body
+    assert "event: metadata" in body
+    assert 'event: token\ndata: {"text": "Hello"}' in body
+    assert 'event: token\ndata: {"text": " stream"}' in body
+    assert "event: done" in body
+    assert '"answer": "Hello stream"' in body
+    assert streaming_provider.calls[0]["settings"]["model"] == "qwen3:4b"
+
+
+def test_chat_stream_reports_generation_errors_as_error_events(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService([installed_model("qwen3:4b")])
+    streaming_provider = FakeStreamingLLMProvider(fail=True)
+    streaming_provider.ollama_service = fake_ollama
+    app.state.llm_provider = streaming_provider
+    configure_chat_rag_tests(app, tmp_path)
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        with client.stream(
+            "POST",
+            "/chat/stream",
+            headers=auth_headers,
+            json={
+                "message": "Stream please.",
+                "conversationSettings": {"llmModel": "qwen3:4b"},
+            },
+        ) as response:
+            body = "".join(response.iter_text())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert "event: error" in body
+    assert '"status": 503' in body
+    assert "streaming failed" in body
 
 
 def test_basic_rag_pipeline_does_not_retrieve_documents(

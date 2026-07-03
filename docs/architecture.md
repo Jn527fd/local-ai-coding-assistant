@@ -287,15 +287,15 @@ fallback metadata for vector database settings.
 Chat flow:
 
 ```text
-POST /chat
+POST /chat or /chat/stream
   -> authenticate Bearer key
   -> resolve conversation settings
   -> optionally retrieve document chunks
   -> optionally rerank candidates
   -> optionally compress history/context
   -> build final prompt
-  -> generate with Ollama
-  -> return answer, warnings, sources, rerank metadata, compression metadata
+  -> generate or stream with Ollama text or vision model
+  -> return answer or SSE events with warnings, sources, rerank metadata, compression metadata
 ```
 
 Document RAG retrieves local vector-indexed chunks when the selected pipeline
@@ -322,6 +322,13 @@ Compression modes:
 - `summarizer`: LLM summary of older history.
 - `semantic`: currently falls back to token compression.
 - `memory`: currently falls back to summarizer or token compression.
+
+Image-bearing chat requests validate base64 PNG, JPEG, or WebP attachments and
+use the selected `visionModel` instead of the text `llmModel`. Text-only chat
+continues through the existing LLM path. `/chat` remains a complete JSON
+response endpoint. `/chat/stream` emits `progress`, `metadata`, `token`,
+`done`, and `error` server-sent events so the browser can render partial
+assistant messages while preserving the non-streaming fallback contract.
 
 ## Legacy Repository RAG
 
@@ -405,9 +412,10 @@ network. Current limits include:
 - one shared API key
 - in-memory login sessions
 - browser-local chat persistence
-- non-streaming generation
+- streaming is implemented for chat generation but not every long-running
+  document operation
 - JSON vector storage
 - discovery-only or fallback-only component options
-- no vision chat yet
-- incomplete OCR execution
+- vision chat depends on locally pulled multimodal Ollama models
+- OCR execution is limited to OCRmyPDF PDF fallback
 - no public-internet hardening

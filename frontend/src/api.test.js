@@ -117,6 +117,113 @@ describe("api chat", () => {
       },
     });
   });
+
+  it("sends image attachments with chat requests", async () => {
+    const calls = [];
+    vi.stubGlobal("fetch", async (url, options) => {
+      calls.push({ url, options });
+      return jsonResponse({
+        model: "llava:latest",
+        answer: "ok",
+        visionUsed: true,
+      });
+    });
+
+    const { sendChat } = await importApiForTest();
+    await sendChat(
+      "test-key",
+      "Describe it",
+      [],
+      { llmModel: "qwen3:4b", visionModel: "llava:latest" },
+      "chat-1",
+      null,
+      [{ name: "tiny.png", mimeType: "image/png", data: "aW1hZ2U=" }],
+    );
+
+    expect(JSON.parse(calls[0].options.body)).toEqual({
+      conversationId: "chat-1",
+      message: "Describe it",
+      history: [],
+      conversationSettings: {
+        llmModel: "qwen3:4b",
+        visionModel: "llava:latest",
+      },
+      images: [
+        {
+          name: "tiny.png",
+          mimeType: "image/png",
+          data: "aW1hZ2U=",
+        },
+      ],
+    });
+  });
+
+  it("parses streaming chat tokens and final metadata", async () => {
+    const encoder = new TextEncoder();
+    const calls = [];
+    vi.stubGlobal("fetch", async (url, options) => {
+      calls.push({ url, options });
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                [
+                  'event: metadata\ndata: {"model":"qwen3:4b"}\n\n',
+                  'event: token\ndata: {"text":"Hello"}\n\n',
+                  'event: token\ndata: {"text":" stream"}\n\n',
+                  'event: done\ndata: {"model":"qwen3:4b","answer":"Hello stream"}\n\n',
+                ].join(""),
+              ),
+            );
+            controller.close();
+          },
+        }),
+        { headers: { "Content-Type": "text/event-stream" } },
+      );
+    });
+
+    const tokens = [];
+    const { sendChatStream } = await importApiForTest();
+    const result = await sendChatStream(
+      "test-key",
+      "Hello",
+      [],
+      { llmModel: "qwen3:4b" },
+      "chat-1",
+      null,
+      [],
+      { onToken: (token) => tokens.push(token) },
+    );
+
+    expect(calls[0].url).toBe("http://192.168.1.204:8000/chat/stream");
+    expect(tokens).toEqual(["Hello", " stream"]);
+    expect(result).toEqual({ model: "qwen3:4b", answer: "Hello stream" });
+  });
+
+  it("turns streaming error events into ApiError failures", async () => {
+    const encoder = new TextEncoder();
+    vi.stubGlobal("fetch", async () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                'event: error\ndata: {"status":503,"message":"stream failed"}\n\n',
+              ),
+            );
+            controller.close();
+          },
+        }),
+        { headers: { "Content-Type": "text/event-stream" } },
+      ),
+    );
+
+    const { sendChatStream } = await importApiForTest();
+    await expect(sendChatStream("test-key", "Hello")).rejects.toThrow(
+      /stream failed/,
+    );
+  });
 });
 
 describe("api documents", () => {

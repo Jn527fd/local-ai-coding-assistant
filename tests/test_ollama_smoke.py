@@ -21,6 +21,7 @@ TEST_PASSWORD = "ollama-smoke-password"
 DEFAULT_LLM = "smollm2:135m"
 DEFAULT_EMBEDDER = "all-minilm"
 DEFAULT_RERANKER = "qllama/bge-reranker-v2-m3:q4_k_m"
+DEFAULT_VISION = "llava:latest"
 
 
 def ollama_base_url() -> str:
@@ -37,6 +38,10 @@ def requested_embedder() -> str:
 
 def requested_reranker() -> str:
     return os.environ.get("OLLAMA_TEST_RERANKER", DEFAULT_RERANKER)
+
+
+def requested_vision() -> str:
+    return os.environ.get("OLLAMA_TEST_VISION", DEFAULT_VISION)
 
 
 def fetch_ollama_tags() -> list[str]:
@@ -309,3 +314,43 @@ def test_ollama_smoke_optional_reranker(
     assert payload["sources"][0]["documentId"] == document_id
     assert payload["rerankingUsed"] is True
     assert payload["rerankerModel"] == reranker_model
+
+
+def test_ollama_smoke_optional_vision_chat(
+    live_client: TestClient,
+    live_ollama_models: dict[str, str],
+) -> None:
+    if os.environ.get("RUN_VISION_TESTS") != "1":
+        pytest.skip("set RUN_VISION_TESTS=1 to run live vision smoke")
+
+    vision_model = resolve_model(requested_vision(), fetch_ollama_tags())
+    tiny_png_base64 = (
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8"
+        "/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+    )
+
+    response = live_client.post(
+        "/chat",
+        headers=auth_headers(),
+        json={
+            "conversationId": "ollama-smoke-vision",
+            "message": "Reply with a short description of this tiny image.",
+            "conversationSettings": conversation_settings(
+                live_ollama_models,
+                visionModel=vision_model,
+            ),
+            "images": [
+                {
+                    "name": "tiny.png",
+                    "mimeType": "image/png",
+                    "data": tiny_png_base64,
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["answer"].strip()
+    assert payload["visionUsed"] is True
+    assert payload["visionModel"] == vision_model

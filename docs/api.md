@@ -33,7 +33,8 @@ The app uses two local authentication mechanisms:
 | `GET` | `/models/status` | Session | Legacy model status and Ollama connectivity |
 | `POST` | `/models/switch` | Session | Legacy active-model fallback switch |
 | `GET` | `/components/capabilities` | Session | Categorized local models, tools, and static component options |
-| `POST` | `/chat` | Bearer key | Generate chat with optional document RAG, reranking, and compression |
+| `POST` | `/chat` | Bearer key | Generate a complete chat response with optional document RAG, reranking, compression, and vision |
+| `POST` | `/chat/stream` | Bearer key | Stream chat progress, tokens, metadata, and completion events |
 | `POST` | `/documents/upload` | Bearer key | Stage a document for one conversation |
 | `POST` | `/documents/{document_id}/process` | Bearer key | Extract text and chunk a staged document |
 | `POST` | `/documents/{document_id}/index` | Bearer key | Embed and index one processed document |
@@ -228,9 +229,32 @@ curl -X POST http://localhost:8000/chat \
     "history":[
       {"role":"user","content":"What is FastAPI?"},
       {"role":"assistant","content":"FastAPI is a Python web framework."}
+    ],
+    "images":[
+      {
+        "name":"diagram.png",
+        "mimeType":"image/png",
+        "data":"BASE64_IMAGE_BYTES"
+      }
     ]
   }'
 ```
+
+`images` is optional. When supplied, the backend requires
+`conversationSettings.visionModel` to resolve to an available local Ollama
+vision model. Supported MIME types are `image/png`, `image/jpeg`, and
+`image/webp`; each image is validated before the request is sent to Ollama.
+
+`POST /chat/stream` accepts the same request body and returns
+`text/event-stream`. Events are:
+
+- `progress`: runtime stage updates such as `generating`.
+- `metadata`: resolved model, RAG/rerank/compression/vision metadata, and
+  sources.
+- `token`: one generated text chunk.
+- `done`: final answer plus the same metadata shape as `/chat`.
+- `error`: recoverable streaming generation failure with `status` and
+  `message`.
 
 Response:
 
@@ -255,6 +279,9 @@ Response:
     "contextTrimmed": 0,
     "summaryGenerated": false
   },
+  "visionUsed": false,
+  "visionModel": null,
+  "visionWarnings": [],
   "sources": []
 }
 ```
@@ -450,6 +477,8 @@ Response:
 
 - Do not expose these endpoints directly to the public internet.
 - Use HTTPS before sending cookies or Bearer keys across an untrusted network.
+- Review `SECURITY.md` and `docs/deployment-hardening.md` before remote
+  deployment.
 - The session cookie is HttpOnly and SameSite=Lax, but local HTTP is not
   encrypted.
 - An authenticated Bearer caller can upload documents and index paths readable

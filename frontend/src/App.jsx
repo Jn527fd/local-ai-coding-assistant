@@ -10,7 +10,7 @@ import {
   logout,
   processDocument,
   searchDocuments,
-  sendChat,
+  sendChatStream,
   uploadDocument,
 } from "./api.js";
 import {
@@ -688,7 +688,7 @@ function App() {
     showToast("Message removed from this thread.", "success");
   }
 
-  async function handleSendMessage(message) {
+  async function handleSendMessage(message, imageAttachments = []) {
     if (!apiKey) {
       setChatError("Save and verify your API key from Settings before chatting.");
       return false;
@@ -706,8 +706,11 @@ function App() {
     const userMessage = {
       role: "user",
       content: message,
+      imageAttachments: imageAttachments.map(({ data, ...metadata }) => metadata),
       createdAt: new Date().toISOString(),
     };
+    const assistantMessageId =
+      globalThis.crypto?.randomUUID?.() || `assistant-${Date.now()}`;
 
     setChatError("");
     setSendingChatId(chatId);
@@ -719,7 +722,17 @@ function App() {
               ...chat,
               title:
                 chat.messages.length === 0 ? titleFromMessage(message) : chat.title,
-              messages: [...chat.messages, userMessage],
+              messages: [
+                ...chat.messages,
+                userMessage,
+                {
+                  id: assistantMessageId,
+                  role: "assistant",
+                  content: "",
+                  streaming: true,
+                  createdAt: new Date().toISOString(),
+                },
+              ],
               updatedAt: new Date().toISOString(),
             }
           : chat,
@@ -735,12 +748,38 @@ function App() {
         activeChat.settings,
         defaultConversationSettings,
       );
-      const result = await sendChat(
+      let streamedContent = "";
+      const result = await sendChatStream(
         apiKey,
         message,
         history,
         conversationSettings,
         chatId,
+        null,
+        imageAttachments.map(({ name, mimeType, data }) => ({
+          name,
+          mimeType,
+          data,
+        })),
+        {
+          onToken: (token) => {
+            streamedContent += token;
+            setChats((current) =>
+              current.map((chat) =>
+                chat.id === chatId
+                  ? {
+                      ...chat,
+                      messages: chat.messages.map((item) =>
+                        item.id === assistantMessageId
+                          ? { ...item, content: streamedContent }
+                          : item,
+                      ),
+                    }
+                  : chat,
+              ),
+            );
+          },
+        },
       );
       const generationEndedAt =
         typeof globalThis.performance?.now === "function"
@@ -761,30 +800,36 @@ function App() {
           chat.id === chatId
             ? {
                 ...chat,
-                messages: [
-                  ...chat.messages,
-                  {
-                    role: "assistant",
-                    content: result.answer,
-                    generationTimeMs: Math.max(0, Math.round(generationEndedAt - generationStartedAt)),
-                    model:
-                      result.model ||
-                      result.model_used ||
-                      modelStatus?.active_model ||
-                      "Local model",
-                    ragUsed: Boolean(result.ragUsed),
-                    ragWarnings,
-                    rerankingUsed: Boolean(result.rerankingUsed),
-                    rerankerModel: result.rerankerModel || "",
-                    rerankWarnings,
-                    compressionUsed: Boolean(result.compressionUsed),
-                    compressorMode: result.compressorMode || "none",
-                    compressionWarnings,
-                    compressionStats: result.compressionStats || null,
-                    sources,
-                    createdAt: new Date().toISOString(),
-                  },
-                ],
+                messages: chat.messages.map((item) =>
+                  item.id === assistantMessageId
+                    ? {
+                        ...item,
+                        content: result.answer || streamedContent,
+                        streaming: false,
+                        generationTimeMs: Math.max(0, Math.round(generationEndedAt - generationStartedAt)),
+                        model:
+                          result.model ||
+                          result.model_used ||
+                          modelStatus?.active_model ||
+                          "Local model",
+                        ragUsed: Boolean(result.ragUsed),
+                        ragWarnings,
+                        rerankingUsed: Boolean(result.rerankingUsed),
+                        rerankerModel: result.rerankerModel || "",
+                        rerankWarnings,
+                        compressionUsed: Boolean(result.compressionUsed),
+                        compressorMode: result.compressorMode || "none",
+                        compressionWarnings,
+                        compressionStats: result.compressionStats || null,
+                        visionUsed: Boolean(result.visionUsed),
+                        visionModel: result.visionModel || "",
+                        visionWarnings: Array.isArray(result.visionWarnings)
+                          ? result.visionWarnings
+                          : [],
+                        sources,
+                      }
+                    : item,
+                ),
                 updatedAt: new Date().toISOString(),
               }
             : chat,
@@ -793,6 +838,19 @@ function App() {
       return true;
     } catch (requestError) {
       setChatError(requestError.message);
+      setChats((current) =>
+        current.map((chat) =>
+          chat.id === chatId
+            ? {
+                ...chat,
+                messages: chat.messages.filter(
+                  (item) => item.id !== assistantMessageId,
+                ),
+                updatedAt: new Date().toISOString(),
+              }
+            : chat,
+        ),
+      );
       return false;
     } finally {
       setSendingChatId("");

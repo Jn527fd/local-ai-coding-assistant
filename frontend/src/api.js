@@ -143,6 +143,30 @@ export function getModelStatus() {
   return request("/models/status");
 }
 
+function buildChatRequestBody(
+  message,
+  history = [],
+  conversationSettings = null,
+  conversationId = "",
+  ragOptions = null,
+  images = [],
+) {
+  const body = { message, history };
+  if (conversationId) {
+    body.conversationId = conversationId;
+  }
+  if (conversationSettings) {
+    body.conversationSettings = conversationSettings;
+  }
+  if (ragOptions) {
+    body.ragOptions = ragOptions;
+  }
+  if (images.length > 0) {
+    body.images = images;
+  }
+  return body;
+}
+
 export function getComponentCapabilities() {
   return request("/components/capabilities");
 }
@@ -161,23 +185,147 @@ export function sendChat(
   conversationSettings = null,
   conversationId = "",
   ragOptions = null,
+  images = [],
 ) {
-  const body = { message, history };
-  if (conversationId) {
-    body.conversationId = conversationId;
-  }
-  if (conversationSettings) {
-    body.conversationSettings = conversationSettings;
-  }
-  if (ragOptions) {
-    body.ragOptions = ragOptions;
-  }
+  const body = buildChatRequestBody(
+    message,
+    history,
+    conversationSettings,
+    conversationId,
+    ragOptions,
+    images,
+  );
 
   return request("/chat", {
     method: "POST",
     apiKey,
     body,
   });
+}
+
+function parseSseFrames(buffer) {
+  const frames = buffer.split(/\n\n/);
+  return {
+    completeFrames: frames.slice(0, -1),
+    remainder: frames.at(-1) || "",
+  };
+}
+
+function parseSseFrame(frame) {
+  let event = "message";
+  const dataLines = [];
+  frame.split(/\n/).forEach((line) => {
+    if (line.startsWith("event:")) {
+      event = line.slice("event:".length).trim();
+    } else if (line.startsWith("data:")) {
+      dataLines.push(line.slice("data:".length).trimStart());
+    }
+  });
+  if (dataLines.length === 0) {
+    return { event, data: null };
+  }
+  const dataText = dataLines.join("\n");
+  try {
+    return { event, data: JSON.parse(dataText) };
+  } catch {
+    return { event, data: dataText };
+  }
+}
+
+export async function sendChatStream(
+  apiKey,
+  message,
+  history = [],
+  conversationSettings = null,
+  conversationId = "",
+  ragOptions = null,
+  images = [],
+  callbacks = {},
+) {
+  const headers = {
+    "Content-Type": "application/json",
+  };
+  if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}/chat/stream`, {
+      method: "POST",
+      headers,
+      credentials: "include",
+      body: JSON.stringify(
+        buildChatRequestBody(
+          message,
+          history,
+          conversationSettings,
+          conversationId,
+          ragOptions,
+          images,
+        ),
+      ),
+    });
+  } catch {
+    throw new ApiError(
+      `Could not reach the backend at ${API_BASE_URL}. Is FastAPI running?`,
+    );
+  }
+
+  if (!response.ok) {
+    const responseText = await response.text();
+    let data = responseText;
+    try {
+      data = responseText ? JSON.parse(responseText) : null;
+    } catch {
+      // Keep the raw response text.
+    }
+    const detail =
+      data && typeof data === "object" && "detail" in data
+        ? data.detail
+        : data;
+    throw new ApiError(errorMessageFromDetail(detail, response.status), response.status);
+  }
+
+  if (!response.body?.getReader) {
+    throw new ApiError("Streaming is not supported by this browser.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let metadata = {};
+  let finalPayload = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    buffer += decoder.decode(value, { stream: true });
+    const parsed = parseSseFrames(buffer);
+    buffer = parsed.remainder;
+    parsed.completeFrames.forEach((frame) => {
+      const { event, data } = parseSseFrame(frame);
+      if (event === "progress") {
+        callbacks.onProgress?.(data || {});
+      } else if (event === "metadata") {
+        metadata = data || {};
+        callbacks.onMetadata?.(metadata);
+      } else if (event === "token") {
+        callbacks.onToken?.(data?.text || "");
+      } else if (event === "done") {
+        finalPayload = data || {};
+      } else if (event === "error") {
+        throw new ApiError(data?.message || "Streaming generation failed.", data?.status || 500);
+      }
+    });
+  }
+
+  if (!finalPayload) {
+    throw new ApiError("Streaming response ended before completion.");
+  }
+  return { ...metadata, ...finalPayload };
 }
 
 export function uploadDocument(

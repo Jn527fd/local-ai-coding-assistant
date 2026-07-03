@@ -194,7 +194,7 @@ def test_component_capabilities_categorizes_known_ollama_model_names(
     assert llm["details"]["family"] == "qwen3"
 
     vision = capability_by_id(data, "visionModels", "llava:latest")
-    assert_execution_metadata(vision, CAPABILITY_STATUS_DISCOVERY_ONLY, False)
+    assert_execution_metadata(vision, CAPABILITY_STATUS_IMPLEMENTED, True)
 
 
 def test_component_capabilities_reports_execution_status_for_static_options(

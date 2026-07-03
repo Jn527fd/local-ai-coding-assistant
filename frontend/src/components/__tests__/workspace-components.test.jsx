@@ -213,7 +213,35 @@ describe("Workspace / Conversation / Composer", () => {
     await user.keyboard("{Control>}{Enter}{/Control}");
 
     expect(onOpenSourceDetails).toHaveBeenCalledWith("backend/app/routers/chat.py");
-    expect(onSendMessage).toHaveBeenCalledWith("Add tests");
+    expect(onSendMessage).toHaveBeenCalledWith("Add tests", []);
+  });
+
+  it("attaches images to the next composer submission", async () => {
+    const user = userEvent.setup();
+    const onSendMessage = vi.fn().mockResolvedValue(true);
+
+    render(<WorkspaceHarness onSendMessage={onSendMessage} />);
+
+    const image = new File(["image-bytes"], "diagram.png", {
+      type: "image/png",
+    });
+    await user.upload(screen.getByLabelText(/image upload/i), image);
+
+    expect(await screen.findByText("diagram.png")).toBeInTheDocument();
+
+    await user.type(screen.getByRole("textbox"), "Describe the diagram");
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
+
+    expect(onSendMessage).toHaveBeenCalledWith(
+      "Describe the diagram",
+      [
+        expect.objectContaining({
+          name: "diagram.png",
+          mimeType: "image/png",
+          data: "aW1hZ2UtYnl0ZXM=",
+        }),
+      ],
+    );
   });
 
   it("renders document source labels and score details from RAG metadata", async () => {

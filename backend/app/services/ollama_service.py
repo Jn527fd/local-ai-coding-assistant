@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+from collections.abc import AsyncIterator
+import json
 import logging
 import re
 from time import monotonic
@@ -76,24 +78,32 @@ class OllamaService:
         self.think = think
         self.keep_alive = keep_alive
 
-    async def generate(self, model: str, prompt: str) -> str:
+    async def generate(
+        self,
+        model: str,
+        prompt: str,
+        images: list[str] | None = None,
+    ) -> str:
         """Generate a complete non-streaming response from Ollama."""
 
         started_at = monotonic()
+        payload: dict[str, Any] = {
+            "model": model,
+            "prompt": prompt,
+            "stream": False,
+            "think": self.think,
+            "keep_alive": self.keep_alive,
+            "options": {
+                "num_predict": self.num_predict,
+            },
+        }
+        if images:
+            payload["images"] = images
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
                 response = await client.post(
                     f"{self.base_url}/api/generate",
-                    json={
-                        "model": model,
-                        "prompt": prompt,
-                        "stream": False,
-                        "think": self.think,
-                        "keep_alive": self.keep_alive,
-                        "options": {
-                            "num_predict": self.num_predict,
-                        },
-                    },
+                    json=payload,
                 )
                 response.raise_for_status()
         except httpx.TimeoutException as exc:
@@ -140,14 +150,80 @@ class OllamaService:
 
         logger.info(
             "Ollama generation completed model=%s prompt_chars=%d "
-            "prompt_tokens=%s output_tokens=%s elapsed_seconds=%.2f",
+            "image_count=%d prompt_tokens=%s output_tokens=%s elapsed_seconds=%.2f",
             model,
             len(prompt),
+            len(images or []),
             data.get("prompt_eval_count"),
             data.get("eval_count"),
             monotonic() - started_at,
         )
         return answer.strip()
+
+    async def stream_generate(
+        self,
+        model: str,
+        prompt: str,
+        images: list[str] | None = None,
+    ) -> AsyncIterator[str]:
+        """Stream generated text chunks from Ollama's local generation API."""
+
+        payload: dict[str, Any] = {
+            "model": model,
+            "prompt": prompt,
+            "stream": True,
+            "think": self.think,
+            "keep_alive": self.keep_alive,
+            "options": {
+                "num_predict": self.num_predict,
+            },
+        }
+        if images:
+            payload["images"] = images
+
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+                async with client.stream(
+                    "POST",
+                    f"{self.base_url}/api/generate",
+                    json=payload,
+                ) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if not line.strip():
+                            continue
+                        try:
+                            data: Any = json.loads(line)
+                        except ValueError as exc:
+                            raise OllamaResponseError(
+                                "Ollama returned an invalid streaming chunk."
+                            ) from exc
+                        if not isinstance(data, dict):
+                            raise OllamaResponseError(
+                                "Ollama returned an invalid streaming object."
+                            )
+                        if data.get("error"):
+                            raise OllamaResponseError(str(data["error"]))
+                        chunk = data.get("response")
+                        if isinstance(chunk, str) and chunk:
+                            yield chunk
+                        if data.get("done") is True:
+                            break
+        except httpx.TimeoutException as exc:
+            raise OllamaTimeoutError(
+                f"Ollama did not stream text within "
+                f"{self.timeout_seconds:g} seconds."
+            ) from exc
+        except httpx.RequestError as exc:
+            raise OllamaUnavailableError(
+                f"Unable to connect to Ollama at {self.base_url}. "
+                "Make sure Ollama is running."
+            ) from exc
+        except httpx.HTTPStatusError as exc:
+            detail = self._error_detail(exc.response)
+            raise OllamaResponseError(
+                f"Ollama returned HTTP {exc.response.status_code}: {detail}"
+            ) from exc
 
     async def embed_texts(self, texts: list[str], model: str) -> list[list[float]]:
         """Embed text inputs with Ollama's local embedding API."""

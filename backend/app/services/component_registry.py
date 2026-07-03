@@ -263,7 +263,17 @@ class ComponentRegistry:
             "modifiedAt": model.modified_at,
             "details": details,
         }
-        if category in {"visionModels", "unknownOllamaModels"}:
+        if category == "visionModels":
+            return self._with_execution_metadata(
+                capability,
+                status=CAPABILITY_STATUS_IMPLEMENTED,
+                implemented=True,
+                description=(
+                    "Model can be used for image chat through the local Ollama "
+                    "generation provider."
+                ),
+            )
+        if category == "unknownOllamaModels":
             return self._with_execution_metadata(
                 capability,
                 status=CAPABILITY_STATUS_DISCOVERY_ONLY,

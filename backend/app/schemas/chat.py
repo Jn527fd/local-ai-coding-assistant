@@ -39,6 +39,16 @@ class RagOptions(BaseModel):
     includeSources: bool = True
 
 
+class ChatImageAttachment(BaseModel):
+    """One image supplied for a local vision-model chat request."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(default="image", min_length=1, max_length=255)
+    mimeType: Literal["image/png", "image/jpeg", "image/webp"] = "image/png"
+    data: str = Field(min_length=1, max_length=8_000_000)
+
+
 class ChatRequest(BaseModel):
     """Input accepted by the chat endpoint."""
 
@@ -52,6 +62,10 @@ class ChatRequest(BaseModel):
     history: list[ChatHistoryMessage] = Field(
         default_factory=list,
         max_length=30,
+    )
+    images: list[ChatImageAttachment] = Field(
+        default_factory=list,
+        max_length=4,
     )
 
 
@@ -99,4 +113,7 @@ class ChatResponse(BaseModel):
     compressionStats: ChatCompressionStats = Field(
         default_factory=ChatCompressionStats
     )
+    visionUsed: bool = False
+    visionModel: str | None = None
+    visionWarnings: list[str] = Field(default_factory=list)
     sources: list[ChatSource] = Field(default_factory=list)

@@ -78,6 +78,8 @@ This project demonstrates more than a basic LLM chat interface:
   switcher.
 - Displays connection state, local model/tool inventory, and user-facing
   errors.
+- Supports image attachments for chat requests when the active chat has a
+  valid local Ollama vision model selected.
 - Bounds chat context and model output to keep local inference responsive.
 
 ### Authentication and Account Management
@@ -383,7 +385,8 @@ fallbacks occur.
 
 OCRmyPDF fallback is implemented for scanned or low-text PDFs. Other detected
 OCR engines are surfaced for capability visibility but are not wired into the
-document pipeline yet. Vision chat is not implemented yet.
+document pipeline yet. Vision chat works when a local multimodal Ollama model
+is selected for the active chat.
 
 ### Index a Repository
 
@@ -418,7 +421,8 @@ question. The response includes the source paths selected by the retriever.
 | `GET` | `/models/status` | Session cookie | Return model and switch status |
 | `POST` | `/models/switch` | Session cookie | Select an installed local model |
 | `GET` | `/components/capabilities` | Session cookie | Return categorized local AI components and tools |
-| `POST` | `/chat` | Bearer key | Generate a chat response |
+| `POST` | `/chat` | Bearer key | Generate a complete chat response |
+| `POST` | `/chat/stream` | Bearer key | Stream chat progress, tokens, metadata, and completion |
 | `POST` | `/documents/upload` | Bearer key | Stage a conversation document upload |
 | `GET` | `/documents` | Bearer key | List processed documents for a conversation |
 | `POST` | `/documents/{document_id}/process` | Bearer key | Extract and chunk an uploaded document |
@@ -601,6 +605,12 @@ npm run test:e2e
 
 See [docs/testing.md](docs/testing.md) for the full testing workflow.
 
+Before a public release or remote deployment, also review the
+[release checklist](docs/release-checklist.md),
+[deployment hardening guide](docs/deployment-hardening.md),
+[backup and restore guide](docs/backup-restore.md), and
+[dependency and security review](docs/dependency-security.md).
+
 ## Security and Privacy
 
 - Passwords are salted and hashed with PBKDF2.
@@ -650,10 +660,12 @@ local-ai-coding-assistant/
 - Legacy repository RAG still uses keyword overlap.
 - OCRmyPDF fallback exists for low-text PDFs, but broad OCR expansion and UI
   workflows are still early.
-- Vision model discovery exists, but vision chat is not implemented yet.
+- Vision chat requires a local multimodal Ollama model and is not part of the
+  default tiny smoke-model setup.
 - Semantic and memory context compression modes currently fall back safely to
   implemented compressors.
-- Chat responses are returned after full generation rather than streamed.
+- Chat streaming is implemented for generation; broader runtime progress for
+  every long-running operation is still limited.
 - Login sessions are in memory and end when the backend restarts.
 - Browser chat persistence uses local storage on the current device.
 - GitHub repositories must be cloned locally before indexing.
@@ -661,16 +673,19 @@ local-ai-coding-assistant/
 
 ## Roadmap
 
-- Add real vector database backends such as Chroma, FAISS, Qdrant, or LanceDB.
-- Expand OCR processing and document ingestion coverage.
-- Add vision chat for local multimodal models.
-- Implement semantic and memory context compression modes.
-- Stream Ollama responses and model-switch events to the frontend.
-- Add safe GitHub clone and update workflows.
-- Introduce language-aware parsing with Tree-sitter.
-- Add repository lifecycle controls and index freshness metadata.
-- Add linting, test, and Docker-build checks through GitHub Actions.
-- Support HTTPS deployment through a reverse proxy.
+The next release track is captured in [Roadmap v2](roadmap_v2.md). The highest
+priority items are:
+
+- Stabilize the public release candidate with repeatable local, Docker, and
+  manual smoke verification.
+- Move conversation history and settings from browser-only storage to an
+  exportable server-side store.
+- Add background jobs for long-running indexing, OCR, retrieval, and model
+  operations.
+- Expand document ingestion, OCR, vector-store adapters, and retrieval quality
+  evaluation.
+- Harden the trusted-network deployment model with stronger observability,
+  packaging, backup, and security controls.
 
 ## Documentation
 
@@ -679,6 +694,14 @@ local-ai-coding-assistant/
 - [Linux Mint setup](docs/setup.md)
 - [Testing](docs/testing.md)
 - [Development roadmap](docs/development-roadmap.md)
+- [Deployment hardening](docs/deployment-hardening.md)
+- [Backup and restore](docs/backup-restore.md)
+- [Dependency and security review](docs/dependency-security.md)
+- [Release checklist](docs/release-checklist.md)
+- [Security policy](SECURITY.md)
+- [Changelog](CHANGELOG.md)
+- [Roadmap v2](roadmap_v2.md)
+- [Feature ideas v2](feature_ideas_v2.md)
 
 ## Contributing
 

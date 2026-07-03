@@ -2386,6 +2386,26 @@ kbd {
   line-height: 1.55;
 }
 
+.user-message__attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.user-message__attachments span {
+  max-width: 220px;
+  padding: 3px 8px;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .assistant-response-card {
   display: grid;
   gap: 18px;
@@ -8190,6 +8210,11 @@ textarea:disabled,
   padding-bottom: 180px !important;
 }
 
+.composer-attach-button--image {
+  grid-column: 2 !important;
+  justify-self: start !important;
+}
+
 .composer-file-input {
   position: absolute !important;
   width: 1px !important;
@@ -8199,9 +8224,9 @@ textarea:disabled,
   pointer-events: none !important;
 }
 
-.document-tray {
+.document-tray,
+.image-attachment-tray {
   grid-column: 1 / -1 !important;
-  grid-row: 3 !important;
   display: flex !important;
   flex-wrap: wrap !important;
   gap: 6px !important;

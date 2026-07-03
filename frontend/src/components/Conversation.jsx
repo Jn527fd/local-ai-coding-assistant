@@ -158,6 +158,9 @@ function estimateTokenCount(content) {
 }
 
 function isRecentAssistantMessage(message) {
+  if (message.streaming) {
+    return false;
+  }
   const createdAt = new Date(message.createdAt).getTime();
   if (!Number.isFinite(createdAt)) {
     return false;
@@ -625,6 +628,10 @@ function MessageActionMenu({ content, filename, onDelete }) {
 }
 
 function UserMessage({ message, onDelete }) {
+  const imageAttachments = Array.isArray(message.imageAttachments)
+    ? message.imageAttachments
+    : [];
+
   return (
     <article className="conversation-message conversation-message--user">
       <div className="message-row message-row--user">
@@ -635,6 +642,15 @@ function UserMessage({ message, onDelete }) {
           </div>
           <div className="user-message__bubble">
             <p>{message.content}</p>
+            {imageAttachments.length > 0 && (
+              <div className="user-message__attachments" aria-label="Image attachments">
+                {imageAttachments.map((image) => (
+                  <span key={`${image.name}-${image.size || 0}`}>
+                    {image.name || "Image"}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
         <MessageActionMenu
@@ -656,6 +672,7 @@ function AssistantMessage({
 }) {
   const shouldAnimate = isRecentAssistantMessage(message);
   const { isStreaming, visibleContent } = useProgressiveText(message.content, shouldAnimate);
+  const activelyStreaming = Boolean(message.streaming);
   const fullContentBlocks = parseContentBlocks(message.content);
   const contentBlocks = parseContentBlocks(visibleContent);
   const sources = message.sources || [];
@@ -683,14 +700,14 @@ function AssistantMessage({
   const isCollapsed = isLongResponse && !expanded && !isStreaming;
   const cardClassName = [
     "assistant-response-card",
-    isStreaming ? "assistant-response-card--streaming" : "",
+    isStreaming || activelyStreaming ? "assistant-response-card--streaming" : "",
   ]
     .filter(Boolean)
     .join(" ");
   const bodyClassName = [
     "assistant-message__body",
     isCollapsed ? "assistant-message__body--collapsed" : "",
-    isStreaming ? "assistant-message__body--streaming" : "",
+    isStreaming || activelyStreaming ? "assistant-message__body--streaming" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -707,7 +724,7 @@ function AssistantMessage({
             <div>
               <span className="message-avatar message-avatar--assistant">Assistant</span>
               <time>{formatMessageTime(message.createdAt)}</time>
-              {isStreaming && <span className="assistant-live-status">Streaming locally</span>}
+              {(isStreaming || activelyStreaming) && <span className="assistant-live-status">Streaming locally</span>}
               {message.ragUsed && (
                 <span className="rag-context-badge">
                   {message.rerankingUsed
@@ -725,8 +742,8 @@ function AssistantMessage({
             </div>
           </header>
 
-          <div className={bodyClassName} aria-live={isStreaming ? "polite" : undefined}>
-            {isStreaming && !visibleContent && (
+          <div className={bodyClassName} aria-live={isStreaming || activelyStreaming ? "polite" : undefined}>
+            {(isStreaming || activelyStreaming) && !visibleContent && (
               <div className="assistant-token-warmup" aria-label="Preparing response">
                 <span />
                 <span />
@@ -742,7 +759,7 @@ function AssistantMessage({
                 </div>
               ),
             )}
-            {isStreaming && visibleContent && (
+            {(isStreaming || activelyStreaming) && visibleContent && (
               <span className="assistant-stream-cursor" aria-hidden="true" />
             )}
 
@@ -760,7 +777,7 @@ function AssistantMessage({
             <SourceCitations onOpenSourceDetails={onOpenSourceDetails} sources={sources} />
           </div>
 
-          {isLongResponse && !isStreaming && (
+          {isLongResponse && !isStreaming && !activelyStreaming && (
             <Button
               aria-expanded={expanded}
               className="assistant-expand-button"

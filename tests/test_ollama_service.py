@@ -54,6 +54,57 @@ async def test_generate_sends_runtime_limits(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
+async def test_stream_generate_yields_ollama_chunks(monkeypatch) -> None:
+    request_body: dict[str, object] = {}
+
+    async def handle_request(request: httpx.Request) -> httpx.Response:
+        request_body.update(json.loads(request.content))
+        return httpx.Response(
+            200,
+            content=(
+                b'{"response":"Hello","done":false}\n'
+                b'{"response":" stream","done":false}\n'
+                b'{"done":true}\n'
+            ),
+        )
+
+    transport = httpx.MockTransport(handle_request)
+    real_async_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        ollama_module.httpx,
+        "AsyncClient",
+        lambda **kwargs: real_async_client(transport=transport, **kwargs),
+    )
+    service = OllamaService(
+        base_url="http://ollama.test",
+        timeout_seconds=120,
+        num_predict=256,
+        think=False,
+        keep_alive="15m",
+    )
+
+    chunks = [
+        chunk
+        async for chunk in service.stream_generate(
+            "llava:latest",
+            "Describe it",
+            images=["aW1hZ2U="],
+        )
+    ]
+
+    assert chunks == ["Hello", " stream"]
+    assert request_body == {
+        "model": "llava:latest",
+        "prompt": "Describe it",
+        "stream": True,
+        "think": False,
+        "keep_alive": "15m",
+        "options": {"num_predict": 256},
+        "images": ["aW1hZ2U="],
+    }
+
+
+@pytest.mark.anyio
 async def test_list_installed_models_parses_ollama_metadata(
     monkeypatch,
 ) -> None:

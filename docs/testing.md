@@ -139,6 +139,7 @@ The live smoke environment variables are:
 OLLAMA_TEST_LLM=smollm2:135m
 OLLAMA_TEST_EMBEDDER=all-minilm
 OLLAMA_TEST_RERANKER=qllama/bge-reranker-v2-m3:q4_k_m
+OLLAMA_TEST_VISION=llava:latest
 ```
 
 Run the live smoke suite:
@@ -153,10 +154,17 @@ Run the optional reranker smoke after pulling the reranker:
 RUN_OLLAMA_TESTS=1 RUN_RERANKER_TESTS=1 make test-ollama-smoke
 ```
 
+Run the optional vision smoke only after you have pulled a local vision model:
+
+```bash
+RUN_OLLAMA_TESTS=1 RUN_VISION_TESTS=1 OLLAMA_TEST_VISION=llava:latest make test-ollama-smoke
+```
+
 The smoke suite checks that Ollama is reachable, `/api/tags` returns models,
 chat generation works, embeddings work, document upload/process/index/search
 works with live embeddings, and RAG chat retrieves indexed chunks before
-answering with the tiny LLM. If Ollama is missing, not running, or required
+answering with the tiny LLM. Optional reranker and vision tests are skipped
+unless explicitly enabled. If Ollama is missing, not running, or required
 models are not pulled, tests skip with a clear message.
 
 CPU-only execution is supported but can be slower. Production-quality model

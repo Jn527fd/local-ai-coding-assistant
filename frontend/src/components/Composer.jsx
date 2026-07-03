@@ -2,6 +2,10 @@ import { useMemo, useRef, useState } from "react";
 
 import { Button, Textarea } from "./ui.jsx";
 
+const MAX_IMAGE_ATTACHMENTS = 4;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+
 const SLASH_COMMANDS = [
   {
     command: "/tests",
@@ -34,6 +38,62 @@ function PlusIcon() {
   );
 }
 
+function ImageIcon() {
+  return (
+    <svg aria-hidden="true" className="composer-plus-icon" fill="none" viewBox="0 0 24 24">
+      <path
+        d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5v-11Z"
+        stroke="currentColor"
+        strokeWidth="2"
+      />
+      <path
+        d="m7 16 3.2-3.2a1 1 0 0 1 1.4 0L13 14.2l2.3-2.3a1 1 0 0 1 1.4 0L20 15.2M8.5 8.5h.01"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2"
+      />
+    </svg>
+  );
+}
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary);
+}
+
+async function imageFileToAttachment(file) {
+  if (!IMAGE_MIME_TYPES.has(file.type)) {
+    throw new Error("Attach PNG, JPEG, or WebP images for vision chat.");
+  }
+  if (file.size > MAX_IMAGE_BYTES) {
+    throw new Error("Image attachments must be 5 MiB or smaller.");
+  }
+  const buffer = await readFileAsArrayBuffer(file);
+  return {
+    name: file.name || "image",
+    mimeType: file.type,
+    size: file.size,
+    data: bytesToBase64(new Uint8Array(buffer)),
+  };
+}
+
+function readFileAsArrayBuffer(file) {
+  if (typeof file.arrayBuffer === "function") {
+    return file.arrayBuffer();
+  }
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error || new Error("Image read failed."));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
 function Composer({
   activeChat,
   composerRef,
@@ -57,7 +117,10 @@ function Composer({
   onUploadDocument,
 }) {
   const fileInputRef = useRef(null);
+  const imageInputRef = useRef(null);
   const [focused, setFocused] = useState(false);
+  const [imageAttachments, setImageAttachments] = useState([]);
+  const [imageError, setImageError] = useState("");
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
 
@@ -94,11 +157,14 @@ function Composer({
     onMessageChange("");
     setSlashOpen(false);
 
-    const didSend = await onSendMessage(trimmed);
+    const didSend = await onSendMessage(trimmed, imageAttachments);
 
     if (!didSend) {
       onMessageChange(trimmed);
+      return;
     }
+    setImageAttachments([]);
+    setImageError("");
 
     // const didSend = await onSendMessage(trimmed);
     // if (didSend) {
@@ -129,6 +195,25 @@ function Composer({
       return;
     }
     await onUploadDocument(file);
+  }
+
+  async function handleImageChange(event) {
+    const files = Array.from(event.target.files || []);
+    event.target.value = "";
+    if (!files.length) {
+      return;
+    }
+    setImageError("");
+    try {
+      const remainingSlots = MAX_IMAGE_ATTACHMENTS - imageAttachments.length;
+      if (files.length > remainingSlots) {
+        throw new Error(`Attach up to ${MAX_IMAGE_ATTACHMENTS} images per message.`);
+      }
+      const nextAttachments = await Promise.all(files.map(imageFileToAttachment));
+      setImageAttachments((current) => [...current, ...nextAttachments]);
+    } catch (error) {
+      setImageError(error.message || "Image attachment failed.");
+    }
   }
 
   function handleMessageChange(event) {
@@ -203,6 +288,26 @@ function Composer({
           ref={fileInputRef}
           type="file"
         />
+        <button
+          aria-label="Attach image"
+          className="composer-attach-button composer-attach-button--image"
+          disabled={!activeChat || isSending}
+          onClick={() => imageInputRef.current?.click()}
+          title="Attach image"
+          type="button"
+        >
+          <ImageIcon />
+        </button>
+        <input
+          accept="image/png,image/jpeg,image/webp"
+          aria-label="Image upload"
+          className="composer-file-input"
+          disabled={!activeChat || isSending}
+          multiple
+          onChange={handleImageChange}
+          ref={imageInputRef}
+          type="file"
+        />
         <Textarea
           aria-controls={slashOpen ? "slash-command-menu" : undefined}
           disabled={!activeChat}
@@ -257,6 +362,34 @@ function Composer({
             ) : (
               <p className="composer-empty-menu">No matching command.</p>
             )}
+          </div>
+        )}
+
+        {(imageAttachments.length > 0 || imageError) && (
+          <div className="image-attachment-tray" aria-live="polite">
+            {imageError && (
+              <span className="document-chip document-chip--error">
+                {imageError}
+              </span>
+            )}
+            {imageAttachments.map((image) => (
+              <span className="document-chip document-chip--processed" key={`${image.name}-${image.size}`}>
+                <strong>{image.name}</strong>
+                <small>Image attached</small>
+                <Button
+                  className="document-chip__action"
+                  onClick={() =>
+                    setImageAttachments((current) =>
+                      current.filter((item) => item !== image),
+                    )
+                  }
+                  type="button"
+                  variant="plain"
+                >
+                  Remove
+                </Button>
+              </span>
+            ))}
           </div>
         )}
 

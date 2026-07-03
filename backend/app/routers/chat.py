@@ -1,8 +1,13 @@
 from dataclasses import dataclass, replace
+import base64
+import binascii
+from collections.abc import AsyncIterator
+import json
 import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
 
 from app.ai.components import (
     ComponentUnavailableError,
@@ -39,6 +44,7 @@ logger = logging.getLogger(__name__)
 
 RAG_RETRIEVAL_PIPELINES = {"hybrid", "reranked", "graph", "agentic"}
 DISABLED_RERANKERS = {"", "none"}
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 router = APIRouter(
     prefix="/chat",
@@ -60,6 +66,39 @@ class RerankPlan:
     should_rerank: bool
     model: str | None = None
     warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class PreparedChatExecution:
+    execution_context: object
+    prompt: ChatPrompt
+    prompt_request: ChatRequest
+    generation_model: str
+    image_payloads: list[str]
+    vision_used: bool
+    rag_used: bool
+    rag_warnings: list[str]
+    reranking_used: bool
+    reranker_model: str | None
+    rerank_warnings: list[str]
+    compression_used: bool
+    compressor_mode: str
+    compression_warnings: list[str]
+    compression_stats: dict[str, object]
+    retrieved_sources: list[RetrievedSource]
+    include_sources: bool
+
+    def generation_settings(self) -> dict[str, object]:
+        return {
+            "model": self.generation_model,
+            "images": self.image_payloads,
+            "visionUsed": self.vision_used,
+            "executionContext": self.execution_context,
+            "retrievedSources": [
+                source.response_payload()
+                for source in self.retrieved_sources
+            ],
+        }
 
 
 def build_retrieved_context_block(
@@ -405,6 +444,227 @@ def rank_sources(
     return ranked_sources
 
 
+def prepare_vision_images(chat_request: ChatRequest) -> list[str]:
+    """Validate image attachments and return Ollama-ready base64 payloads."""
+
+    prepared_images: list[str] = []
+    for image in chat_request.images:
+        try:
+            decoded = base64.b64decode(image.data, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Image attachment '{image.name}' is not valid base64.",
+            ) from exc
+
+        if not decoded:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Image attachment '{image.name}' is empty.",
+            )
+        if len(decoded) > MAX_IMAGE_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Image attachment '{image.name}' exceeds the "
+                    f"{MAX_IMAGE_BYTES // (1024 * 1024)} MiB limit."
+                ),
+            )
+        prepared_images.append(image.data)
+    return prepared_images
+
+
+def resolve_generation_model(
+    chat_request: ChatRequest,
+    execution_context: object,
+) -> tuple[str, bool]:
+    """Select the text or vision model for this chat request."""
+
+    if not chat_request.images:
+        return execution_context.resolved_llm_model, False
+
+    vision_component = execution_context.components["visionModel"]
+    requested_id = (vision_component.requested_id or "").strip()
+    vision_model = (execution_context.resolved_vision_model or "").strip()
+    if (
+        not vision_model
+        or vision_model in DISABLED_RERANKERS
+        or not vision_component.valid
+        or not vision_component.available
+    ):
+        reason = vision_component.reason or "vision model is unavailable"
+        selected = requested_id or "none"
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Image chat requires a valid available vision model. "
+                f"Selected vision model '{selected}' cannot be used: {reason}."
+            ),
+        )
+    return vision_model, True
+
+
+async def prepare_chat_execution(
+    chat_request: ChatRequest,
+    request: Request,
+    settings_resolver: AISettingsResolver,
+    retrieval_pipeline: DocumentRetrievalPipeline,
+    reranker_provider: Reranker,
+    compression_manager: ContextCompressor,
+) -> PreparedChatExecution:
+    """Resolve settings, retrieval, reranking, compression, and prompt."""
+
+    model_manager: ModelManager = request.app.state.model_manager
+    if model_manager.is_switching:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Model switching is in progress. Try again when it completes.",
+        )
+
+    active_model = model_manager.active_model
+    execution_context = await settings_resolver.resolve(
+        conversation_settings=chat_request.conversationSettings,
+        active_model=active_model,
+        conversation_id=chat_request.conversationId,
+    )
+    image_payloads = prepare_vision_images(chat_request)
+    generation_model, vision_used = resolve_generation_model(
+        chat_request,
+        execution_context,
+    )
+
+    if chat_request.model is not None and chat_request.model != generation_model:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"{chat_request.model} is not selected for this request. "
+                "Switch models from the account panel or conversation "
+                "settings before using it."
+            ),
+        )
+
+    settings: Settings = request.app.state.settings
+    rag_result = None
+    rag_options = chat_request.ragOptions
+    requested_top_k = rag_options.topK if rag_options else settings.rag_top_k
+    top_k = max(1, min(requested_top_k, settings.rag_max_top_k))
+    rerank_plan = build_rerank_plan(execution_context)
+    candidate_k = top_k
+    if rerank_plan.should_rerank:
+        requested_candidate_k = (
+            rag_options.candidateK if rag_options else settings.rag_candidate_k
+        )
+        candidate_k = max(
+            top_k,
+            min(requested_candidate_k, settings.reranker_max_candidates),
+        )
+
+    if should_attempt_retrieval(chat_request, execution_context):
+        rag_result = await retrieval_pipeline.retrieve(
+            query=chat_request.message,
+            conversation_id=chat_request.conversationId,
+            execution_context=execution_context,
+            top_k=candidate_k,
+            document_ids=rag_options.documentIds if rag_options else None,
+        )
+
+    rag_warnings = list(rag_result.warnings if rag_result else [])
+    rerank_warnings = list(rerank_plan.warnings)
+    reranking_used = False
+    reranker_model = rerank_plan.model
+    retrieved_sources = rank_sources(
+        rag_result.sources if rag_result else [],
+        top_k=top_k,
+    )
+
+    if rerank_warnings:
+        rag_warnings.extend(rerank_warnings)
+
+    if rag_result and rag_result.rag_used and rerank_plan.should_rerank:
+        try:
+            rerank_result = await reranker_provider.rerank(
+                query=chat_request.message,
+                candidate_chunks=rag_result.sources,
+                model=rerank_plan.model or "",
+                settings={
+                    "topK": top_k,
+                    "candidateK": candidate_k,
+                    "maxPassageChars": 2_000,
+                },
+            )
+            rerank_warnings.extend(rerank_result.warnings)
+            rag_warnings.extend(rerank_result.warnings)
+            retrieved_sources = rank_sources(rerank_result.sources, top_k=top_k)
+            reranking_used = True
+        except Exception as exc:
+            logger.warning("Reranking failed: %s", exc)
+            warning = (
+                "Reranking was not used because the selected reranker failed; "
+                "using vector-ranked document context."
+            )
+            rerank_warnings.append(warning)
+            rag_warnings.append(warning)
+            retrieved_sources = rank_sources(
+                rag_result.sources,
+                top_k=top_k,
+            )
+
+    compression_result = await compression_manager.compress(
+        CompressionInput(
+            history=chat_request.history,
+            latest_user_message=chat_request.message,
+            retrieved_sources=retrieved_sources,
+            execution_context=execution_context,
+            options=build_compression_options(settings),
+            model=generation_model,
+        )
+    )
+    prompt_request = chat_request.model_copy(
+        update={"history": compression_result.history}
+    )
+    retrieved_sources = compression_result.retrieved_sources
+    prompt = build_chat_prompt(
+        prompt_request,
+        max_chars=settings.chat_context_max_chars,
+        retrieved_sources=retrieved_sources,
+        memory_summary=compression_result.memory_summary,
+    )
+    logger.info(
+        (
+            "Prepared chat model=%s prompt_chars=%d history_messages=%d/%d "
+            "retrieved_sources=%d reranking_used=%s compression_used=%s"
+        ),
+        generation_model,
+        len(prompt.text),
+        prompt.included_history_messages,
+        len(chat_request.history),
+        prompt.retrieved_source_count,
+        reranking_used,
+        compression_result.compression_used,
+    )
+
+    include_sources = rag_options.includeSources if rag_options else True
+    return PreparedChatExecution(
+        execution_context=execution_context,
+        prompt=prompt,
+        prompt_request=prompt_request,
+        generation_model=generation_model,
+        image_payloads=image_payloads,
+        vision_used=vision_used,
+        rag_used=bool(rag_result and rag_result.rag_used),
+        rag_warnings=rag_warnings,
+        reranking_used=reranking_used,
+        reranker_model=reranker_model if reranking_used else None,
+        rerank_warnings=rerank_warnings,
+        compression_used=compression_result.compression_used,
+        compressor_mode=compression_result.compressor_mode,
+        compression_warnings=compression_result.warnings,
+        compression_stats=compression_result.stats.response_payload(),
+        retrieved_sources=retrieved_sources,
+        include_sources=include_sources,
+    )
+
+
 @router.post("", response_model=ChatResponse)
 async def chat(
     chat_request: ChatRequest,
@@ -439,7 +699,11 @@ async def chat(
         active_model=active_model,
         conversation_id=chat_request.conversationId,
     )
-    generation_model = execution_context.resolved_llm_model
+    image_payloads = prepare_vision_images(chat_request)
+    generation_model, vision_used = resolve_generation_model(
+        chat_request,
+        execution_context,
+    )
 
     if chat_request.model is not None:
         if chat_request.model != generation_model:
@@ -565,6 +829,8 @@ async def chat(
             history=[item.model_dump() for item in prompt_request.history],
             settings={
                 "model": generation_model,
+                "images": image_payloads,
+                "visionUsed": vision_used,
                 "executionContext": execution_context,
                 "retrievedSources": [
                     source.response_payload()
@@ -610,9 +876,120 @@ async def chat(
         compressorMode=compression_result.compressor_mode,
         compressionWarnings=compression_result.warnings,
         compressionStats=compression_result.stats.response_payload(),
+        visionUsed=vision_used,
+        visionModel=generation_model if vision_used else None,
         sources=(
             [source.response_payload() for source in retrieved_sources]
             if include_sources
             else []
         ),
+    )
+
+
+def _sse_event(event: str, data: dict[str, object]) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _chat_metadata_payload(
+    prepared: PreparedChatExecution,
+) -> dict[str, object]:
+    return {
+        "model": prepared.generation_model,
+        "ragUsed": prepared.rag_used,
+        "ragWarnings": prepared.rag_warnings,
+        "rerankingUsed": prepared.reranking_used,
+        "rerankerModel": prepared.reranker_model,
+        "rerankWarnings": prepared.rerank_warnings,
+        "compressionUsed": prepared.compression_used,
+        "compressorMode": prepared.compressor_mode,
+        "compressionWarnings": prepared.compression_warnings,
+        "compressionStats": prepared.compression_stats,
+        "visionUsed": prepared.vision_used,
+        "visionModel": (
+            prepared.generation_model if prepared.vision_used else None
+        ),
+        "visionWarnings": [],
+        "sources": (
+            [source.response_payload() for source in prepared.retrieved_sources]
+            if prepared.include_sources
+            else []
+        ),
+    }
+
+
+def _stream_error_payload(exc: Exception) -> dict[str, object]:
+    if isinstance(exc, ComponentUnavailableError | OllamaUnavailableError):
+        return {"status": 503, "message": str(exc)}
+    if isinstance(exc, OllamaTimeoutError):
+        return {"status": 504, "message": str(exc)}
+    if isinstance(exc, OllamaResponseError):
+        return {"status": 502, "message": str(exc)}
+    logger.exception("Streaming chat failed unexpectedly")
+    return {
+        "status": 500,
+        "message": "Streaming generation failed unexpectedly.",
+    }
+
+
+@router.post("/stream")
+async def chat_stream(
+    chat_request: ChatRequest,
+    request: Request,
+    llm_provider: Annotated[OllamaLLMProvider, Depends(get_llm_provider)],
+    settings_resolver: Annotated[
+        AISettingsResolver,
+        Depends(get_ai_settings_resolver),
+    ],
+    retrieval_pipeline: Annotated[
+        DocumentRetrievalPipeline,
+        Depends(get_retrieval_pipeline),
+    ],
+    reranker_provider: Annotated[Reranker, Depends(get_reranker_provider)],
+    compression_manager: Annotated[
+        ContextCompressor,
+        Depends(get_context_compression_manager),
+    ],
+) -> StreamingResponse:
+    """Stream an authenticated chat response as server-sent events."""
+
+    prepared = await prepare_chat_execution(
+        chat_request=chat_request,
+        request=request,
+        settings_resolver=settings_resolver,
+        retrieval_pipeline=retrieval_pipeline,
+        reranker_provider=reranker_provider,
+        compression_manager=compression_manager,
+    )
+
+    async def event_stream() -> AsyncIterator[str]:
+        yield _sse_event("progress", {"stage": "generating"})
+        yield _sse_event("metadata", _chat_metadata_payload(prepared))
+
+        answer_parts: list[str] = []
+        try:
+            async for chunk in llm_provider.stream_generate(
+                prompt=prepared.prompt.text,
+                history=[
+                    item.model_dump() for item in prepared.prompt_request.history
+                ],
+                settings=prepared.generation_settings(),
+            ):
+                answer_parts.append(chunk)
+                yield _sse_event("token", {"text": chunk})
+        except Exception as exc:
+            yield _sse_event("error", _stream_error_payload(exc))
+            return
+
+        yield _sse_event(
+            "done",
+            {
+                **_chat_metadata_payload(prepared),
+                "answer": "".join(answer_parts).strip(),
+            },
+        )
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

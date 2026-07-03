@@ -28,3 +28,52 @@ def test_no_tracked_files_match_gitignore() -> None:
     ]
 
     assert tracked_ignored_files == []
+
+
+def test_release_readiness_documents_exist_and_cover_required_topics() -> None:
+    """Phase 15 release docs should remain present and actionable."""
+
+    repo_root = Path(__file__).resolve().parents[1]
+    required_docs = {
+        "SECURITY.md": [
+            "Trust Model",
+            "Sensitive Data",
+            "Before Broader Deployment",
+        ],
+        "CHANGELOG.md": [
+            "[0.1.0]",
+            "Known Limitations",
+        ],
+        "docs/deployment-hardening.md": [
+            "HTTPS Reverse Proxy",
+            "Cookie and API-Key Settings",
+            "Operational Smoke Check",
+        ],
+        "docs/backup-restore.md": [
+            "Data to Back Up",
+            "Restore",
+            "Browser Chat History",
+        ],
+        "docs/dependency-security.md": [
+            "Dependency Sources",
+            "Useful Audit Commands",
+            "Secret and Artifact Hygiene",
+        ],
+        "docs/release-checklist.md": [
+            "Required Tests",
+            "Docker Verification",
+            "Manual Smoke",
+        ],
+        "roadmap_v2.md": [
+            "Roadmap v2",
+            "Phase 1: Release Candidate Stabilization",
+            "Phase 15: Public Release Candidate QA",
+        ],
+    }
+
+    for relative_path, required_phrases in required_docs.items():
+        document = repo_root / relative_path
+        assert document.exists(), f"{relative_path} is missing"
+        content = document.read_text(encoding="utf-8")
+        for phrase in required_phrases:
+            assert phrase in content, f"{relative_path} missing {phrase!r}"

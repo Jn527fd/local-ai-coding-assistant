@@ -257,6 +257,59 @@ export const runtimeOnlineHandlers = [
       { status: 202 },
     );
   }),
+  http.post(`${API_BASE_URL}/chat/stream`, async ({ request }) => {
+    const body = await request.json();
+    await delay(220);
+    const answer = `Fake streaming answer for: ${body.message}`;
+    const metadata = {
+      model: "qwen3:4b",
+      ragUsed: true,
+      ragWarnings: ["Document context skipped one stale index."],
+      rerankingUsed: true,
+      rerankerModel: "bge-reranker:latest",
+      rerankWarnings: ["Reranker skipped one low-confidence score."],
+      compressionUsed: true,
+      compressorMode: "token",
+      compressionWarnings: ["Token compression trimmed 2 older history messages."],
+      compressionStats: {
+        originalCharEstimate: 18000,
+        compressedCharEstimate: 9000,
+        originalTokenEstimate: 4500,
+        compressedTokenEstimate: 2250,
+        messagesTrimmed: 2,
+        contextTrimmed: 0,
+        summaryGenerated: false,
+      },
+      visionUsed: false,
+      visionWarnings: [],
+      sources: [
+        {
+          sourceNumber: 1,
+          documentId: "doc-1",
+          documentName: "notes.txt",
+          chunkId: "chunk-1",
+          chunkIndex: 0,
+          score: 0.91,
+          vectorScore: 0.51,
+          rerankScore: 0.91,
+          finalRank: 1,
+          textPreview: "The FastAPI app is created in backend/app/main.py.",
+        },
+        "backend/app/main.py",
+      ],
+    };
+    return new HttpResponse(
+      [
+        `event: progress\ndata: ${JSON.stringify({ stage: "generating" })}\n\n`,
+        `event: metadata\ndata: ${JSON.stringify(metadata)}\n\n`,
+        `event: token\ndata: ${JSON.stringify({ text: answer })}\n\n`,
+        `event: done\ndata: ${JSON.stringify({ ...metadata, answer })}\n\n`,
+      ].join(""),
+      {
+        headers: { "Content-Type": "text/event-stream" },
+      },
+    );
+  }),
   http.post(`${API_BASE_URL}/chat`, async ({ request }) => {
     const body = await request.json();
     await delay(60);

@@ -37,9 +37,11 @@ component registry        JSON vector store
                           final chat prompt
 ```
 
-The current production storage model is deliberately simple: local JSON files
-under `data/`. This makes the app easy to inspect and test, but it is not a
-large-scale vector database or multi-user persistence layer.
+The current production storage model is deliberately local and inspectable.
+Operational payloads remain in JSON files under `data/`, while
+`data/metadata/app.sqlite3` stores a small SQLite catalogue for metadata and
+migration bookkeeping. This is not a large-scale vector database, cloud sync
+system, or multi-user persistence layer.
 
 ## Frontend
 
@@ -50,7 +52,7 @@ frontend/src/
 |-- App.jsx                 # Main state container
 |-- api.js                  # Fetch helpers and error handling
 |-- apiBase.js              # Runtime API base URL resolution
-|-- chatState.js            # Browser-local chat/settings persistence
+|-- chatState.js            # Browser-local chat/settings fallback state
 |-- main.jsx
 |-- styles.css
 `-- components/
@@ -67,14 +69,17 @@ capabilities, chats, active chat settings, document lists, indexes, search
 results, chat sending, dialogs, and toasts. This is functional but large; a
 future roadmap phase should extract focused hooks.
 
-Browser-local chat behavior:
+Conversation storage behavior:
 
 - Up to five chats per username are stored in local storage.
 - Each chat stores its own `settings` object.
+- Browser localStorage remains the default and fallback store.
+- Users can opt into backend JSON persistence from Settings.
+- Backend-persisted conversations live under `data/conversations/`, scoped by
+  the signed-in local username.
 - New chat defaults are built from discovered capabilities.
 - The frontend sends the active chat's recent history and settings with each
   request.
-- The backend does not persist browser chat history.
 
 The Account panel no longer switches one global UI model as the main workflow.
 It exposes Conversation Settings for the active chat and a verification button
@@ -93,12 +98,17 @@ registers routers.
 backend/app/
 |-- main.py
 |-- config.py
+|-- metadata/
+|   |-- cli.py
+|   |-- migrations.py
+|   `-- store.py
 |-- auth/
 |-- routers/
 |   |-- auth.py
 |   |-- account.py
 |   |-- models.py
 |   |-- components.py
+|   |-- conversations.py
 |   |-- documents.py
 |   |-- chat.py
 |   |-- repos.py
@@ -106,6 +116,7 @@ backend/app/
 |-- schemas/
 |-- services/
 |   |-- component_registry.py
+|   |-- conversation_service.py
 |   |-- document_service.py
 |   |-- local_settings_service.py
 |   |-- model_manager.py
@@ -127,6 +138,44 @@ backend/app/
 
 Pydantic models validate request bodies. Blocking file work runs in
 Starlette's thread pool where needed.
+
+## Local Metadata Store
+
+`backend/app/metadata/store.py` owns the local SQLite catalogue. The initial
+schema includes:
+
+- `schema_migrations`
+- `users`
+- `settings`
+- `conversations`
+- `documents`
+- `vector_collections`
+- `repository_indexes`
+
+`backend/app/metadata/migrations.py` runs forward-only startup migrations.
+Fresh installs create the database automatically. Existing JSON metadata is
+imported conservatively from credentials, local settings, backend conversation
+stores, document metadata artifacts, vector collection metadata artifacts, and
+repository JSON indexes. The original JSON files remain in place and continue
+to back the current runtime services.
+
+Conversation writes from `ConversationPersistenceService` are mirrored into
+SQLite so the catalogue remains current after the initial migration. Uploaded
+files, extracted text, chunk payloads, vector embeddings, and repository index
+payloads remain in their existing artifact stores.
+
+Manual migration diagnostics are available with:
+
+```bash
+cd backend
+../.venv/bin/python -m app.metadata.cli status
+../.venv/bin/python -m app.metadata.cli migrate
+```
+
+If the SQLite database is corrupt or newer than the running application
+supports, startup fails with a migration error. Non-critical unreadable
+document or index metadata is skipped with warnings so existing list/get
+fallback behavior is preserved.
 
 ## Authentication
 
@@ -411,7 +460,8 @@ network. Current limits include:
 
 - one shared API key
 - in-memory login sessions
-- browser-local chat persistence
+- browser-local chat persistence by default with optional backend JSON
+  persistence mirrored into the local metadata catalogue
 - streaming is implemented for chat generation but not every long-running
   document operation
 - JSON vector storage

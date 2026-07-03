@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, expect, vi } from "vitest";
 import { toHaveNoViolations } from "jest-axe";
 
 import { server } from "./msw/server.js";
+import { resetMockRuntimeState } from "./msw/handlers.js";
 
 expect.extend(toHaveNoViolations);
 globalThis.React = React;
@@ -16,6 +17,7 @@ beforeAll(() => {
 afterEach(() => {
   cleanup();
   server.resetHandlers();
+  resetMockRuntimeState();
   window.localStorage.clear();
   vi.restoreAllMocks();
 });

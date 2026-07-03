@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -80,6 +80,8 @@ class Settings(BaseSettings):
     document_max_chunks: int = Field(default=500, ge=1, le=10_000)
     embedding_batch_size: int = Field(default=16, ge=1, le=128)
     vector_store_backend: str = Field(default="json", min_length=1, max_length=40)
+    conversation_max_count: int = Field(default=50, ge=1, le=500)
+    metadata_database_file: Path | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -87,6 +89,15 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
+    @field_validator("metadata_database_file", mode="before")
+    @classmethod
+    def empty_metadata_database_file_uses_default(cls, value: object) -> object:
+        """Treat an empty env override as the default metadata DB path."""
+
+        if value == "":
+            return None
+        return value
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -115,6 +126,20 @@ class Settings(BaseSettings):
         """Return the directory used for local vector indexes."""
 
         return self.data_directory.expanduser().resolve() / "vector_indexes"
+
+    @property
+    def conversation_directory(self) -> Path:
+        """Return the directory used for optional persisted conversations."""
+
+        return self.data_directory.expanduser().resolve() / "conversations"
+
+    @property
+    def resolved_metadata_database_file(self) -> Path:
+        """Return the local SQLite metadata database path."""
+
+        if self.metadata_database_file is not None:
+            return self.metadata_database_file.expanduser().resolve()
+        return self.data_directory.expanduser().resolve() / "metadata" / "app.sqlite3"
 
     @property
     def resolved_credentials_file(self) -> Path:

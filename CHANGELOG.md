@@ -6,7 +6,21 @@ automation is added.
 
 ## [Unreleased]
 
-- Reserve for changes merged after the Phase 15 release-readiness baseline.
+### Added
+
+- Optional backend conversation persistence with session-scoped JSON storage,
+  browser-to-backend migration, import/export endpoints, and delete semantics.
+- Local SQLite metadata catalogue with startup migrations, manual migration
+  diagnostics, JSON metadata import, and conversation metadata mirroring.
+
+### Release Candidate Checklist
+
+- [x] README landing page reviewed and refreshed for public preview wording.
+- [x] Setup docs aligned with the JSON default and optional Chroma adapter.
+- [x] Example configuration files reviewed for placeholders, empty secrets, and
+  trusted-network defaults.
+- [ ] Final release tag and release date pending after full release-candidate
+  verification.
 
 ## [0.1.0] - 2026-07-03
 

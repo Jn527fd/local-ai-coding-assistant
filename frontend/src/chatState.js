@@ -1,5 +1,9 @@
 export const MAX_CHATS = 5;
 export const CHAT_STORAGE_PREFIX = "local-ai-coding-assistant.chats";
+export const CONVERSATION_PERSISTENCE_PREFIX =
+  "local-ai-coding-assistant.conversation-persistence";
+export const PERSISTENCE_MODE_LOCAL = "local";
+export const PERSISTENCE_MODE_BACKEND = "backend";
 
 export const CONVERSATION_SETTING_KEYS = [
   "llmModel",
@@ -158,6 +162,33 @@ export function createChat(defaultSettings = BASE_CONVERSATION_SETTINGS) {
 
 export function chatStorageKey(username) {
   return `${CHAT_STORAGE_PREFIX}.${username}`;
+}
+
+export function conversationPersistenceKey(username) {
+  return `${CONVERSATION_PERSISTENCE_PREFIX}.${username}`;
+}
+
+export function loadConversationPersistenceMode(username) {
+  try {
+    const value = window.localStorage.getItem(conversationPersistenceKey(username));
+    return value === PERSISTENCE_MODE_BACKEND
+      ? PERSISTENCE_MODE_BACKEND
+      : PERSISTENCE_MODE_LOCAL;
+  } catch {
+    return PERSISTENCE_MODE_LOCAL;
+  }
+}
+
+export function saveConversationPersistenceMode(username, mode) {
+  const normalizedMode =
+    mode === PERSISTENCE_MODE_BACKEND
+      ? PERSISTENCE_MODE_BACKEND
+      : PERSISTENCE_MODE_LOCAL;
+  window.localStorage.setItem(
+    conversationPersistenceKey(username),
+    normalizedMode,
+  );
+  return normalizedMode;
 }
 
 export function loadChats(username, defaultSettings = BASE_CONVERSATION_SETTINGS) {

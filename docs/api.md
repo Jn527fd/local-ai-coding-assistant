@@ -11,7 +11,8 @@ The app uses two local authentication mechanisms:
 
 1. **Login session cookie:** `/auth/login` verifies
    `data/config/credentials.json` and sets an HttpOnly cookie. Account,
-   model, and component-discovery endpoints require this cookie.
+   model, component-discovery, and optional conversation-persistence endpoints
+   require this cookie.
 2. **Bearer API key:** `/chat`, `/documents/*`, and `/repos/*` require
    `Authorization: Bearer <API_KEY>`. The active key comes from the ignored
    local app-settings file, with the `API_KEY` environment variable as a
@@ -33,6 +34,13 @@ The app uses two local authentication mechanisms:
 | `GET` | `/models/status` | Session | Legacy model status and Ollama connectivity |
 | `POST` | `/models/switch` | Session | Legacy active-model fallback switch |
 | `GET` | `/components/capabilities` | Session | Categorized local models, tools, and static component options |
+| `GET` | `/conversations` | Session | List optional backend-persisted conversations for the signed-in local user |
+| `POST` | `/conversations` | Session | Create or replace one persisted conversation |
+| `GET` | `/conversations/{conversation_id}` | Session | Read one persisted conversation |
+| `PUT` | `/conversations/{conversation_id}` | Session | Update one persisted conversation |
+| `DELETE` | `/conversations/{conversation_id}` | Session | Delete one persisted conversation |
+| `POST` | `/conversations/import` | Session | Import browser conversations into backend persistence |
+| `GET` | `/conversations/export/all` | Session | Export backend-persisted conversations |
 | `POST` | `/chat` | Bearer key | Generate a complete chat response with optional document RAG, reranking, compression, and vision |
 | `POST` | `/chat/stream` | Bearer key | Stream chat progress, tokens, metadata, and completion events |
 | `POST` | `/documents/upload` | Bearer key | Stage a document for one conversation |
@@ -200,6 +208,32 @@ shape:
 Extra fields are ignored inside `conversationSettings`. Invalid or unavailable
 components are resolved by the backend and usually produce warnings or clear
 validation errors depending on the operation.
+
+## Optional Conversation Persistence
+
+Browser localStorage remains the default conversation store. When a user opts
+in from Settings, the frontend imports browser chats into backend persistence
+with `POST /conversations/import` and then keeps the backend JSON store updated.
+
+Conversation persistence endpoints require the login session cookie and are
+scoped to the signed-in local username. They do not use the Bearer API key and
+do not provide cloud sync.
+
+Persisted conversations are stored under `data/conversations/` as local JSON.
+Each record can include:
+
+- `id`
+- `title`
+- `messages`
+- `settings`
+- `metadata`
+- `attachmentReferences`
+- `createdAt`
+- `updatedAt`
+
+`DELETE /conversations/{conversation_id}` removes the persisted record so it is
+not returned by future list/read calls. Browser-local fallback data is managed
+by the frontend.
 
 ## Chat
 

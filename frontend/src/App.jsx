@@ -2,9 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   checkHealth,
+  deleteConversation as deletePersistedConversation,
   getCurrentUser,
   getModelStatus,
+  importConversations,
   indexDocument,
+  listConversations,
   listDocumentIndexes,
   listDocuments,
   logout,
@@ -18,9 +21,13 @@ import {
   chatStorageKey,
   createChat,
   loadChats,
+  loadConversationPersistenceMode,
   MAX_CHATS,
   normalizeChats,
   normalizeConversationSettings,
+  PERSISTENCE_MODE_BACKEND,
+  PERSISTENCE_MODE_LOCAL,
+  saveConversationPersistenceMode,
   titleFromMessage,
 } from "./chatState.js";
 import AccountPanel from "./components/AccountPanel.jsx";
@@ -58,6 +65,11 @@ function App() {
 
   const [chats, setChats] = useState([]);
   const [activeChatId, setActiveChatId] = useState("");
+  const [conversationPersistenceMode, setConversationPersistenceMode] = useState(
+    PERSISTENCE_MODE_LOCAL,
+  );
+  const [conversationPersistenceStatus, setConversationPersistenceStatus] =
+    useState("Browser-local storage");
   const [sendingChatId, setSendingChatId] = useState("");
   const [documentsByChat, setDocumentsByChat] = useState({});
   const [documentIndexesByChat, setDocumentIndexesByChat] = useState({});
@@ -208,14 +220,32 @@ function App() {
       const defaults = buildDefaultConversationSettings({
         capabilities: nextCapabilities,
       });
-      const savedChats = loadChats(session.username, defaults);
+      const requestedMode = loadConversationPersistenceMode(session.username);
+      let savedChats = loadChats(session.username, defaults);
+      let activePersistenceMode = requestedMode;
+      let persistenceStatus = "Browser-local storage";
+
+      if (requestedMode === PERSISTENCE_MODE_BACKEND) {
+        try {
+          const result = await listConversations();
+          savedChats = normalizeChats(result?.conversations || [], defaults);
+          persistenceStatus = "Backend persistence active";
+        } catch (error) {
+          activePersistenceMode = PERSISTENCE_MODE_LOCAL;
+          saveConversationPersistenceMode(session.username, PERSISTENCE_MODE_LOCAL);
+          persistenceStatus = "Backend persistence unavailable; using browser storage";
+          showToast(error.message, "error");
+        }
+      }
 
       setUser(session);
       setChats(savedChats);
       setActiveChatId(savedChats[0]?.id || "");
+      setConversationPersistenceMode(activePersistenceMode);
+      setConversationPersistenceStatus(persistenceStatus);
       setAuthState("authenticated");
     },
-    [refreshApiStatus, refreshCapabilities, refreshModelStatus],
+    [refreshApiStatus, refreshCapabilities, refreshModelStatus, showToast],
   );
 
   useEffect(() => {
@@ -227,6 +257,8 @@ function App() {
         setUser(null);
         setAuthState("anonymous");
         resetCapabilities();
+        setConversationPersistenceMode(PERSISTENCE_MODE_LOCAL);
+        setConversationPersistenceStatus("Browser-local storage");
       }
     }
 
@@ -253,6 +285,33 @@ function App() {
 
     window.localStorage.setItem(chatStorageKey(user.username), JSON.stringify(chats));
   }, [authState, chats, user]);
+
+  useEffect(() => {
+    if (
+      authState !== "authenticated" ||
+      !user ||
+      conversationPersistenceMode !== PERSISTENCE_MODE_BACKEND
+    ) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      importConversations(chats, { replace: true })
+        .then(() => {
+          setConversationPersistenceStatus("Backend persistence active");
+        })
+        .catch((error) => {
+          saveConversationPersistenceMode(user.username, PERSISTENCE_MODE_LOCAL);
+          setConversationPersistenceMode(PERSISTENCE_MODE_LOCAL);
+          setConversationPersistenceStatus(
+            "Backend persistence unavailable; using browser storage",
+          );
+          showToast(error.message, "error");
+        });
+    }, 500);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [authState, chats, conversationPersistenceMode, showToast, user]);
 
   useEffect(() => {
     if (authState !== "authenticated" || !activeChatId || !apiKey) {
@@ -300,6 +359,8 @@ function App() {
       resetCapabilities();
       setChats([]);
       setActiveChatId("");
+      setConversationPersistenceMode(PERSISTENCE_MODE_LOCAL);
+      setConversationPersistenceStatus("Browser-local storage");
       setDocumentsByChat({});
       setDocumentIndexesByChat({});
       setDocumentBusy(false);
@@ -318,6 +379,56 @@ function App() {
     setApiKey(nextKey);
     window.localStorage.setItem(API_KEY_STORAGE_KEY, nextKey);
   }
+
+  const handleEnableBackendPersistence = useCallback(async () => {
+    if (!user) {
+      return false;
+    }
+
+    const normalized = normalizeChats(chats, defaultConversationSettings);
+    setConversationPersistenceStatus("Migrating browser chats...");
+    try {
+      const result = await importConversations(normalized, { replace: true });
+      const backendChats = normalizeChats(
+        result?.conversations || normalized,
+        defaultConversationSettings,
+      );
+      saveConversationPersistenceMode(user.username, PERSISTENCE_MODE_BACKEND);
+      setConversationPersistenceMode(PERSISTENCE_MODE_BACKEND);
+      setConversationPersistenceStatus("Backend persistence active");
+      setChats(backendChats);
+      if (!backendChats.some((chat) => chat.id === activeChatId)) {
+        setActiveChatId(backendChats[0]?.id || "");
+      }
+      showToast("Browser chats migrated to backend storage.", "success");
+      return true;
+    } catch (error) {
+      saveConversationPersistenceMode(user.username, PERSISTENCE_MODE_LOCAL);
+      setConversationPersistenceMode(PERSISTENCE_MODE_LOCAL);
+      setConversationPersistenceStatus(
+        "Backend persistence unavailable; using browser storage",
+      );
+      showToast(error.message, "error");
+      return false;
+    }
+  }, [
+    activeChatId,
+    chats,
+    defaultConversationSettings,
+    showToast,
+    user,
+  ]);
+
+  const handleUseBrowserPersistence = useCallback(() => {
+    if (!user) {
+      return;
+    }
+
+    saveConversationPersistenceMode(user.username, PERSISTENCE_MODE_LOCAL);
+    setConversationPersistenceMode(PERSISTENCE_MODE_LOCAL);
+    setConversationPersistenceStatus("Browser-local storage");
+    showToast("Using browser-local conversation storage.", "success");
+  }, [showToast, user]);
 
   const getActiveConversationSettings = useCallback(
     () => normalizeConversationSettings(activeChat?.settings, defaultConversationSettings),
@@ -591,7 +702,7 @@ function App() {
     setChatDialog({ chatId: targetChat.id, mode: "delete", value: "" });
   }
 
-  function confirmDeleteChat() {
+  async function confirmDeleteChat() {
     const targetChat = dialogChat;
     if (!targetChat) {
       setChatDialog({ chatId: "", mode: "", value: "" });
@@ -618,6 +729,17 @@ function App() {
     }
     showToast("Thread deleted.", "success");
     setChatDialog({ chatId: "", mode: "", value: "" });
+
+    if (conversationPersistenceMode === PERSISTENCE_MODE_BACKEND) {
+      try {
+        await deletePersistedConversation(targetChat.id);
+      } catch (error) {
+        setConversationPersistenceStatus(
+          "Backend delete failed; browser copy was removed",
+        );
+        showToast(error.message, "error");
+      }
+    }
   }
 
   function handleRenameChat(chatId = activeChat?.id) {
@@ -1063,6 +1185,8 @@ function App() {
           apiKey={apiKey}
           capabilities={capabilities}
           capabilitiesStatus={capabilitiesStatus}
+          conversationPersistenceMode={conversationPersistenceMode}
+          conversationPersistenceStatus={conversationPersistenceStatus}
           isOpen={accountOpen}
           onApiKeyChange={handleApiKeyChange}
           onClose={() => setAccountOpen(false)}
@@ -1070,9 +1194,11 @@ function App() {
           onConversationSettingsVerified={(title) =>
             showToast(`Settings verified for "${title}".`, "success")
           }
+          onEnableBackendPersistence={handleEnableBackendPersistence}
           onLogout={handleLogout}
           onModelStatus={setModelStatus}
           onRefreshCapabilities={refreshCapabilities}
+          onUseBrowserPersistence={handleUseBrowserPersistence}
           username={user.username}
         />
       }

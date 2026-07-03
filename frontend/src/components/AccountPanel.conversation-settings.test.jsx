@@ -226,4 +226,41 @@ describe("AccountPanel conversation settings", () => {
       screen.getByText(/implemented: extracts selectable pdf text/i),
     ).toBeInTheDocument();
   });
+
+  it("lets users opt into backend conversation persistence", async () => {
+    const user = userEvent.setup();
+    const onEnableBackendPersistence = vi.fn();
+    renderAccountPanel({
+      conversationPersistenceMode: "local",
+      conversationPersistenceStatus: "Browser-local storage",
+      onEnableBackendPersistence,
+    });
+
+    expect(screen.getByText(/conversation storage/i)).toBeInTheDocument();
+    expect(screen.getByText(/browser localstorage/i)).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: /migrate to backend storage/i }),
+    );
+
+    expect(onEnableBackendPersistence).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets backend persistence users return to browser storage", async () => {
+    const user = userEvent.setup();
+    const onUseBrowserPersistence = vi.fn();
+    renderAccountPanel({
+      conversationPersistenceMode: "backend",
+      conversationPersistenceStatus: "Backend persistence active",
+      onUseBrowserPersistence,
+    });
+
+    expect(screen.getByText(/backend json/i)).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: /use browser storage/i }),
+    );
+
+    expect(onUseBrowserPersistence).toHaveBeenCalledTimes(1);
+  });
 });

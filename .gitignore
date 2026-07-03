@@ -31,6 +31,10 @@ pnpm-debug.log*
 data/indexes/*
 data/repos/*
 data/config/*
+data/conversations/*
+data/metadata/*
+data/uploads/*
+data/vector_indexes/*
 !data/indexes/.gitkeep
 !data/repos/.gitkeep
 !data/config/.gitkeep

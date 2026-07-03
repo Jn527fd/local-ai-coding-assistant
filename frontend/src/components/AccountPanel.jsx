@@ -339,14 +339,18 @@ function AccountPanel({
   apiKey,
   capabilities = null,
   capabilitiesStatus = { status: "idle", message: "" },
+  conversationPersistenceMode = "local",
+  conversationPersistenceStatus = "Browser-local storage",
   isOpen,
   onApiKeyChange,
   onClose,
   onConversationSettingsChange = () => {},
   onConversationSettingsVerified = () => {},
+  onEnableBackendPersistence = async () => {},
   onLogout,
   onModelStatus,
   onRefreshCapabilities,
+  onUseBrowserPersistence = () => {},
   username,
 }) {
   const [draftApiKey, setDraftApiKey] = useState(apiKey);
@@ -454,6 +458,7 @@ function AccountPanel({
   const ollamaConnected = Boolean(modelStatus?.ollama_connected);
   const installedModelCount = modelStatus?.supported_models?.length || 0;
   const conversationSettings = activeConversationSettings || {};
+  const backendPersistenceActive = conversationPersistenceMode === "backend";
   function handleConversationSettingsChange(patch) {
     setSettingsVerified(false);
     onConversationSettingsChange(patch);
@@ -585,6 +590,60 @@ function AccountPanel({
             >
               Verify chat settings
             </Button>
+          </div>
+        </SettingsCard>
+
+        <SettingsCard
+          badge={
+            <Badge
+              className={`connection-state ${
+                backendPersistenceActive
+                  ? "connection-state--online"
+                  : "connection-state--offline"
+              }`}
+              tone={backendPersistenceActive ? "success" : "neutral"}
+            >
+              {backendPersistenceActive ? "Backend" : "Browser"}
+            </Badge>
+          }
+          description="Browser storage remains the default. Backend persistence stores this user's chats in the local data directory."
+          eyebrow="Conversations"
+          title="Conversation Storage"
+        >
+          <div className="settings-status-grid">
+            <SettingsStatusRow
+              detail={conversationPersistenceStatus}
+              label="Storage mode"
+              tone={backendPersistenceActive ? "success" : "neutral"}
+              value={backendPersistenceActive ? "Backend JSON" : "Browser localStorage"}
+            />
+          </div>
+
+          <p className="account-note">
+            Enabling backend storage imports the current browser chats to the
+            local backend. Browser storage continues to be updated as a fallback.
+          </p>
+
+          <div className="inline-actions">
+            {backendPersistenceActive ? (
+              <Button
+                className="secondary-button"
+                onClick={onUseBrowserPersistence}
+                type="button"
+                variant="secondary"
+              >
+                Use browser storage
+              </Button>
+            ) : (
+              <Button
+                className="secondary-button"
+                onClick={onEnableBackendPersistence}
+                type="button"
+                variant="secondary"
+              >
+                Migrate to backend storage
+              </Button>
+            )}
           </div>
         </SettingsCard>
 

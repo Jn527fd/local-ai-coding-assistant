@@ -16,15 +16,18 @@ from app.ai.vectorstores import VectorStoreManager
 from app.config import Settings, get_settings
 from app.auth.credentials import CredentialsService
 from app.auth.session import SessionService
+from app.metadata import MetadataMigrationManager, MetadataStore
 from app.routers.account import router as account_router
 from app.routers.auth import router as auth_router
 from app.routers.chat import router as chat_router
 from app.routers.components import router as components_router
+from app.routers.conversations import router as conversations_router
 from app.routers.documents import router as documents_router
 from app.routers.health import router as health_router
 from app.routers.models import router as models_router
 from app.routers.repos import router as repos_router
 from app.services.component_registry import ComponentRegistry
+from app.services.conversation_service import ConversationPersistenceService
 from app.services.document_service import DocumentService
 from app.services.local_settings_service import LocalSettingsService
 from app.services.model_manager import ModelManager
@@ -55,6 +58,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     local_settings_service = LocalSettingsService(
         app_settings.resolved_local_settings_file
     )
+    metadata_store = MetadataStore(app_settings.resolved_metadata_database_file)
+    metadata_migration_manager = MetadataMigrationManager(
+        store=metadata_store,
+        settings=app_settings,
+    )
     model_manager = ModelManager(
         ollama_service=OllamaService(
             base_url=app_settings.ollama_base_url,
@@ -79,6 +87,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         max_upload_bytes=app_settings.document_max_upload_bytes,
         chunk_size=app_settings.document_chunk_size,
         max_chunks=app_settings.document_max_chunks,
+    )
+    conversation_service = ConversationPersistenceService(
+        storage_directory=app_settings.conversation_directory,
+        max_conversations_per_user=app_settings.conversation_max_count,
+        metadata_store=metadata_store,
     )
     vector_store = vector_store_manager.default_store()
     ai_settings_resolver = AISettingsResolver(
@@ -112,9 +125,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.state.credentials_service = credentials_service
         application.state.session_service = session_service
         application.state.local_settings_service = local_settings_service
+        application.state.metadata_store = metadata_store
+        application.state.metadata_migration_manager = metadata_migration_manager
+        application.state.metadata_migration_result = (
+            metadata_migration_manager.migrate()
+        )
         application.state.model_manager = model_manager
         application.state.component_registry = component_registry
         application.state.document_service = document_service
+        application.state.conversation_service = conversation_service
         application.state.vector_store_manager = vector_store_manager
         application.state.vector_store = vector_store
         application.state.ai_settings_resolver = ai_settings_resolver
@@ -140,9 +159,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.credentials_service = credentials_service
     application.state.session_service = session_service
     application.state.local_settings_service = local_settings_service
+    application.state.metadata_store = metadata_store
+    application.state.metadata_migration_manager = metadata_migration_manager
+    application.state.metadata_migration_result = None
     application.state.model_manager = model_manager
     application.state.component_registry = component_registry
     application.state.document_service = document_service
+    application.state.conversation_service = conversation_service
     application.state.vector_store_manager = vector_store_manager
     application.state.vector_store = vector_store
     application.state.ai_settings_resolver = ai_settings_resolver
@@ -166,6 +189,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(account_router)
     application.include_router(models_router)
     application.include_router(components_router)
+    application.include_router(conversations_router)
     application.include_router(documents_router)
     application.include_router(chat_router)
     application.include_router(repos_router)

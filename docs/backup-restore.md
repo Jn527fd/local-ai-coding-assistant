@@ -1,8 +1,9 @@
 # Backup and Restore
 
-Backups protect local credentials, app settings, uploaded documents, generated
-indexes, and vector data. They do not capture browser-local chat history unless
-you export or back up the browser profile separately.
+Backups protect local credentials, app settings, the SQLite metadata
+catalogue, uploaded documents, generated indexes, vector data, and optional
+backend-persisted conversations. They do not capture browser-local-only chat
+history unless you export or back up the browser profile separately.
 
 ## Data to Back Up
 
@@ -14,7 +15,9 @@ backend/.env
 frontend/.env
 data/config/credentials.json
 data/config/app-settings.json
+data/metadata/
 data/uploads/
+data/conversations/
 data/vector_indexes/
 data/indexes/
 data/repos/
@@ -68,6 +71,19 @@ docker compose logs backend --tail=100
 Then sign in, verify the API key status, refresh local models/tools, and run a
 small chat plus document search.
 
+Check the metadata database after restore:
+
+```bash
+cd backend
+../.venv/bin/python -m app.metadata.cli status
+../.venv/bin/python -m app.metadata.cli migrate
+```
+
+The migration command is conservative: it initializes a missing database,
+imports existing JSON metadata where practical, and leaves original artifacts
+unchanged. If it reports a corrupt or unsupported database, stop and restore
+from a known-good backup before continuing.
+
 ## Rotation After Restore
 
 Rotate credentials when moving data to a new machine:
@@ -79,6 +95,14 @@ Rotate credentials when moving data to a new machine:
 
 ## Browser Chat History
 
-Conversations live in browser localStorage. They are not included in backend
-data backups. Treat browser profile backup, export, or future server-side chat
-persistence as separate work.
+Browser-local conversations live in browser localStorage. They are not included
+in backend data backups unless you first migrate them to backend storage from
+Settings.
+
+Backend-persisted conversations live under `data/conversations/` and are
+included when the `data/` directory is backed up. Restoring that directory
+restores the backend conversation store for the same local usernames.
+
+The SQLite metadata catalogue lives under `data/metadata/`. It can be restored
+with the rest of `data/`, or regenerated from the JSON metadata artifacts by
+running the migration command if the database file is missing.

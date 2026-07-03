@@ -2,41 +2,64 @@
 
 # Local AI Coding Assistant
 
-**A private, self-hosted workspace for local Ollama chat, per-chat AI
-configuration, document indexing, and source-grounded RAG experiments.**
+**A private local AI workspace for Ollama chat, document RAG, source
+citations, and per-chat model/tool settings.**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=111827)](https://react.dev/)
 [![Ollama](https://img.shields.io/badge/Ollama-Local%20Inference-111827?style=flat-square)](https://ollama.com/)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](https://docs.docker.com/compose/)
-[![Tests](https://img.shields.io/badge/tests-pytest%2022%20%2B%20node%205-22C55E?style=flat-square&logo=pytest&logoColor=white)](#testing)
+[![CI](https://github.com/Jn527fd/local-ai-coding-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/Jn527fd/local-ai-coding-assistant/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-MIT-7C3AED?style=flat-square)](LICENSE)
 
 </div>
 
 > [!IMPORTANT]
-> **Continuous development:** This project is actively evolving. The current
-> release is a functional portfolio-grade MVP, but interfaces, retrieval
-> quality, deployment options, and tests will continue to improve.
+> **Public preview:** This is a functional local-first application, not a
+> hosted SaaS or public multi-tenant service. It is designed for one operator
+> on a trusted machine or private network.
 
 ## Overview
 
-Local AI Coding Assistant is a full-stack application for developers who want
-AI-assisted exploration without sending prompts, documents, or source code to a
-cloud model provider.
+Local AI Coding Assistant is a full-stack app for developers who want useful
+AI assistance without sending prompts, documents, or source code to a cloud
+model provider.
 
 The application connects a React dashboard to a FastAPI backend and a locally
-installed Ollama service. Users can authenticate, manage a local API key,
-maintain isolated browser-local conversations, choose AI components per chat,
-upload documents, build local JSON vector indexes, retrieve source snippets,
-and answer with RAG source metadata. Optional reranking and context compression
-can be enabled per conversation while legacy repository keyword RAG remains
-available through the API.
+installed Ollama service. You can sign in locally, choose AI components per
+chat, upload documents, build local vector indexes, retrieve source snippets,
+stream answers, inspect source metadata, and enable optional reranking or
+context compression per conversation.
 
 Internet access is required only when installing dependencies or downloading
 new Ollama models. Chat prompts, generated repository indexes, credentials,
 API keys, and source code remain on the host machine during normal use.
+
+## Highlights
+
+- Local Ollama chat with streaming responses and per-chat model selection.
+- Document upload, PDF/text extraction, chunking, embeddings, search, and RAG.
+- Source-grounded answers with source numbers, vector scores, rerank scores,
+  warnings, and compression metadata.
+- Local capability discovery for LLMs, embedders, rerankers, vision models,
+  OCR engines, PDF parsers, chunkers, vector stores, RAG pipelines, and
+  context compressors.
+- Optional OCRmyPDF fallback for low-text PDFs and optional vision chat for
+  local multimodal Ollama models.
+- Docker Compose deployment, hermetic default tests, optional live Ollama smoke
+  tests, and release-readiness documentation.
+
+## Quick Links
+
+| Need | Start here |
+| --- | --- |
+| Install and run locally | [Quick Start](#quick-start) |
+| Understand the design | [Architecture](#architecture) and [docs/architecture.md](docs/architecture.md) |
+| Review API behavior | [API Reference](#api-reference) and [docs/api.md](docs/api.md) |
+| Run tests | [Testing](#testing) and [docs/testing.md](docs/testing.md) |
+| Deploy safely | [Security and Privacy](#security-and-privacy) and [docs/deployment-hardening.md](docs/deployment-hardening.md) |
+| See what comes next | [Roadmap](#roadmap), [roadmap_v2.md](roadmap_v2.md), and [feature_ideas_v2.md](feature_ideas_v2.md) |
 
 ## Application Preview
 
@@ -63,7 +86,8 @@ This project demonstrates more than a basic LLM chat interface:
 - **Security-conscious configuration:** Salted password hashes, HttpOnly
   sessions, Bearer authentication, ignored secret files, and safe templates.
 - **Operational readiness:** Health checks, Docker Compose, non-root backend
-  execution, restart policies, setup scripts, and automated tests.
+  execution, restart policies, setup scripts, SQLite metadata migrations, and
+  automated tests.
 
 ## Features
 
@@ -93,7 +117,12 @@ This project demonstrates more than a basic LLM chat interface:
 
 ### Conversations
 
-- Up to five browser-local chats per username.
+- Up to five browser-local chats per username by default.
+- Optional backend conversation persistence stores chats in local JSON files
+  under `data/conversations/` after the user opts in from Settings.
+- A local SQLite metadata catalogue under `data/metadata/` records migrated
+  users, settings, conversations, document metadata, and index metadata while
+  preserving the JSON artifact stores.
 - Isolated history and context for each conversation.
 - Per-chat settings for LLM, embedder, OCR engine, PDF parser, chunker, vector
   database, RAG pipeline, reranker, context compressor, and vision model.
@@ -152,7 +181,7 @@ flowchart LR
     API --> Components["Component registry<br/>models and tools"]
     API --> Chat["Chat orchestration"]
     API --> Documents["Document service<br/>extract and chunk"]
-    Documents --> VectorIndex["Local JSON<br/>vector index"]
+    Documents --> VectorIndex["Local vector<br/>index"]
     VectorIndex --> Retriever["Retriever"]
     Retriever --> Reranker["Optional reranker"]
     Reranker --> Compressor["Optional context<br/>compressor"]
@@ -186,7 +215,8 @@ Detailed design notes are available in
 | Frontend | React 18, Vite 8, CSS | Authentication, chat, account settings, documents, and source UI |
 | Backend | Python, FastAPI, Pydantic | APIs, validation, sessions, orchestration, and component discovery |
 | Local inference | Ollama | Model downloads, text generation, embeddings, and reranker prompts |
-| Retrieval | Python JSON indexes | Document vectors, source metadata, and legacy keyword RAG |
+| Metadata | SQLite + local JSON artifacts | Migration bookkeeping and local metadata catalogue |
+| Retrieval | JSON vector store, optional Chroma | Document vectors, source metadata, and legacy keyword RAG |
 | HTTP client | HTTPX | Async communication with Ollama |
 | Deployment | Docker, Docker Compose, Nginx | Reproducible frontend and backend services |
 | Testing | pytest, FastAPI TestClient, Vitest, MSW | API, authentication, AI flow, documents, frontend, and Docker tests |
@@ -236,6 +266,10 @@ pdfplumber
 ocrmypdf
 ```
 
+The default vector backend is local JSON storage. The optional Chroma adapter
+is available when `chromadb` is installed in the backend runtime and
+`VECTOR_STORE_BACKEND=chroma` is configured.
+
 Tesseract is a system binary, so Docker images or host environments must
 install `tesseract-ocr` separately if you want the `tesseract` engine detected.
 
@@ -243,7 +277,7 @@ install `tesseract-ocr` separately if you want the `tesseract` engine detected.
 
 ### Prerequisites
 
-The primary target is a Linux Mint machine with:
+The primary setup path targets Linux Mint or another modern Linux host with:
 
 - Python 3.10 or newer
 - Node.js 20.19+ or 22.12+
@@ -251,6 +285,10 @@ The primary target is a Linux Mint machine with:
 - Ollama
 - Docker Engine and Docker Compose for container deployment
 - An NVIDIA GPU and working driver are recommended, but not required
+
+Windows users can run the app through WSL or Docker, but the setup scripts and
+examples in this README are written for a Linux shell. See
+[docs/setup.md](docs/setup.md) for the fuller environment notes.
 
 Verify optional NVIDIA acceleration:
 
@@ -409,70 +447,19 @@ question. The response includes the source paths selected by the retriever.
 
 ## API Reference
 
-| Method | Endpoint | Authentication | Purpose |
-| --- | --- | --- | --- |
-| `GET` | `/` | Public | Application metadata |
-| `GET` | `/health` | Public | Backend health check |
-| `POST` | `/auth/login` | Credentials | Start a local session |
-| `GET` | `/auth/me` | Session cookie | Return the signed-in user |
-| `POST` | `/auth/logout` | Session cookie | End the session |
-| `GET` | `/account/status` | Session cookie | Check account and API-key state |
-| `PUT` | `/account/api-key` | Session cookie | Save a local API key |
-| `GET` | `/models/status` | Session cookie | Return model and switch status |
-| `POST` | `/models/switch` | Session cookie | Select an installed local model |
-| `GET` | `/components/capabilities` | Session cookie | Return categorized local AI components and tools |
-| `POST` | `/chat` | Bearer key | Generate a complete chat response |
-| `POST` | `/chat/stream` | Bearer key | Stream chat progress, tokens, metadata, and completion |
-| `POST` | `/documents/upload` | Bearer key | Stage a conversation document upload |
-| `GET` | `/documents` | Bearer key | List processed documents for a conversation |
-| `POST` | `/documents/{document_id}/process` | Bearer key | Extract and chunk an uploaded document |
-| `POST` | `/documents/{document_id}/index` | Bearer key | Build a local JSON vector index for one document |
-| `GET` | `/documents/indexes` | Bearer key | List document indexes |
-| `DELETE` | `/documents/indexes/{collection_id}` | Bearer key | Delete a document vector collection |
-| `POST` | `/documents/search` | Bearer key | Search indexed document chunks |
-| `POST` | `/repos/index-local` | Bearer key | Index a local repository |
-| `POST` | `/repos/ask` | Bearer key | Ask a grounded repository question |
+The backend exposes documented FastAPI routes for:
 
-### Example Chat Request
+- authentication and local account state
+- model status and component capability discovery
+- complete and streaming chat responses
+- optional backend conversation persistence, migration, import, and export
+- document upload, processing, indexing, search, and index deletion
+- local repository indexing and grounded repository questions
+- health checks and application metadata
 
-```bash
-export API_KEY="your-local-api-key"
-
-curl -X POST http://localhost:8000/chat \
-  -H "Authorization: Bearer $API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "message":"Explain dependency injection in FastAPI.",
-    "conversationSettings":{
-      "llmModel":"llama3.2:3b",
-      "ragPipeline":"basic",
-      "reranker":"none",
-      "contextCompressor":"none"
-    }
-  }'
-```
-
-### Example Repository Request
-
-The dashboard repository workspace is temporarily hidden, but the backend API
-remains available:
-
-```bash
-curl -X POST http://localhost:8000/repos/index-local \
-  -H "Authorization: Bearer $API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"path":"/repositories/sample-code-repository"}'
-
-curl -X POST http://localhost:8000/repos/ask \
-  -H "Authorization: Bearer $API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "repo_name":"sample-code-repository",
-    "question":"Where are the calculator functions implemented?"
-  }'
-```
-
-See [docs/api.md](docs/api.md) for request schemas, responses, and errors.
+OpenAPI documentation is available at `/docs` when the backend is running.
+See [docs/api.md](docs/api.md) for endpoint details, request schemas,
+response examples, and error behavior.
 
 ## Document and Repository Indexing
 
@@ -494,9 +481,10 @@ Ignored directories:
 ```
 
 Legacy repository indexes are stored as readable JSON under `data/indexes/`.
-Document vectors use local JSON-backed storage for the current phase. Re-
-indexing a directory with the same final directory name replaces its previous
-repository index.
+Document vectors use local JSON-backed storage by default, with an optional
+Chroma adapter available when `chromadb` is installed and
+`VECTOR_STORE_BACKEND=chroma` is set. Re-indexing a directory with the same
+final directory name replaces its previous repository index.
 
 GitHub cloning is not implemented yet. Clone a GitHub repository locally, then
 index its local path.
@@ -535,6 +523,8 @@ Important inference settings:
 | `DOCUMENT_MAX_CHUNKS` | `500` | Maximum chunks kept from one processed document |
 | `EMBEDDING_BATCH_SIZE` | `16` | Maximum chunks embedded per local batch |
 | `VECTOR_STORE_BACKEND` | `json` | Active vector backend; `chroma` is optional when `chromadb` is installed |
+| `CONVERSATION_MAX_COUNT` | `50` | Maximum backend-persisted conversations per local user |
+| `METADATA_DATABASE_FILE` | empty | Optional override for the local SQLite metadata database |
 
 Real `.env`, credentials, application settings, generated indexes, virtual
 environments, dependencies, and build output are excluded by `.gitignore`.
@@ -632,11 +622,12 @@ internet-facing multi-tenant service. Review the
 local-ai-coding-assistant/
 |-- backend/
 |   |-- app/
+|   |   |-- ai/            # Providers, embedders, rerankers, compressors, and vector stores
 |   |   |-- auth/          # Credentials, sessions, and Bearer validation
-|   |   |-- rag/           # Chunking, indexing, and retrieval
+|   |   |-- rag/           # Legacy repository chunking, indexing, and retrieval
 |   |   |-- routers/       # FastAPI route modules
 |   |   |-- schemas/       # Pydantic request and response models
-|   |   `-- services/      # Ollama, model, settings, and repo services
+|   |   `-- services/      # Documents, Ollama, settings, models, and repositories
 |   |-- Dockerfile
 |   `-- requirements*.txt
 |-- frontend/
@@ -646,7 +637,7 @@ local-ai-coding-assistant/
 |-- tests/                 # Isolated backend tests
 |-- scripts/               # Linux setup, startup, and credential tools
 |-- docs/                  # Architecture, API, and setup guides
-|-- data/                  # Ignored local settings and generated indexes
+|-- data/                  # Ignored local settings, metadata, and generated indexes
 |-- sample-code-repository/
 |-- docker-compose.yml
 `-- Makefile
@@ -654,9 +645,9 @@ local-ai-coding-assistant/
 
 ## Current Limitations
 
-- Document vectors are stored in local JSON files; selected vector database
-  names are recorded for compatibility but external Chroma, FAISS, Qdrant, and
-  LanceDB backends are not wired yet.
+- Document vectors use local JSON storage by default. Chroma is available as
+  an optional early adapter when `chromadb` is installed; FAISS, Qdrant, and
+  LanceDB are not wired yet.
 - Legacy repository RAG still uses keyword overlap.
 - OCRmyPDF fallback exists for low-text PDFs, but broad OCR expansion and UI
   workflows are still early.
@@ -667,7 +658,9 @@ local-ai-coding-assistant/
 - Chat streaming is implemented for generation; broader runtime progress for
   every long-running operation is still limited.
 - Login sessions are in memory and end when the backend restarts.
-- Browser chat persistence uses local storage on the current device.
+- Browser chat persistence uses local storage by default. Backend JSON
+  persistence is opt-in, local to this installation, and mirrored into the
+  SQLite metadata catalogue.
 - GitHub repositories must be cloned locally before indexing.
 - The default deployment assumes a trusted home or development network.
 

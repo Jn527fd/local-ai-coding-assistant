@@ -205,6 +205,13 @@ export function componentCapabilities(overrides = {}) {
 
 const documentsByConversation = new Map();
 const indexesByConversation = new Map();
+let persistedConversations = [];
+
+export function resetMockRuntimeState() {
+  persistedConversations = [];
+  documentsByConversation.clear();
+  indexesByConversation.clear();
+}
 
 function rememberDocument(conversationId, document) {
   const existing = documentsByConversation.get(conversationId) || [];
@@ -249,6 +256,55 @@ export const runtimeOnlineHandlers = [
   http.get(`${API_BASE_URL}/models/status`, () => HttpResponse.json(modelStatus())),
   http.get(`${API_BASE_URL}/components/capabilities`, () =>
     HttpResponse.json(componentCapabilities()),
+  ),
+  http.get(`${API_BASE_URL}/conversations`, () =>
+    HttpResponse.json({
+      persistence: "backend",
+      conversations: persistedConversations,
+    }),
+  ),
+  http.put(`${API_BASE_URL}/conversations/:conversationId`, async ({ params, request }) => {
+    const body = await request.json();
+    const conversation = { ...body, id: params.conversationId };
+    persistedConversations = [
+      conversation,
+      ...persistedConversations.filter((item) => item.id !== conversation.id),
+    ];
+    return HttpResponse.json({ conversation });
+  }),
+  http.delete(`${API_BASE_URL}/conversations/:conversationId`, ({ params }) => {
+    persistedConversations = persistedConversations.filter(
+      (item) => item.id !== params.conversationId,
+    );
+    return HttpResponse.json({
+      deleted: true,
+      conversationId: params.conversationId,
+    });
+  }),
+  http.post(`${API_BASE_URL}/conversations/import`, async ({ request }) => {
+    const body = await request.json();
+    const conversations = Array.isArray(body.conversations)
+      ? body.conversations
+      : [];
+    persistedConversations = body.replace
+      ? conversations
+      : [
+          ...conversations,
+          ...persistedConversations.filter(
+            (item) => !conversations.some((next) => next.id === item.id),
+          ),
+        ];
+    return HttpResponse.json({
+      imported: conversations.length,
+      conversations: persistedConversations,
+    });
+  }),
+  http.get(`${API_BASE_URL}/conversations/export/all`, () =>
+    HttpResponse.json({
+      username: "test-user",
+      exportedAt: "2026-07-03T10:00:00Z",
+      conversations: persistedConversations,
+    }),
   ),
   http.post(`${API_BASE_URL}/models/switch`, async ({ request }) => {
     const body = await request.json();

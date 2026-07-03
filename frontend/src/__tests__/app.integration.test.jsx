@@ -134,6 +134,47 @@ describe("main app integration", () => {
     );
   });
 
+  it("keeps browser storage by default and migrates when explicitly requested", async () => {
+    let importBody = null;
+    server.use(
+      http.post(`${API_BASE_URL}/conversations/import`, async ({ request }) => {
+        importBody = await request.json();
+        return HttpResponse.json({
+          imported: importBody.conversations.length,
+          conversations: importBody.conversations,
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    await renderAuthenticatedApp();
+
+    expect(
+      window.localStorage.getItem(
+        "local-ai-coding-assistant.conversation-persistence.test-user",
+      ),
+    ).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /^Settings$/i }));
+    expect(screen.getByText(/browser localstorage/i)).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: /migrate to backend storage/i }),
+    );
+
+    await waitFor(() => {
+      expect(importBody?.replace).toBe(true);
+    });
+    expect(importBody.conversations.length).toBeGreaterThan(0);
+    expect(
+      window.localStorage.getItem(
+        "local-ai-coding-assistant.conversation-persistence.test-user",
+      ),
+    ).toBe("backend");
+    expect(
+      await screen.findByText(/browser chats migrated to backend storage/i),
+    ).toBeInTheDocument();
+  });
+
   it("shows a clear offline runtime state", async () => {
     const user = userEvent.setup();
     server.use(...runtimeOfflineHandlers);

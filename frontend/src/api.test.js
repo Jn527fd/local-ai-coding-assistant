@@ -226,6 +226,66 @@ describe("api chat", () => {
   });
 });
 
+describe("api conversations", () => {
+  it("lists, saves, deletes, imports, and exports conversations", async () => {
+    const calls = [];
+    vi.stubGlobal("fetch", async (url, options) => {
+      calls.push({ url, options });
+      if (url.endsWith("/conversations") && options.method === "GET") {
+        return jsonResponse({ persistence: "backend", conversations: [] });
+      }
+      if (url.endsWith("/conversations/chat-1") && options.method === "PUT") {
+        return jsonResponse({ conversation: { id: "chat-1", title: "Saved" } });
+      }
+      if (url.endsWith("/conversations/chat-1") && options.method === "DELETE") {
+        return jsonResponse({ deleted: true, conversationId: "chat-1" });
+      }
+      if (url.endsWith("/conversations/import")) {
+        return jsonResponse({ imported: 1, conversations: [{ id: "chat-1" }] });
+      }
+      if (url.endsWith("/conversations/export/all")) {
+        return jsonResponse({
+          username: "chuy",
+          exportedAt: "2026-07-03T10:00:00Z",
+          conversations: [{ id: "chat-1" }],
+        });
+      }
+      return jsonResponse({ detail: "Unexpected request." }, 500);
+    });
+
+    const {
+      deleteConversation,
+      exportConversations,
+      importConversations,
+      listConversations,
+      saveConversation,
+    } = await importApiForTest();
+
+    await listConversations();
+    await saveConversation({ id: "chat-1", title: "Saved", messages: [] });
+    await deleteConversation("chat-1");
+    await importConversations([{ id: "chat-1", title: "Saved", messages: [] }], {
+      replace: true,
+    });
+    await exportConversations();
+
+    expect(calls.map((call) => call.url)).toEqual([
+      "http://192.168.1.204:8000/conversations",
+      "http://192.168.1.204:8000/conversations/chat-1",
+      "http://192.168.1.204:8000/conversations/chat-1",
+      "http://192.168.1.204:8000/conversations/import",
+      "http://192.168.1.204:8000/conversations/export/all",
+    ]);
+    expect(calls.every((call) => call.options.credentials === "include")).toBe(
+      true,
+    );
+    expect(JSON.parse(calls[3].options.body)).toEqual({
+      conversations: [{ id: "chat-1", title: "Saved", messages: [] }],
+      replace: true,
+    });
+  });
+});
+
 describe("api documents", () => {
   it("uploads documents as multipart form data", async () => {
     const calls = [];

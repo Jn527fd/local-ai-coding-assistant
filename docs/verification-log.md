@@ -576,3 +576,205 @@ Scope:
 - [x] Documentation updated
 - [x] No new critical or high-severity issues introduced
 - [x] Release checklist, hardening docs, changelog, and roadmap v2 are present
+
+## Roadmap v2 Phase 1 Release Candidate Stabilization
+
+Date: 2026-07-03
+
+Scope:
+
+- Audit public release-candidate wording in `README.md`, `CHANGELOG.md`,
+  `docs/setup.md`, release docs, and example configuration files.
+- Keep Phase 1 limited to release-candidate documentation, safe defaults, and
+  verification records.
+- Refresh stale vector-backend wording so JSON is clearly the default and
+  Chroma is described as an optional early adapter.
+- Add a release-candidate checklist entry to `CHANGELOG.md`.
+- Confirm example configuration files use placeholders, empty secrets, and
+  trusted-network defaults.
+- Do not begin Roadmap v2 Phase 2.
+
+### Environment Notes
+
+- Host shell: Windows PowerShell.
+- Backend test runtime: Python 3.12.13 from `.venv`.
+- Frontend test runtime: bundled Node executable under
+  `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe`.
+- Docker CLI was present, but the Docker daemon was not running.
+- Vitest required an outside-sandbox rerun because esbuild could not read a
+  parent directory inside the restricted filesystem sandbox.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `git status --short` | Passed | Working tree contained intentional Phase 1 docs/config changes only. |
+| `rg -n "pytest 22\|node 5\|not wired yet\|temporarily hidden\|portfolio-grade\|external Chroma\|external vector database backends are not wired\|current phase\|future work\|coming soon\|TODO\|FIXME\|VECTOR_STORE_BACKEND=chroma\|VECTOR_STORE_BACKEND=json\|API_KEY=\|password\|secret" README.md CHANGELOG.md SECURITY.md docs .env.example backend/.env.example frontend/.env.example credentials.example.json app-settings.example.json` | Passed | Remaining matches were accurate limitations, safe placeholders, or security guidance. |
+| `.venv\Scripts\python.exe -m pytest` | Passed | 104 passed, 7 skipped. Optional OCRmyPDF, live Ollama, and Chroma tests skipped. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe scripts\lint-check.mjs` from `frontend/` | Passed | Frontend lint guard passed for 39 frontend files. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vitest\vitest.mjs run` from `frontend/` | Failed, then passed | Sandbox run failed due restricted esbuild/Vite config path access. Outside-sandbox rerun passed with 8 files and 44 tests. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vite\bin\vite.js build` from `frontend/` | Passed | Production build completed successfully. |
+| `docker compose -f docker-compose.test.yml build backend-test frontend-test` | Blocked | Docker daemon was not running: `open //./pipe/docker_engine: The system cannot find the file specified.` |
+| `git ls-files -ci --exclude-standard` | Passed | No tracked ignored files were reported. |
+| `.venv\Scripts\python.exe -m pip check` | Passed | No broken requirements found. |
+| `git diff --check` | Passed | No whitespace errors. Git reported existing CRLF normalization warnings. |
+
+### Phase 1 Verification Checklist
+
+- [x] Existing tests pass
+- [x] Docker blocker documented
+- [x] Release docs match current behavior
+- [x] No stale "not implemented" claims for implemented features
+- [x] No local secrets or generated data are tracked
+- [x] Phase 2 was not started
+
+## Roadmap v2 Phase 2 Server-Side Conversation Persistence
+
+Date: 2026-07-03
+
+Scope:
+
+- Add optional backend conversation persistence while preserving browser
+  localStorage as the default and fallback behavior.
+- Store persisted conversations in user-scoped JSON files under
+  `data/conversations/`.
+- Add session-protected conversation create/list/read/update/delete,
+  import, and export endpoints.
+- Add browser-to-backend migration from Settings.
+- Keep this phase below Phase 3 scope: no SQLite, no broad metadata migration
+  layer, no cloud sync, and no multi-device sync.
+- Update setup, architecture, API, backup/restore, README, env example, and
+  changelog documentation.
+
+### Storage Format
+
+Phase 2 uses one JSON file per signed-in local username:
+
+```text
+data/conversations/{safe_username}.json
+```
+
+Each file contains a small object with `version`, `username`,
+`conversations`, and `deletedConversationIds`. This remains simple,
+inspectable, backup-friendly, and does not introduce Phase 3 database
+migration work.
+
+### Environment Notes
+
+- Host shell: Windows PowerShell.
+- Backend test runtime: Python 3.12.13 from `.venv`.
+- Frontend test runtime: bundled Node executable under
+  `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe`.
+- Docker CLI was present, but the Docker daemon was not running.
+- Vitest was run outside the restricted sandbox because esbuild/Vite config
+  resolution requires normal filesystem access on this machine.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `.venv\Scripts\python.exe -m pytest tests\test_conversations.py` | Passed | 9 passed. |
+| `.venv\Scripts\python.exe -m pytest tests\test_conversations.py tests\test_repository_hygiene.py` | Passed | 11 passed. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe scripts\lint-check.mjs` from `frontend/` | Passed | Frontend lint guard passed for 39 files. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vitest\vitest.mjs run src/api.test.js src/chatState.test.js src/components/AccountPanel.conversation-settings.test.jsx src/__tests__/app.integration.test.jsx` from `frontend/` | Passed | 4 files passed, 30 tests passed. |
+| `.venv\Scripts\python.exe -m pytest` | Passed | 113 passed, 7 skipped. Optional OCRmyPDF, live Ollama, and Chroma tests skipped. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vitest\vitest.mjs run` from `frontend/` | Passed | 8 files passed, 50 tests passed. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vite\bin\vite.js build` from `frontend/` | Passed | Production build completed successfully. |
+| `docker compose -f docker-compose.test.yml build backend-test frontend-test` | Blocked | Docker daemon was not running: `open //./pipe/docker_engine: The system cannot find the file specified.` |
+| `git ls-files -ci --exclude-standard` | Passed | No tracked ignored files were reported. |
+| `.venv\Scripts\python.exe -m pip check` | Passed | No broken requirements found. |
+| `git diff --check` | Passed | No whitespace errors. Git reported existing CRLF normalization warnings. |
+| `rg -n "backend does not persist\|Conversations live in browser localStorage\|browser-local chat persistence$\|Phase 3\|SQLite\|database migration\|server-side chat persistence as separate work\|external vector database backends are not wired" README.md docs CHANGELOG.md backend frontend tests` | Passed | Matches were limited to historical roadmap/log references, not current Phase 2 behavior docs. |
+
+### Phase 2 Verification Checklist
+
+- [x] Backend conversation service unit tests pass
+- [x] Conversation API tests pass
+- [x] Corrupt and missing conversation store behavior is tested
+- [x] Frontend migration and persistence behavior is tested
+- [x] Browser-local fallback behavior remains the default and is tested
+- [x] Backup/restore docs include backend-persisted conversations
+- [x] Existing backend and frontend suites pass
+- [x] Docker blocker documented
+- [x] Phase 3 was not started
+
+## Roadmap v2 Phase 3 Local Data Store and Migration Layer
+
+Date: 2026-07-03
+
+Scope:
+
+- Add a local SQLite metadata catalogue while preserving existing JSON-backed
+  runtime behavior.
+- Keep generated vector payloads, uploaded files, chunks, extracted text, and
+  repository index payloads in their existing artifact stores.
+- Add forward-only metadata migrations and startup migration checks.
+- Add a manual metadata migration/status command.
+- Import existing JSON metadata where practical: users, local settings,
+  backend conversations, document metadata, vector collection metadata, and
+  repository index metadata.
+- Mirror backend-persisted conversation writes into the metadata catalogue.
+- Do not add background jobs, job APIs, progress events, vector production
+  adapters, cloud sync, or multi-device sync.
+
+### Storage Design
+
+Phase 3 uses SQLite for metadata only:
+
+```text
+data/metadata/app.sqlite3
+```
+
+Initial tables:
+
+- `schema_migrations`
+- `users`
+- `settings`
+- `conversations`
+- `documents`
+- `vector_collections`
+- `repository_indexes`
+
+The existing JSON stores remain intact. The metadata database can be backed up
+with `data/` or regenerated from JSON metadata artifacts by rerunning
+migrations if the database file is missing.
+
+### Environment Notes
+
+- Host shell: Windows PowerShell.
+- Backend test runtime: Python 3.12.13 from `.venv`.
+- Docker was available after running Docker Compose outside the restricted
+  filesystem sandbox.
+- The first Docker attempt inside the sandbox could not read
+  `C:\Users\naran\.docker\config.json`; the approved outside-sandbox rerun
+  succeeded.
+- Frontend source behavior did not change in this phase. Local frontend tests
+  were not rerun, but the Docker frontend test service ran lint, Vitest, and
+  production build successfully.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `.venv\Scripts\python.exe -m pytest tests\test_metadata_migrations.py tests\test_conversations.py` | Passed | 14 passed before docs/config follow-up. |
+| `.venv\Scripts\python.exe -m pytest tests\test_repository_hygiene.py` | Passed | 2 passed. |
+| `.venv\Scripts\python.exe -m pytest tests\test_metadata_migrations.py tests\test_conversations.py tests\test_repository_hygiene.py` | Passed | 17 passed after config guard update. |
+| `.venv\Scripts\python.exe -m pytest` | Passed | 119 passed, 7 skipped. Optional OCRmyPDF, live Ollama, and local Chroma tests skipped. |
+| `$env:METADATA_DATABASE_FILE = "$env:TEMP\local-ai-metadata-cli-test.sqlite3"; Set-Location backend; ..\.venv\Scripts\python.exe -m app.metadata.cli migrate` | Passed | Initialized a temporary metadata database at schema version 1, then the temp file was removed. |
+| `docker compose -f docker-compose.test.yml build backend-test frontend-test` | Failed, then passed | Initial sandbox run could not read Docker config. Approved outside-sandbox rerun built both test images. |
+| `docker compose -f docker-compose.test.yml run --rm backend-test` | Passed | 120 passed, 6 skipped in Docker. |
+| `docker compose -f docker-compose.test.yml run --rm frontend-test` | Passed | Frontend lint passed; 8 Vitest files and 50 tests passed; production build passed. |
+| `docker compose -f docker-compose.test.yml down --remove-orphans` | Passed | Removed the temporary Docker test network. |
+
+### Phase 3 Verification Checklist
+
+- [x] Fresh install metadata database initialization is tested
+- [x] Existing JSON metadata migration is tested
+- [x] Corrupt database handling is tested
+- [x] Failed migration safety is tested
+- [x] Conversation persistence regression and metadata mirroring are tested
+- [x] Existing backend suite passes
+- [x] Docker backend and frontend test services pass
+- [x] Backup/restore and architecture docs include the metadata database
+- [x] Generated metadata database files are ignored by Git
+- [x] Phase 4 was not started

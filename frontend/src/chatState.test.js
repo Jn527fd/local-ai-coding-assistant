@@ -3,9 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
   buildDefaultConversationSettings,
   chatStorageKey,
+  conversationPersistenceKey,
   createChat,
   loadChats,
+  loadConversationPersistenceMode,
   normalizeConversationSettings,
+  PERSISTENCE_MODE_BACKEND,
+  PERSISTENCE_MODE_LOCAL,
+  saveConversationPersistenceMode,
 } from "./chatState.js";
 
 const capabilities = {
@@ -128,6 +133,23 @@ describe("conversation settings state", () => {
     );
     expect(chats.find((chat) => chat.id === "chat-b").settings.chunker).toBe(
       "fixed",
+    );
+  });
+
+  it("keeps browser-local persistence as the default", () => {
+    expect(loadConversationPersistenceMode("test-user")).toBe(
+      PERSISTENCE_MODE_LOCAL,
+    );
+  });
+
+  it("stores an explicit backend persistence opt-in", () => {
+    saveConversationPersistenceMode("test-user", PERSISTENCE_MODE_BACKEND);
+
+    expect(window.localStorage.getItem(conversationPersistenceKey("test-user"))).toBe(
+      PERSISTENCE_MODE_BACKEND,
+    );
+    expect(loadConversationPersistenceMode("test-user")).toBe(
+      PERSISTENCE_MODE_BACKEND,
     );
   });
 });

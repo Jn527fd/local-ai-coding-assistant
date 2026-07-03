@@ -139,7 +139,8 @@ fallback. A key saved through the Account UI overrides that fallback.
 ## Per-Chat AI Settings
 
 Open Settings and use **Conversation Settings** for the active chat. These
-settings are saved with that browser-local chat and do not change other chats.
+settings are saved with that chat and do not change other chats. Browser
+localStorage remains the default conversation store.
 
 Current setting categories:
 
@@ -161,6 +162,54 @@ confirmation of the active chat's selections.
 New chats default to the first available LLM alphabetically. The legacy
 `/models/status` and `/models/switch` endpoints still exist for compatibility,
 but the main UI workflow is per-chat settings.
+
+## Optional Backend Conversation Persistence
+
+By default, chats stay in the current browser profile. To store conversations
+with the local backend data directory, open Settings and select **Migrate to
+backend storage** in Conversation Storage.
+
+Backend persistence:
+
+- imports the current browser chats into `data/conversations/`
+- keeps browser localStorage updated as a fallback copy
+- mirrors persisted conversation metadata into the local SQLite metadata store
+- is scoped to the signed-in local username
+- can be turned off from Settings to return to browser-local storage
+- does not provide cloud sync or multi-device sync
+
+The backend keeps up to `CONVERSATION_MAX_COUNT` persisted conversations per
+local user. The default is `50`.
+
+## Local Metadata Store
+
+On backend startup, the app initializes and checks a local SQLite metadata
+database:
+
+```text
+data/metadata/app.sqlite3
+```
+
+The database stores a catalogue of app metadata and migration bookkeeping for
+local users, mutable settings, backend-persisted conversations, document
+metadata, vector collection metadata, and repository index metadata. Existing
+JSON artifact files remain in place and continue to be used by the current
+services. Uploaded originals, extracted text, chunks, vector payloads, and
+repository index payloads are not moved into SQLite.
+
+Run the migration command manually when diagnosing startup or backup issues:
+
+```bash
+cd backend
+../.venv/bin/python -m app.metadata.cli status
+../.venv/bin/python -m app.metadata.cli migrate
+```
+
+If the database is corrupt or newer than the running application supports, the
+backend stops with an actionable migration error instead of continuing with an
+unknown metadata state. If non-critical document or index metadata artifacts
+are unreadable, migration skips those records with warnings and leaves the
+original files unchanged.
 
 ## PDF Parsers and OCR Detection
 
@@ -200,9 +249,11 @@ Typical document workflow:
 6. Build an index.
 7. Search indexed chunks or ask a RAG-enabled chat question.
 
-Document vectors are currently stored in local JSON files under `data/`.
-Selected vector database names are recorded for future compatibility, but
-external vector database backends are not wired yet.
+Document vectors use local JSON storage under `data/` by default. Chroma is
+available as an optional early adapter when `chromadb` is installed in the
+backend runtime and `VECTOR_STORE_BACKEND=chroma` is configured. FAISS, Qdrant,
+and LanceDB remain compatibility options in the settings UI, but they are not
+wired to executable adapters yet.
 
 RAG responses can include:
 
@@ -216,16 +267,18 @@ RAG responses can include:
 
 ## Manage Chats and Context
 
-The browser stores up to five chats per logged-in username. Use the new-chat
-button to create a chat. At five chats, the button is disabled until one is
-deleted.
+The browser stores up to five chats per logged-in username by default. Use the
+new-chat button to create a chat. At five chats, the button is disabled until
+one is deleted.
 
 Each chat has isolated messages and settings. Deleting a chat removes its
-browser-local record. FastAPI receives only the selected chat's recent context
-with the current request.
+browser-local record and, when backend persistence is active, removes the
+backend-persisted record too. FastAPI receives only the selected chat's recent
+context with the current request.
 
 Browser storage is application-local persistence, not guaranteed forensic disk
 erasure. Clear site data in the browser when decommissioning a device.
+Backend-persisted conversations are stored under `data/conversations/`.
 
 ## Local Configuration Files
 
@@ -261,6 +314,8 @@ DOCUMENT_CHUNK_SIZE=2000
 DOCUMENT_MAX_CHUNKS=500
 EMBEDDING_BATCH_SIZE=16
 VECTOR_STORE_BACKEND=json
+CONVERSATION_MAX_COUNT=50
+METADATA_DATABASE_FILE=
 ```
 
 `VECTOR_STORE_BACKEND=json` is the default and requires no extra services.
@@ -281,6 +336,10 @@ backend/.env
 frontend/.env
 data/config/credentials.json
 data/config/app-settings.json
+data/conversations/
+data/metadata/
+data/uploads/
+data/vector_indexes/
 ```
 
 These safe templates are committed:
@@ -321,8 +380,9 @@ docker compose ps
 ```
 
 `./data` is mounted at `/app/data`, so credentials, API settings, uploaded
-documents, repository indexes, and vector indexes persist across container
-replacement. Ollama continues running on the Linux host at
+documents, backend-persisted conversations, the SQLite metadata database,
+repository indexes, and vector indexes persist across container replacement.
+Ollama continues running on the Linux host at
 `127.0.0.1:11434`.
 
 If Docker Compose complains that `backend/.env` is missing, create it from the

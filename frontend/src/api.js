@@ -171,6 +171,37 @@ export function getComponentCapabilities() {
   return request("/components/capabilities");
 }
 
+export function listConversations() {
+  return request("/conversations");
+}
+
+export function saveConversation(conversation) {
+  return request(`/conversations/${encodeURIComponent(conversation.id)}`, {
+    method: "PUT",
+    body: conversation,
+  });
+}
+
+export function deleteConversation(conversationId) {
+  return request(`/conversations/${encodeURIComponent(conversationId)}`, {
+    method: "DELETE",
+  });
+}
+
+export function importConversations(conversations, { replace = false } = {}) {
+  return request("/conversations/import", {
+    method: "POST",
+    body: {
+      conversations,
+      replace,
+    },
+  });
+}
+
+export function exportConversations() {
+  return request("/conversations/export/all");
+}
+
 export function switchModel(model) {
   return request("/models/switch", {
     method: "POST",

@@ -54,6 +54,10 @@ The app uses two local authentication mechanisms:
 | `DELETE` | `/documents/indexes/{collection_id}` | Bearer key | Delete one vector collection |
 | `GET` | `/documents/{document_id}` | Bearer key | Get document metadata |
 | `GET` | `/documents/{document_id}/chunks` | Bearer key | Get processed document chunks |
+| `GET` | `/vectorstores/health` | Bearer key | Inspect vector backend availability and fallback state |
+| `GET` | `/vectorstores/collections/export` | Bearer key | Export one vector collection as a portable JSON payload |
+| `POST` | `/vectorstores/collections/import` | Bearer key | Import a portable vector collection payload |
+| `POST` | `/vectorstores/collections/migrate` | Bearer key | Copy a collection from one available vector backend to another |
 | `GET` | `/jobs` | Bearer key | List recent local background jobs |
 | `GET` | `/jobs/{job_id}` | Bearer key | Read local job status, progress, result, or error |
 | `POST` | `/jobs/{job_id}/cancel` | Bearer key | Request conservative cancellation for a local job |
@@ -394,10 +398,11 @@ curl -X POST http://localhost:8000/documents/DOCUMENT_ID/index \
   }'
 ```
 
-By default, vectors are persisted in the local JSON store even when the
-selected `vectorDatabase` records a future backend such as `chroma`.
+By default, vectors are persisted in the local JSON store.
 `VECTOR_STORE_BACKEND=chroma` enables the optional Chroma adapter only when the
 `chromadb` Python package is installed; otherwise JSON remains the fallback.
+Qdrant and LanceDB are reported as deferred adapters and do not require
+external services for default tests or Docker runs.
 
 Document artifacts are checked before processing and indexing. Missing
 documents return `404`, invalid requests return `400`, unreadable artifacts
@@ -463,11 +468,45 @@ curl -X DELETE -H "Authorization: Bearer $API_KEY" \
   "http://localhost:8000/documents/indexes/COLLECTION_ID?conversationId=chat-1"
 ```
 
+Inspect vector backends:
+
+```bash
+curl -H "Authorization: Bearer $API_KEY" \
+  "http://localhost:8000/vectorstores/health"
+```
+
+Export, import, or migrate a collection:
+
+```bash
+curl -H "Authorization: Bearer $API_KEY" \
+  "http://localhost:8000/vectorstores/collections/export?conversationId=chat-1&collectionId=COLLECTION_ID&backend=json"
+
+curl -X POST http://localhost:8000/vectorstores/collections/import \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"backend":"json","payload":{}}'
+
+curl -X POST http://localhost:8000/vectorstores/collections/migrate \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "conversationId":"chat-1",
+    "collectionId":"COLLECTION_ID",
+    "sourceBackend":"json",
+    "targetBackend":"chroma"
+  }'
+```
+
+The portable export format is intended for local backup and adapter migration.
+If a requested optional backend is unavailable, migration/import falls back to
+JSON and reports `fallbackUsed: true`.
+
 ## RAG, Reranking, and Compression
 
 Document RAG is attempted when the resolved RAG pipeline is one of `hybrid`,
 `reranked`, `graph`, or `agentic`, or when request `ragOptions.enabled` asks
-for retrieval. Current retrieval uses local embeddings and JSON vector search.
+for retrieval. Current retrieval uses local embeddings and the active vector
+store selected by `VECTOR_STORE_BACKEND`, with JSON as the safe fallback.
 
 Reranking is attempted when the selected reranker is valid and not `none`, or
 when `ragPipeline` is `reranked` with a valid reranker. The Ollama reranker

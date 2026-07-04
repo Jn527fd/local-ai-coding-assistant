@@ -18,7 +18,7 @@ from app.ai.components import Chunk, ComponentUnavailableError
 from app.ai.embedders import OllamaEmbedderProvider
 from app.ai.execution_context import AISettingsResolver
 from app.ai.vectorstores import (
-    JsonVectorStore,
+    VectorStoreBackend,
     VectorCollectionNotFoundError,
     VectorStoreError,
     VectorStoreValidationError,
@@ -70,7 +70,7 @@ def get_embedder_provider(request: Request) -> OllamaEmbedderProvider:
     return request.app.state.embedder_provider
 
 
-def get_vector_store(request: Request) -> JsonVectorStore:
+def get_vector_store(request: Request) -> VectorStoreBackend:
     """Return the local vector store."""
 
     return request.app.state.vector_store
@@ -252,7 +252,7 @@ async def run_index_document(
     document_service: DocumentService,
     settings_resolver: AISettingsResolver,
     embedder_provider: OllamaEmbedderProvider,
-    vector_store: JsonVectorStore,
+    vector_store: VectorStoreBackend,
     job_context: JobContext | None = None,
 ) -> dict[str, Any]:
     if job_context is not None:
@@ -349,7 +349,8 @@ async def run_index_document(
         await job_context.progress(75, "Writing vector index.")
         job_context.check_cancelled()
     vector_database = execution_context.resolved_vector_database
-    collection_id = JsonVectorStore.collection_id(
+    collection_id_factory = getattr(vector_store, "collection_id")
+    collection_id = collection_id_factory(
         conversation_id=index_request.conversationId,
         embedder_model=embedder_model,
         vector_database=vector_database,
@@ -366,7 +367,7 @@ async def run_index_document(
             metadata={
                 "embedderModel": embedder_model,
                 "vectorDatabase": vector_database,
-                "internalStore": "json",
+                "internalStore": vector_store.backend_id,
                 "chunker": execution_context.resolved_chunker,
                 "ragPipeline": execution_context.resolved_rag_pipeline,
                 "documentIds": [document_id],
@@ -385,10 +386,12 @@ async def run_index_document(
         "indexedChunks": len(chunks),
         "embedderModel": embedder_model,
         "vectorDatabase": vector_database,
-        "internalStore": "json",
+        "internalStore": vector_store.backend_id,
         "warning": (
             f"Selected vector database '{vector_database}' is recorded, but "
-            "Phase 5 persists vectors in the local JSON store."
+            f"vectors were persisted in the '{vector_store.backend_id}' store."
+            if vector_store.backend_id != vector_database
+            else None
         ),
     }
     if job_context is not None:
@@ -507,7 +510,7 @@ async def index_document(
         OllamaEmbedderProvider,
         Depends(get_embedder_provider),
     ],
-    vector_store: Annotated[JsonVectorStore, Depends(get_vector_store)],
+    vector_store: Annotated[VectorStoreBackend, Depends(get_vector_store)],
 ) -> dict[str, Any]:
     """Embed and persist processed chunks for one conversation document."""
 
@@ -536,7 +539,7 @@ async def start_index_document_job(
         OllamaEmbedderProvider,
         Depends(get_embedder_provider),
     ],
-    vector_store: Annotated[JsonVectorStore, Depends(get_vector_store)],
+    vector_store: Annotated[VectorStoreBackend, Depends(get_vector_store)],
     job_service: Annotated[JobService, Depends(get_job_service)],
 ) -> dict[str, Any]:
     """Start local background indexing for a processed document."""
@@ -583,7 +586,7 @@ async def search_documents(
         OllamaEmbedderProvider,
         Depends(get_embedder_provider),
     ],
-    vector_store: Annotated[JsonVectorStore, Depends(get_vector_store)],
+    vector_store: Annotated[VectorStoreBackend, Depends(get_vector_store)],
 ) -> dict[str, Any]:
     """Search indexed document chunks without injecting them into chat."""
 
@@ -724,7 +727,7 @@ async def list_documents(
 
 @router.get("/indexes")
 async def list_document_indexes(
-    vector_store: Annotated[JsonVectorStore, Depends(get_vector_store)],
+    vector_store: Annotated[VectorStoreBackend, Depends(get_vector_store)],
     conversationId: Annotated[str, Query(min_length=1, max_length=100)],
 ) -> dict[str, Any]:
     """List vector collections scoped to one conversation."""
@@ -739,7 +742,7 @@ async def list_document_indexes(
 @router.delete("/indexes/{collection_id}")
 async def delete_document_index(
     collection_id: str,
-    vector_store: Annotated[JsonVectorStore, Depends(get_vector_store)],
+    vector_store: Annotated[VectorStoreBackend, Depends(get_vector_store)],
     conversationId: Annotated[str, Query(min_length=1, max_length=100)],
 ) -> dict[str, Any]:
     """Delete one vector collection owned by a conversation."""

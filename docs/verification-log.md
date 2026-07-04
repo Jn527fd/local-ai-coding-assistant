@@ -896,3 +896,128 @@ Scope:
 - [x] Frontend lint, tests, and build pass
 - [x] Docker backend and frontend test services pass
 - [x] Phase 6 was not started
+
+## Roadmap v2 Phase 6 Vector Store Production Adapters
+
+Date: 2026-07-03
+
+Scope:
+
+- Keep JSON as the default vector backend and safe fallback.
+- Strengthen the vector store adapter contract with portable collection
+  export/import operations.
+- Add vector backend health and fallback diagnostics.
+- Add collection export/import and JSON-to-adapter migration endpoints.
+- Preserve document indexing, search, and RAG source metadata behavior.
+- Defer Qdrant and LanceDB executable adapters because they add dependency or
+  service cost; expose them as deferred/unavailable adapter health entries.
+
+### Adapter Design
+
+`VectorStoreManager` now reports configured backend, active backend, fallback
+state, index directory, and per-backend health checks. `JsonVectorStore` and
+`ChromaVectorStore` share a portable collection payload format:
+`local-ai-vector-collection-v1`. Chroma remains optional and is only active
+when `chromadb` is installed and `VECTOR_STORE_BACKEND=chroma` is configured.
+Unavailable or deferred targets fall back to JSON and report `fallbackUsed`.
+
+### Environment Notes
+
+- Host shell: Windows PowerShell.
+- Backend test runtime: Python 3.12.13 from `.venv`.
+- `chromadb` is not installed in the local `.venv`, so optional Chroma
+  integration coverage skipped as expected.
+- Frontend checks were not run because Phase 6 did not change frontend files.
+- Docker CLI was present, but Docker verification could not be completed:
+  sandboxed Docker could not read `C:\Users\naran\.docker\config.json`, and
+  the approved outside-sandbox rerun was rejected by the environment usage
+  limit gate.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `.venv\Scripts\python.exe -m compileall backend\app` | Passed | Backend source compiled successfully. |
+| `.venv\Scripts\python.exe -m pytest tests\test_vector_store_adapters.py tests\test_vector_indexes.py tests\test_component_capabilities.py` | Passed | 28 passed, 1 skipped. Chroma contract skipped because `chromadb` is not installed. |
+| `.venv\Scripts\python.exe -m pytest tests\test_vector_store_adapters.py tests\test_vector_indexes.py tests\test_component_capabilities.py tests\test_chat.py` | Passed | 58 passed, 1 skipped. Covered adapter contract, vector APIs, component health, and RAG/chat regressions. |
+| `.venv\Scripts\python.exe -m pytest` | Passed | 136 passed, 7 skipped. Optional OCRmyPDF, live Ollama, Ollama smoke, and local Chroma tests skipped. |
+| `docker compose -f docker-compose.test.yml build backend-test` | Blocked | Sandboxed run failed on Docker config access; approved outside-sandbox rerun was rejected by the environment usage-limit gate. |
+| `.venv\Scripts\python.exe -m pip check` | Passed | No broken requirements found. |
+| `git diff --check` | Passed | No whitespace errors; Git reported expected LF-to-CRLF warnings on Windows. |
+| `rg -n "Phase 5 persists\|future backend such as `chroma`\|Qdrant, and LanceDB remain compatibility options\|not wired yet\|Current retrieval uses local embeddings and JSON vector search" README.md docs backend tests` | Passed | Remaining stale matches were limited to historical verification-log text. |
+
+### Phase 6 Verification Checklist
+
+- [x] JSON remains default and safe
+- [x] Optional Chroma tests skip cleanly when `chromadb` is unavailable
+- [x] Chroma adapter contract is strengthened with export/import methods
+- [x] Qdrant and LanceDB are explicitly deferred with health metadata
+- [x] Vector backend health endpoint is tested
+- [x] Collection export/import endpoints are tested
+- [x] JSON-to-adapter migration fallback is tested
+- [x] Collection metadata remains consistent across the JSON backend
+- [x] RAG/chat source metadata regressions pass
+- [x] Existing backend suite passes
+- [x] Documentation and changelog are updated
+- [x] Docker blocker documented
+- [x] Phase 7 was not started
+
+## Roadmap v2 Phase 7 Retrieval Quality Evaluation
+
+Date: 2026-07-03
+
+Scope:
+
+- Add a small non-sensitive retrieval evaluation corpus.
+- Add expected source fixtures for deterministic retrieval checks.
+- Add a fake-provider evaluation harness for recall, best rank, source
+  accuracy, warning behavior, and source metadata shape.
+- Add regression coverage for source numbering in prompts and response
+  payloads.
+- Keep live model quality evaluation opt-in only and out of default tests.
+- Do not change retrieval algorithms, repository RAG, or frontend
+  architecture.
+
+### Eval Harness Design
+
+`app.evaluation.retrieval` accepts an existing `DocumentRetrievalPipeline`,
+resolved execution context, conversation id, and `RetrievalEvalCase` list. It
+does not call Ollama by default. Tests seed a temporary JSON vector store from
+`tests/fixtures/retrieval_eval/corpus.json` and compare against
+`tests/fixtures/retrieval_eval/expectations.json`.
+
+### Environment Notes
+
+- Host shell: Windows PowerShell.
+- Backend test runtime: Python 3.12.13 from `.venv`.
+- Docker backend image includes `chromadb`, while the local `.venv` does not.
+  One Phase 6 fallback test was patched to explicitly monkeypatch Chroma
+  unavailable so it remains valid in both environments.
+- Frontend checks were not run because Phase 7 did not change frontend files.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `.venv\Scripts\python.exe -m pytest tests\test_retrieval_eval.py tests\test_vector_indexes.py tests\test_chat.py` | Passed | 45 passed. Covered eval harness, vector search, and RAG/chat source regressions. |
+| `.venv\Scripts\python.exe -m compileall backend\app tests\test_retrieval_eval.py` | Passed | Backend source and retrieval eval test compiled successfully. |
+| `.venv\Scripts\python.exe -m pytest` | Passed | 139 passed, 7 skipped. Optional OCRmyPDF, live Ollama, Ollama smoke, and local Chroma tests skipped. |
+| `.venv\Scripts\python.exe -m pip check` | Passed | No broken requirements found. |
+| `docker compose -f docker-compose.test.yml build backend-test` | Failed, then passed | Sandboxed run could not read Docker config; approved outside-sandbox build succeeded. |
+| `docker compose -f docker-compose.test.yml run --rm backend-test` | Failed, then passed | First Docker run exposed a cross-environment Chroma availability assumption; after patching and rebuilding, Docker backend passed with 140 passed, 6 skipped. |
+| `docker compose -f docker-compose.test.yml down --remove-orphans` | Passed | Removed the temporary Docker test network. |
+| `git diff --check` | Passed | No whitespace errors; Git reported expected LF-to-CRLF warnings on Windows. |
+
+### Phase 7 Verification Checklist
+
+- [x] Eval corpus is committed and non-sensitive
+- [x] Expected retrieval/source fixtures are committed
+- [x] Metrics are stable under fake providers
+- [x] Recall, best rank, source accuracy, warning behavior, and metadata shape are tested
+- [x] Prompt source numbering regression is tested
+- [x] Live eval remains opt-in only
+- [x] Targeted retrieval/RAG tests pass
+- [x] Existing backend suite passes
+- [x] Docker backend test service passes
+- [x] Documentation and changelog are updated
+- [x] Phase 8 was not started

@@ -261,10 +261,11 @@ the chat settings when available, but missing optional tools do not break the
 default document flow.
 
 Document vectors use local JSON storage under `data/` by default. Chroma is
-available as an optional early adapter when `chromadb` is installed in the
+available as an optional adapter when `chromadb` is installed in the
 backend runtime and `VECTOR_STORE_BACKEND=chroma` is configured. FAISS, Qdrant,
-and LanceDB remain compatibility options in the settings UI, but they are not
-wired to executable adapters yet.
+and LanceDB remain compatibility options in the settings UI. Qdrant and
+LanceDB are explicitly deferred adapters in this release and are reported as
+unavailable by vector backend diagnostics.
 
 RAG responses can include:
 
@@ -333,6 +334,18 @@ METADATA_DATABASE_FILE=
 `VECTOR_STORE_BACKEND=chroma` uses the optional local Chroma adapter only when
 the `chromadb` Python package is installed in the backend runtime; otherwise
 the app falls back to JSON.
+
+Check backend availability with:
+
+```bash
+curl -H "Authorization: Bearer $API_KEY" \
+  http://localhost:8000/vectorstores/health
+```
+
+The vector API can export/import portable collection payloads and migrate a
+collection from JSON to an available adapter. If the requested target backend
+is unavailable, the operation falls back to JSON and reports that fallback in
+the response.
 
 Login sessions are stored in memory and end when the backend restarts. Set
 `SESSION_COOKIE_SECURE=true` only when the site is served over HTTPS.

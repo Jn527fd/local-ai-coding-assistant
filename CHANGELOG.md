@@ -18,6 +18,12 @@ automation is added.
 - Document ingestion v2 coverage for DOCX, HTML, CSV, and TSV uploads, with
   file-type sniffing, extraction diagnostics, duplicate detection, and clearer
   malformed-file errors.
+- Vector store production adapter diagnostics, portable collection
+  export/import, JSON-to-adapter migration endpoints, stronger Chroma adapter
+  contract coverage, and explicit Qdrant/LanceDB deferrals.
+- Deterministic retrieval quality evaluation harness with a non-sensitive
+  fixture corpus, expected source fixtures, recall/rank/source metadata
+  metrics, and warning-behavior coverage.
 
 ### Release Candidate Checklist
 

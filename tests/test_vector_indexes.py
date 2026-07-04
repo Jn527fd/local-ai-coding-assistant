@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.ai.execution_context import AISettingsResolver
-from app.ai.vectorstores import JsonVectorStore
+from app.ai.vectorstores import JsonVectorStore, VectorStoreManager
 from app.services.component_registry import CAPABILITY_KEYS
 from app.services.document_service import DocumentService
 
@@ -97,7 +97,8 @@ def configure_vector_tests(
         max_upload_bytes=1024 * 1024,
         chunk_size=chunk_size,
     )
-    app.state.vector_store = JsonVectorStore(tmp_path / "vector_indexes")
+    app.state.vector_store_manager = VectorStoreManager(tmp_path / "vector_indexes")
+    app.state.vector_store = app.state.vector_store_manager.default_store()
     app.state.ai_settings_resolver = AISettingsResolver(
         FakeComponentRegistry(capabilities)
     )
@@ -455,3 +456,76 @@ def test_deleting_index_is_scoped_to_conversation(
     assert other_conversation.status_code == 404
     assert owning_conversation.status_code == 200
     assert owning_conversation.json()["deleted"] is True
+
+
+def test_vector_store_health_endpoint_reports_backends(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    configure_vector_tests(app, tmp_path)
+
+    response = client.get("/vectorstores/health", headers=auth_headers)
+
+    assert response.status_code == 200
+    payload = response.json()
+    backends = {item["id"]: item for item in payload["backends"]}
+    assert payload["activeBackend"] == "json"
+    assert backends["json"]["available"] is True
+    assert backends["qdrant"]["mode"] == "deferred"
+    assert backends["lancedb"]["available"] is False
+
+
+def test_vector_store_export_import_and_migrate_endpoints(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    configure_vector_tests(app, tmp_path)
+    document = upload_document(client, auth_headers, "conversation-a", b"apple")
+    process_document(client, auth_headers, "conversation-a", document["documentId"])
+    summary = index_document(
+        client,
+        auth_headers,
+        "conversation-a",
+        document["documentId"],
+    )
+
+    export_response = client.get(
+        "/vectorstores/collections/export",
+        headers=auth_headers,
+        params={
+            "conversationId": "conversation-a",
+            "collectionId": summary["collectionId"],
+            "backend": "json",
+        },
+    )
+    assert export_response.status_code == 200
+    payload = export_response.json()
+    assert payload["format"] == "local-ai-vector-collection-v1"
+    assert payload["vectors"][0]["metadata"]["documentName"] == "notes.txt"
+
+    import_response = client.post(
+        "/vectorstores/collections/import",
+        headers=auth_headers,
+        json={"backend": "qdrant", "payload": payload},
+    )
+    assert import_response.status_code == 200
+    assert import_response.json()["backend"] == "json"
+    assert import_response.json()["fallbackUsed"] is True
+
+    migrate_response = client.post(
+        "/vectorstores/collections/migrate",
+        headers=auth_headers,
+        json={
+            "conversationId": "conversation-a",
+            "collectionId": summary["collectionId"],
+            "sourceBackend": "json",
+            "targetBackend": "lancedb",
+        },
+    )
+    assert migrate_response.status_code == 200
+    assert migrate_response.json()["targetBackend"] == "json"
+    assert migrate_response.json()["fallbackUsed"] is True

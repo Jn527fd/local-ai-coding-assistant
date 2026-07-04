@@ -348,6 +348,16 @@ backend is left at the default `json`, document indexing and RAG continue to
 use the JSON store. Component discovery exposes adapter health and JSON
 fallback metadata for vector database settings.
 
+The vector store contract includes collection upsert, query, metadata listing,
+deletion, health, and portable export/import operations. The
+`/vectorstores/health` endpoint reports the configured backend, active backend,
+fallback state, and adapter checks. `/vectorstores/collections/export`,
+`/vectorstores/collections/import`, and `/vectorstores/collections/migrate`
+use the portable JSON collection payload to support local backup and
+JSON-to-adapter migration. Qdrant and LanceDB are intentionally deferred
+adapters in this release because they add service/dependency cost; they are
+reported in health metadata without changing default behavior.
+
 ## Chat, RAG, Reranking, and Compression
 
 Chat flow:
@@ -380,6 +390,13 @@ returned `sources[N-1]` metadata.
 Reranking uses an Ollama generation prompt that asks the selected reranker
 model for a numeric relevance score. This avoids assuming a native Ollama
 rerank endpoint. Failures fall back to vector-ranked order with warnings.
+
+Retrieval quality evaluation lives outside the request path in
+`app.evaluation.retrieval`. It runs deterministic fake-provider cases against
+a small fixture corpus and measures recall, best rank, source accuracy,
+warning behavior, and source metadata shape. The harness is intended to catch
+retrieval/source regressions before algorithm tuning; live model quality
+evaluation remains opt-in only.
 
 Compression modes:
 

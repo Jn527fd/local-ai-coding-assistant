@@ -27,6 +27,7 @@ from app.routers.health import router as health_router
 from app.routers.jobs import router as jobs_router
 from app.routers.models import router as models_router
 from app.routers.repos import router as repos_router
+from app.routers.vectorstores import router as vectorstores_router
 from app.services.component_registry import ComponentRegistry
 from app.services.conversation_service import ConversationPersistenceService
 from app.services.document_service import DocumentService
@@ -197,6 +198,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(conversations_router)
     application.include_router(jobs_router)
     application.include_router(documents_router)
+    application.include_router(vectorstores_router)
     application.include_router(chat_router)
     application.include_router(repos_router)
 

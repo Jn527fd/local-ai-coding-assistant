@@ -297,6 +297,86 @@ class JsonVectorStore:
         shutil.rmtree(collection_directory)
         return True
 
+    async def export_collection(
+        self,
+        conversation_id: str,
+        collection_id: str,
+    ) -> dict[str, Any]:
+        safe_conversation_id = self._validate_conversation_id(conversation_id)
+        safe_collection_id = self._validate_collection_id(collection_id)
+        collection_directory = self._collection_directory(
+            safe_conversation_id,
+            safe_collection_id,
+        )
+        if not collection_directory.exists():
+            raise VectorCollectionNotFoundError("Vector collection was not found.")
+        metadata = self._read_metadata(
+            collection_directory,
+            safe_collection_id,
+            safe_conversation_id,
+        )
+        index = self._read_index(collection_directory)
+        return {
+            "format": "local-ai-vector-collection-v1",
+            "backend": self.backend_id,
+            "collectionId": safe_collection_id,
+            "conversationId": safe_conversation_id,
+            "metadata": metadata,
+            "vectors": list(index.get("vectors") or []),
+        }
+
+    async def import_collection(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if payload.get("format") != "local-ai-vector-collection-v1":
+            raise VectorStoreValidationError("Unsupported vector collection export.")
+        metadata = payload.get("metadata")
+        vectors = payload.get("vectors")
+        if not isinstance(metadata, dict) or not isinstance(vectors, list):
+            raise VectorStoreValidationError("Vector collection payload is invalid.")
+        conversation_id = self._validate_conversation_id(
+            str(payload.get("conversationId") or metadata.get("conversationId") or "")
+        )
+        collection_id = self._validate_collection_id(
+            str(payload.get("collectionId") or metadata.get("collectionId") or "")
+        )
+        normalized_vectors: list[dict[str, Any]] = []
+        for record in vectors:
+            if not isinstance(record, dict):
+                continue
+            embedding = record.get("embedding")
+            if not isinstance(embedding, list):
+                continue
+            normalized_vectors.append(
+                {
+                    **record,
+                    "conversationId": conversation_id,
+                    "embedding": [float(value) for value in embedding],
+                }
+            )
+        collection_directory = self._collection_directory(
+            conversation_id,
+            collection_id,
+        )
+        imported_metadata = {
+            **metadata,
+            "collectionId": collection_id,
+            "conversationId": conversation_id,
+            "recordCount": len(normalized_vectors),
+            "source": self.backend_id,
+            "internalStore": self.backend_id,
+            "updatedAt": self._now(),
+        }
+        self._write_json(collection_directory / "metadata.json", imported_metadata)
+        self._write_json(
+            collection_directory / "index.json",
+            {
+                "collectionId": collection_id,
+                "conversationId": conversation_id,
+                "vectors": normalized_vectors,
+                "updatedAt": imported_metadata["updatedAt"],
+            },
+        )
+        return imported_metadata
+
     def collection_ref(self, conversation_id: str, collection_id: str) -> str:
         return (
             f"{self._validate_conversation_id(conversation_id)}/"

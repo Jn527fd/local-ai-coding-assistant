@@ -71,13 +71,17 @@ class ChromaVectorStore:
         for chunk, embedding in zip(chunks, embeddings, strict=True):
             chunk_metadata = dict(chunk.metadata)
             document_id = str(chunk_metadata.get("documentId") or "")
+            chunk_id = str(chunk_metadata.get("chunkId") or chunk.id)
             ids.append(f"{document_id}:{chunk.id}")
             documents.append(chunk.text)
             vectors.append([float(value) for value in embedding])
             metadatas.append(
                 {
                     key: value
-                    for key, value in chunk_metadata.items()
+                    for key, value in {
+                        **chunk_metadata,
+                        "chunkId": chunk_id,
+                    }.items()
                     if isinstance(value, str | int | float | bool)
                 }
             )
@@ -229,6 +233,120 @@ class ChromaVectorStore:
             ) from exc
         return True
 
+    async def export_collection(
+        self,
+        conversation_id: str,
+        collection_id: str,
+    ) -> dict[str, Any]:
+        chromadb = self._chromadb()
+        safe_conversation_id = JsonVectorStore._validate_conversation_id(
+            conversation_id
+        )
+        safe_collection_id = JsonVectorStore._validate_collection_id(collection_id)
+        client = chromadb.PersistentClient(
+            path=str(self.persist_directory / safe_conversation_id)
+        )
+        try:
+            collection = client.get_collection(safe_collection_id)
+        except Exception as exc:
+            raise VectorCollectionNotFoundError(
+                "Vector collection was not found."
+            ) from exc
+        result = collection.get(include=["documents", "metadatas", "embeddings"])
+        ids = result.get("ids") or []
+        documents = result.get("documents") or []
+        metadatas = result.get("metadatas") or []
+        embeddings = result.get("embeddings") or []
+        vectors: list[dict[str, Any]] = []
+        for index, vector_id in enumerate(ids):
+            metadata = metadatas[index] if index < len(metadatas) else {}
+            text = documents[index] if index < len(documents) else ""
+            embedding = embeddings[index] if index < len(embeddings) else []
+            vectors.append(
+                {
+                    "vectorId": str(vector_id),
+                    "conversationId": safe_conversation_id,
+                    "documentId": str(metadata.get("documentId") or ""),
+                    "chunkId": str(metadata.get("chunkId") or vector_id),
+                    "chunkIndex": metadata.get("chunkIndex", 0),
+                    "text": text,
+                    "embedding": [float(value) for value in embedding],
+                    "metadata": dict(metadata),
+                }
+            )
+        return {
+            "format": "local-ai-vector-collection-v1",
+            "backend": self.backend_id,
+            "collectionId": safe_collection_id,
+            "conversationId": safe_conversation_id,
+            "metadata": self._collection_metadata(
+                safe_conversation_id,
+                safe_collection_id,
+                collection,
+            ),
+            "vectors": vectors,
+        }
+
+    async def import_collection(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        if payload.get("format") != "local-ai-vector-collection-v1":
+            raise VectorStoreValidationError("Unsupported vector collection export.")
+        metadata = payload.get("metadata")
+        vectors = payload.get("vectors")
+        if not isinstance(metadata, Mapping) or not isinstance(vectors, list):
+            raise VectorStoreValidationError("Vector collection payload is invalid.")
+        conversation_id = JsonVectorStore._validate_conversation_id(
+            str(payload.get("conversationId") or metadata.get("conversationId") or "")
+        )
+        collection_id = JsonVectorStore._validate_collection_id(
+            str(payload.get("collectionId") or metadata.get("collectionId") or "")
+        )
+        chunks: list[Chunk] = []
+        embeddings: list[list[float]] = []
+        for record in vectors:
+            if not isinstance(record, Mapping):
+                continue
+            embedding = record.get("embedding")
+            if not isinstance(embedding, list):
+                continue
+            record_metadata = (
+                dict(record.get("metadata"))
+                if isinstance(record.get("metadata"), Mapping)
+                else {}
+            )
+            chunk_id = str(record.get("chunkId") or record_metadata.get("chunkId") or "")
+            if not chunk_id:
+                continue
+            chunks.append(
+                Chunk(
+                    id=chunk_id,
+                    text=str(record.get("text") or ""),
+                    metadata={
+                        **record_metadata,
+                        "documentId": str(record.get("documentId") or record_metadata.get("documentId") or ""),
+                        "chunkId": chunk_id,
+                        "chunkIndex": record.get("chunkIndex", record_metadata.get("chunkIndex", 0)),
+                    },
+                )
+            )
+            embeddings.append([float(value) for value in embedding])
+        await self.upsert(
+            collection=self.collection_ref(conversation_id, collection_id),
+            chunks=chunks,
+            embeddings=embeddings,
+            metadata={
+                **dict(metadata),
+                "collectionId": collection_id,
+                "conversationId": conversation_id,
+                "source": self.backend_id,
+                "internalStore": self.backend_id,
+            },
+        )
+        return dict(
+            await self.get_collection_metadata(
+                self.collection_ref(conversation_id, collection_id)
+            )
+        )
+
     def collection_ref(self, conversation_id: str, collection_id: str) -> str:
         return (
             f"{JsonVectorStore._validate_conversation_id(conversation_id)}/"
@@ -287,4 +405,3 @@ class ChromaVectorStore:
         import chromadb
 
         return chromadb
-

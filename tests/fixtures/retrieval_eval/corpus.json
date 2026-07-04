@@ -1,0 +1,66 @@
+{
+  "conversationId": "eval-chat",
+  "embedderModel": "eval-embed",
+  "vectorDatabase": "chroma",
+  "documents": [
+    {
+      "documentId": "eval-doc-setup",
+      "documentName": "setup-notes.md",
+      "chunks": [
+        {
+          "chunkId": "setup-python-venv",
+          "chunkIndex": 0,
+          "text": "Create a Python virtual environment before installing backend dependencies. Activate the venv, then install requirements with pip."
+        },
+        {
+          "chunkId": "setup-node-build",
+          "chunkIndex": 1,
+          "text": "Install frontend packages with npm before running the Vite development server or production build."
+        }
+      ]
+    },
+    {
+      "documentId": "eval-doc-models",
+      "documentName": "model-notes.md",
+      "chunks": [
+        {
+          "chunkId": "models-smoke-chat",
+          "chunkIndex": 0,
+          "text": "Use smollm2:135m as the tiny CPU friendly chat model for live Ollama smoke tests."
+        },
+        {
+          "chunkId": "models-smoke-embed",
+          "chunkIndex": 1,
+          "text": "Use all-minilm as the tiny embedding model for CPU friendly retrieval smoke tests."
+        }
+      ]
+    },
+    {
+      "documentId": "eval-doc-documents",
+      "documentName": "document-ingestion.md",
+      "chunks": [
+        {
+          "chunkId": "documents-file-types",
+          "chunkIndex": 0,
+          "text": "Document ingestion accepts text, Markdown, PDF, DOCX, HTML, CSV, and TSV files with file type sniffing."
+        },
+        {
+          "chunkId": "documents-ocr-fallback",
+          "chunkIndex": 1,
+          "text": "OCRmyPDF can run as an optional low text PDF fallback when selected and available."
+        }
+      ]
+    },
+    {
+      "documentId": "eval-doc-security",
+      "documentName": "security-notes.md",
+      "chunks": [
+        {
+          "chunkId": "security-api-key",
+          "chunkIndex": 0,
+          "text": "Keep API keys, generated indexes, uploaded files, and local credentials out of source control."
+        }
+      ]
+    }
+  ]
+}

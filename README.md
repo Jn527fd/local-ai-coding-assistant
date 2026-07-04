@@ -490,8 +490,12 @@ Ignored directories:
 Legacy repository indexes are stored as readable JSON under `data/indexes/`.
 Document vectors use local JSON-backed storage by default, with an optional
 Chroma adapter available when `chromadb` is installed and
-`VECTOR_STORE_BACKEND=chroma` is set. Re-indexing a directory with the same
-final directory name replaces its previous repository index.
+`VECTOR_STORE_BACKEND=chroma` is set. Vector backend health and fallback
+diagnostics are available from `/vectorstores/health`, and collection
+export/import/migration endpoints can copy portable vector payloads between
+available adapters. Qdrant and LanceDB are reported as deferred adapters for
+now. Re-indexing a directory with the same final directory name replaces its
+previous repository index.
 
 GitHub cloning is not implemented yet. Clone a GitHub repository locally, then
 index its local path.
@@ -601,6 +605,9 @@ npm run test:e2e
 ```
 
 See [docs/testing.md](docs/testing.md) for the full testing workflow.
+Retrieval quality regression coverage uses a small fake-provider corpus in
+`tests/fixtures/retrieval_eval/`; it is deterministic and does not require
+Ollama.
 
 Before a public release or remote deployment, also review the
 [release checklist](docs/release-checklist.md),
@@ -653,8 +660,8 @@ local-ai-coding-assistant/
 ## Current Limitations
 
 - Document vectors use local JSON storage by default. Chroma is available as
-  an optional early adapter when `chromadb` is installed; FAISS, Qdrant, and
-  LanceDB are not wired yet.
+  an optional adapter when `chromadb` is installed; Qdrant and LanceDB are
+  explicitly deferred and reported through backend health metadata.
 - Legacy repository RAG still uses keyword overlap.
 - OCRmyPDF fallback exists for low-text PDFs, but broad OCR expansion and UI
   workflows are still early.

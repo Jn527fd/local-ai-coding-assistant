@@ -385,27 +385,28 @@ class ComponentRegistry:
         health_by_id = {item.id: item for item in health_items}
         json_health = health_by_id.get("json")
         for capability in capabilities:
-            if capability["id"] == "chroma":
-                chroma_health = health_by_id.get("chroma")
-                if chroma_health and chroma_health.available:
+            adapter_health = health_by_id.get(str(capability["id"]))
+            if adapter_health:
+                capability["checks"] = adapter_health.checks
+                capability["adapter"] = {
+                    "id": adapter_health.id,
+                    "mode": adapter_health.mode,
+                }
+                capability["source"] = adapter_health.source
+                if adapter_health.available and adapter_health.implemented:
                     self._with_execution_metadata(
                         capability,
                         status=CAPABILITY_STATUS_IMPLEMENTED,
                         implemented=True,
-                        description=chroma_health.description,
+                        description=adapter_health.description,
                     )
-                    capability["source"] = chroma_health.source
-                    capability["checks"] = chroma_health.checks
-                    capability["adapter"] = {
-                        "id": chroma_health.id,
-                        "mode": chroma_health.mode,
-                    }
-                elif chroma_health:
-                    capability["checks"] = chroma_health.checks
-                    capability["adapter"] = {
-                        "id": chroma_health.id,
-                        "mode": chroma_health.mode,
-                    }
+                elif adapter_health.mode == "deferred":
+                    self._with_execution_metadata(
+                        capability,
+                        status=CAPABILITY_STATUS_PLACEHOLDER,
+                        implemented=False,
+                        description=adapter_health.description,
+                    )
             capability["fallbackStore"] = "json"
             if json_health:
                 capability["fallbackAvailable"] = json_health.available

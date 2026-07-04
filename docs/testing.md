@@ -170,6 +170,30 @@ models are not pulled, tests skip with a clear message.
 CPU-only execution is supported but can be slower. Production-quality model
 testing should happen on the machine that has the real pulled models and GPU.
 
+## Retrieval Evaluation
+
+The deterministic retrieval evaluation harness uses fake embeddings and a
+small non-sensitive fixture corpus under `tests/fixtures/retrieval_eval/`.
+It is a wiring and regression baseline, not a model quality benchmark.
+
+Run the retrieval evaluation tests with:
+
+```bash
+python -m pytest tests/test_retrieval_eval.py
+```
+
+The harness measures:
+
+- recall against expected chunk IDs
+- best rank for expected chunks
+- source metadata accuracy
+- expected warning behavior
+- source numbering and response payload shape
+
+Live embedding/model evaluation remains opt-in only. Do not add live model
+quality checks to the default suite; gate them behind explicit environment
+variables in the same style as the Ollama smoke tests.
+
 ## Frontend E2E
 
 Playwright is not part of the default `npm run test:ci` script. Run it

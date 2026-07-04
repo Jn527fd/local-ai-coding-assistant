@@ -28,6 +28,14 @@ class VectorStoreBackend(Protocol):
     backend_id: str
     label: str
 
+    @staticmethod
+    def collection_id(
+        conversation_id: str,
+        embedder_model: str,
+        vector_database: str,
+    ) -> str:
+        """Return a deterministic collection id for this backend."""
+
     async def upsert(
         self,
         collection: str,
@@ -61,9 +69,21 @@ class VectorStoreBackend(Protocol):
     ) -> bool:
         """Delete one collection."""
 
+    async def export_collection(
+        self,
+        conversation_id: str,
+        collection_id: str,
+    ) -> dict[str, Any]:
+        """Return a portable collection payload including vectors."""
+
+    async def import_collection(
+        self,
+        payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Import a portable collection payload and return collection metadata."""
+
     def collection_ref(self, conversation_id: str, collection_id: str) -> str:
         """Return an adapter-specific collection reference."""
 
     def health(self) -> VectorStoreHealth:
         """Return local adapter availability metadata."""
-

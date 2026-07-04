@@ -1,0 +1,37 @@
+{
+  "cases": [
+    {
+      "id": "python-venv-setup",
+      "query": "How do I set up Python dependencies?",
+      "expectedChunkIds": ["setup-python-venv"],
+      "topK": 3
+    },
+    {
+      "id": "tiny-chat-model",
+      "query": "Which tiny CPU chat model should live smoke tests use?",
+      "expectedChunkIds": ["models-smoke-chat"],
+      "topK": 3
+    },
+    {
+      "id": "document-file-types",
+      "query": "Which uploaded document file types are accepted?",
+      "expectedChunkIds": ["documents-file-types"],
+      "topK": 3
+    },
+    {
+      "id": "local-secret-hygiene",
+      "query": "What local files should stay out of source control?",
+      "expectedChunkIds": ["security-api-key"],
+      "topK": 3
+    }
+  ],
+  "warningCases": [
+    {
+      "id": "embedder-mismatch-warning",
+      "query": "Use docs if possible.",
+      "expectedChunkIds": [],
+      "topK": 3,
+      "expectedWarningSubstrings": ["does not match indexed embedder"]
+    }
+  ]
+}

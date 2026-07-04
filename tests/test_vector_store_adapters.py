@@ -108,6 +108,71 @@ async def test_json_vector_store_contract(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_json_vector_store_exports_and_imports_portable_collection(
+    tmp_path: Path,
+) -> None:
+    source = JsonVectorStore(tmp_path / "source")
+    target = JsonVectorStore(tmp_path / "target")
+    collection_id = JsonVectorStore.collection_id("chat-1", "embed-a", "json")
+    collection_ref = source.collection_ref("chat-1", collection_id)
+    await assert_basic_vector_store_contract(source, collection_ref)
+
+    payload = await source.export_collection("chat-1", collection_id)
+    imported = await target.import_collection(payload)
+    results = await target.query(
+        target.collection_ref("chat-1", collection_id),
+        [1.0, 0.0],
+        top_k=1,
+    )
+
+    assert payload["format"] == "local-ai-vector-collection-v1"
+    assert imported["collectionId"] == collection_id
+    assert imported["recordCount"] == 1
+    assert results[0].chunk.metadata["documentName"] == "notes.txt"
+
+
+def test_vector_store_manager_reports_deferred_backends(tmp_path: Path) -> None:
+    diagnostics = VectorStoreManager(tmp_path / "vectors").diagnostics()
+    backends = {item["id"]: item for item in diagnostics["backends"]}
+
+    assert diagnostics["activeBackend"] == "json"
+    assert diagnostics["fallbackUsed"] is False
+    assert backends["json"]["available"] is True
+    assert backends["qdrant"]["mode"] == "deferred"
+    assert backends["lancedb"]["implemented"] is False
+
+
+@pytest.mark.asyncio
+async def test_vector_store_manager_migrates_collection_to_json_fallback(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        ChromaVectorStore,
+        "package_available",
+        staticmethod(lambda: False),
+    )
+    manager = VectorStoreManager(tmp_path / "vectors", backend="chroma")
+    collection_id = JsonVectorStore.collection_id("chat-1", "embed-a", "json")
+    await assert_basic_vector_store_contract(
+        manager.json_store,
+        manager.json_store.collection_ref("chat-1", collection_id),
+    )
+
+    migrated = await manager.migrate_collection(
+        "chat-1",
+        collection_id,
+        source_backend="json",
+        target_backend="chroma",
+    )
+
+    assert migrated["sourceBackend"] == "json"
+    assert migrated["targetBackend"] == "json"
+    assert migrated["fallbackUsed"] is True
+    assert migrated["collection"]["recordCount"] == 1
+
+
+@pytest.mark.asyncio
 async def test_chroma_vector_store_contract_when_dependency_is_installed(
     tmp_path: Path,
 ) -> None:

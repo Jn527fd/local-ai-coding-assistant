@@ -425,4 +425,52 @@ describe("api documents", () => {
     );
     expect(calls[3].options.method).toBe("DELETE");
   });
+
+  it("starts document jobs and reads job status", async () => {
+    const calls = [];
+    vi.stubGlobal("fetch", async (url, options) => {
+      calls.push({ url, options });
+      if (url.endsWith("/documents/doc-1/process/jobs")) {
+        return jsonResponse({ job: { id: "job-process", state: "queued" } }, 202);
+      }
+      if (url.endsWith("/documents/doc-1/index/jobs")) {
+        return jsonResponse({ job: { id: "job-index", state: "queued" } }, 202);
+      }
+      if (url.endsWith("/jobs/job-process/cancel")) {
+        return jsonResponse({ job: { id: "job-process", state: "cancel_requested" } });
+      }
+      if (url.endsWith("/jobs/job-process")) {
+        return jsonResponse({ job: { id: "job-process", state: "succeeded" } });
+      }
+      return jsonResponse({ detail: "Unexpected request." }, 500);
+    });
+
+    const {
+      cancelJob,
+      getJob,
+      startIndexDocumentJob,
+      startProcessDocumentJob,
+    } = await importApiForTest();
+
+    await startProcessDocumentJob("test-key", "doc-1", "conversation-a", {
+      chunker: "fixed",
+    });
+    await getJob("test-key", "job-process");
+    await cancelJob("test-key", "job-process");
+    await startIndexDocumentJob("test-key", "doc-1", "conversation-a", {
+      embedderModel: "embed-a",
+    });
+
+    expect(calls.map((call) => call.url)).toEqual([
+      "http://192.168.1.204:8000/documents/doc-1/process/jobs",
+      "http://192.168.1.204:8000/jobs/job-process",
+      "http://192.168.1.204:8000/jobs/job-process/cancel",
+      "http://192.168.1.204:8000/documents/doc-1/index/jobs",
+    ]);
+    expect(calls[0].options.method).toBe("POST");
+    expect(JSON.parse(calls[0].options.body)).toEqual({
+      conversationId: "conversation-a",
+      conversationSettings: { chunker: "fixed" },
+    });
+  });
 });

@@ -54,7 +54,7 @@ def test_metadata_migration_initializes_fresh_database(tmp_path: Path) -> None:
 
     assert result.previous_version == 0
     assert result.current_version == CURRENT_METADATA_SCHEMA_VERSION
-    assert result.applied_versions == [1]
+    assert result.applied_versions == [1, 2]
     assert settings.resolved_metadata_database_file.exists()
     assert manager.status()["schemaVersion"] == CURRENT_METADATA_SCHEMA_VERSION
 

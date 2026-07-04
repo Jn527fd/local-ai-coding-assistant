@@ -1,5 +1,7 @@
 import json
 from pathlib import Path
+from zipfile import ZipFile
+import io
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -155,6 +157,31 @@ def process_document(
     return response.json()
 
 
+def docx_bytes(text: str) -> bytes:
+    buffer = io.BytesIO()
+    with ZipFile(buffer, "w") as archive:
+        archive.writestr(
+            "[Content_Types].xml",
+            (
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+                '<Override PartName="/word/document.xml" '
+                f'ContentType="{document_capabilities.__name__}"/>'
+                "</Types>"
+            ),
+        )
+        archive.writestr(
+            "word/document.xml",
+            (
+                '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+                "<w:body>"
+                f"<w:p><w:r><w:t>{text}</w:t></w:r></w:p>"
+                "</w:body></w:document>"
+            ),
+        )
+    return buffer.getvalue()
+
+
 def test_upload_rejects_unsupported_file_types(
     app: FastAPI,
     client: TestClient,
@@ -171,7 +198,7 @@ def test_upload_rejects_unsupported_file_types(
     )
 
     assert response.status_code == 400
-    assert "Only .txt, .md, and .pdf" in response.json()["detail"]
+    assert "Only .txt, .md, .pdf, .docx, .html, .csv, and .tsv" in response.json()["detail"]
 
 
 def test_upload_stores_document_under_correct_conversation_id(
@@ -331,6 +358,131 @@ def test_markdown_extraction_works(
     assert summary["chunkCount"] >= 1
 
 
+def test_docx_extraction_works_with_stdlib_parser(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    configure_documents(app, tmp_path)
+    metadata = upload_document(
+        client,
+        auth_headers,
+        "conversation-a",
+        "notes.docx",
+        docx_bytes("DOCX body text"),
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+
+    summary = process_document(client, auth_headers, "conversation-a", metadata["documentId"])
+
+    assert summary["status"] == "processed"
+    assert summary["document"]["detectedType"] == "docx"
+    assert summary["document"]["extractionDiagnostics"]["extractor"] == "docx"
+    assert summary["document"]["extractionDiagnostics"]["paragraphCount"] == 1
+
+
+def test_html_csv_and_tsv_extraction_work(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    configure_documents(app, tmp_path)
+    html_doc = upload_document(
+        client,
+        auth_headers,
+        "conversation-a",
+        "page.html",
+        b"<html><body><h1>Title</h1><script>skip()</script><p>HTML body</p></body></html>",
+        content_type="text/html",
+    )
+    csv_doc = upload_document(
+        client,
+        auth_headers,
+        "conversation-a",
+        "table.csv",
+        b"name,value\nalpha,1\nbeta,2\n",
+        content_type="text/csv",
+    )
+    tsv_doc = upload_document(
+        client,
+        auth_headers,
+        "conversation-a",
+        "table.tsv",
+        b"name\tvalue\nalpha\t1\n",
+        content_type="text/tab-separated-values",
+    )
+
+    html_summary = process_document(client, auth_headers, "conversation-a", html_doc["documentId"])
+    csv_summary = process_document(client, auth_headers, "conversation-a", csv_doc["documentId"])
+    tsv_summary = process_document(client, auth_headers, "conversation-a", tsv_doc["documentId"])
+
+    assert html_summary["status"] == "processed"
+    assert html_summary["document"]["extractionDiagnostics"]["extractor"] == "html"
+    assert csv_summary["document"]["extractionDiagnostics"]["rowCount"] == 3
+    assert csv_summary["document"]["extractionDiagnostics"]["columnCount"] == 2
+    assert tsv_summary["document"]["extractionDiagnostics"]["rowCount"] == 2
+
+
+def test_upload_rejects_mismatched_or_malformed_files(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    configure_documents(app, tmp_path)
+
+    response = client.post(
+        "/documents/upload",
+        headers=auth_headers,
+        data={"conversationId": "conversation-a"},
+        files={"file": ("notes.pdf", b"not actually a pdf", "application/pdf")},
+    )
+
+    assert response.status_code == 400
+    assert "wrong file type" in response.json()["detail"]
+
+
+def test_duplicate_upload_reuses_existing_document_metadata(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    configure_documents(app, tmp_path)
+    first = upload_document(client, auth_headers, "conversation-a", "notes.txt", b"same")
+    second = upload_document(client, auth_headers, "conversation-a", "copy.txt", b"same")
+
+    assert second["documentId"] == first["documentId"]
+    assert second["duplicate"] is True
+    assert second["duplicateOf"] == first["documentId"]
+
+
+def test_upload_records_sniffing_and_quality_diagnostics(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    configure_documents(app, tmp_path)
+    metadata = upload_document(
+        client,
+        auth_headers,
+        "conversation-a",
+        "notes.txt",
+        b"alpha\nbeta",
+        content_type="application/octet-stream",
+    )
+    summary = process_document(client, auth_headers, "conversation-a", metadata["documentId"])
+
+    diagnostics = summary["document"]["extractionDiagnostics"]
+    assert metadata["sniffConfidence"] == "text"
+    assert diagnostics["extractor"] == "plain-text"
+    assert diagnostics["lineCount"] == 2
+    assert diagnostics["wordEstimate"] == 2
+
+
 def test_empty_text_document_fails_with_clear_error(
     app: FastAPI,
     client: TestClient,
@@ -472,6 +624,47 @@ def test_missing_ocr_engine_warns_without_breaking_selectable_pdf_text(
     assert summary["status"] == "processed"
     assert summary["charLength"] == len("short text")
     assert any("not available for PDF OCR" in warning for warning in summary["warnings"])
+
+
+def test_selected_ocr_engine_is_skipped_when_pdf_text_is_sufficient(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    fake_ocr = FakePDFOCREngine("OCR text should not be used")
+    configure_documents(
+        app,
+        tmp_path,
+        document_capabilities(),
+        ocr_engines={"ocrmypdf": fake_ocr},
+    )
+    monkeypatch.setattr(
+        app.state.document_service,
+        "_extract_with_pdfplumber",
+        lambda _path: "This PDF already has enough selectable text.",
+    )
+    metadata = upload_document(
+        client,
+        auth_headers,
+        "conversation-a",
+        "selectable.pdf",
+        b"%PDF-1.4\nfake selectable pdf",
+        {"pdfParser": "pdfplumber", "ocrEngine": "ocrmypdf"},
+        "application/pdf",
+    )
+
+    summary = process_document(
+        client,
+        auth_headers,
+        "conversation-a",
+        metadata["documentId"],
+        {"pdfParser": "pdfplumber", "ocrEngine": "ocrmypdf"},
+    )
+
+    assert summary["status"] == "processed"
+    assert fake_ocr.calls == []
 
 
 def test_optional_live_ocrmypdf_smoke_skips_when_binary_is_missing() -> None:

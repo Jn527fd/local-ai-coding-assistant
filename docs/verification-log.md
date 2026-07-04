@@ -778,3 +778,121 @@ migrations if the database file is missing.
 - [x] Backup/restore and architecture docs include the metadata database
 - [x] Generated metadata database files are ignored by Git
 - [x] Phase 4 was not started
+
+## Roadmap v2 Phase 4 Background Jobs and Runtime Progress
+
+Date: 2026-07-03
+
+Scope:
+
+- Add a small local background job service for runtime progress.
+- Persist job metadata in the Phase 3 SQLite metadata store.
+- Add job status/list/cancel API endpoints.
+- Add job-backed document processing and document indexing endpoints while
+  preserving existing synchronous document endpoints.
+- Add minimal frontend progress display for document processing/indexing.
+- Keep cancellation conservative and local; no external queue, Redis, Celery,
+  job API expansion beyond this phase, or vector backend work.
+
+### Job Design
+
+Jobs are executed in-process with `asyncio.create_task` and persisted to the
+SQLite `jobs` table. Supported states are `queued`, `running`, `succeeded`,
+`failed`, `cancel_requested`, and `cancelled`. Cancellation is best-effort and
+checked only before or between safe steps; active Ollama requests are not
+interrupted mid-call.
+
+### Environment Notes
+
+- Host shell: Windows PowerShell.
+- Backend test runtime: Python 3.12.13 from `.venv`.
+- Frontend test runtime: bundled Node executable under
+  `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe`.
+- Vitest required an outside-sandbox rerun because esbuild could not read the
+  Vite/Vitest config path inside the restricted filesystem sandbox.
+- Docker CLI was present, but the daemon was not running during Phase 4 final
+  Docker verification.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `.venv\Scripts\python.exe -m pytest tests\test_jobs.py tests\test_metadata_migrations.py tests\test_documents.py tests\test_vector_indexes.py` | Failed, then passed | Initial run had one stale schema-version assertion; rerun passed with 39 passed, 1 skipped. |
+| `.venv\Scripts\python.exe -m pytest` | Passed | 125 passed, 7 skipped. Optional OCRmyPDF, live Ollama, and local Chroma tests skipped. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe scripts\lint-check.mjs` from `frontend/` | Passed | Frontend lint guard passed for 39 files. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vitest\vitest.mjs run src\api.test.js src\components\__tests__\workspace-components.test.jsx src\__tests__\app.integration.test.jsx` from `frontend/` | Failed, then passed | Sandbox run failed on restricted config path access; approved outside-sandbox rerun passed with 3 files and 29 tests. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vitest\vitest.mjs run` from `frontend/` | Passed | 8 files passed, 52 tests passed. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vite\bin\vite.js build` from `frontend/` | Passed | Production build completed successfully. |
+| `docker compose -f docker-compose.test.yml build backend-test frontend-test` | Blocked | Docker daemon was not running: `open //./pipe/docker_engine: The system cannot find the file specified.` |
+
+### Phase 4 Verification Checklist
+
+- [x] Job service state transitions are tested
+- [x] Job status API and cancellation behavior are tested
+- [x] Document process/index job endpoints are tested
+- [x] Existing synchronous document endpoints still pass regression tests
+- [x] Existing backend suite passes
+- [x] Frontend progress display is tested
+- [x] Frontend lint, tests, and build pass
+- [x] Docker blocker documented
+- [x] Phase 5 was not started
+
+## Roadmap v2 Phase 5 Document Ingestion v2
+
+Date: 2026-07-03
+
+Scope:
+
+- Add file-type sniffing for supported document uploads.
+- Expand document extraction to DOCX, HTML, CSV, and TSV while preserving
+  existing text, Markdown, and PDF behavior.
+- Add extraction diagnostics and duplicate document detection.
+- Keep OCR expansion out of scope while adding OCR selection/skip regression
+  coverage.
+- Preserve synchronous document endpoints and Phase 4 job-backed document
+  flows.
+
+### Environment Notes
+
+- Host shell: Windows PowerShell.
+- Backend test runtime: Python 3.12.13 from `.venv`.
+- Frontend test runtime: bundled Node executable under
+  `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe`.
+- Vitest required outside-sandbox reruns because esbuild could not read the
+  Vite/Vitest config path inside the restricted filesystem sandbox.
+- Docker was available for this phase. One Docker frontend run used a stale
+  pre-rebuild image and was rerun after rebuilding `frontend-test`.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `.venv\Scripts\python.exe -m pytest tests\test_documents.py tests\test_jobs.py tests\test_vector_indexes.py` | Passed | 39 passed, 1 skipped. Optional OCRmyPDF smoke skipped because the binary is not installed. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe scripts\lint-check.mjs` from `frontend/` | Passed | Frontend lint guard passed for 39 files. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vitest\vitest.mjs run src\components\__tests__\workspace-components.test.jsx` from `frontend/` | Failed, then passed | Sandbox run failed on restricted config path access; approved outside-sandbox rerun passed with 1 file and 11 tests. |
+| `.venv\Scripts\python.exe -m pytest` | Passed | 131 passed, 7 skipped. Optional OCRmyPDF, live Ollama, Ollama smoke, and local Chroma tests skipped. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vitest\vitest.mjs run` from `frontend/` | Failed, then passed | One streaming integration assertion was flaky in the first full run; after removing a stale legacy `/chat` test override and rerunning sequentially, 8 files and 53 tests passed. |
+| `C:\Users\naran\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe node_modules\vite\bin\vite.js build` from `frontend/` | Passed | Production build completed successfully. |
+| `docker compose -f docker-compose.test.yml build backend-test frontend-test` | Failed, then passed | Initial sandbox run could not read Docker config. Approved outside-sandbox rerun built both test images. |
+| `docker compose -f docker-compose.test.yml run --rm backend-test` | Passed | 132 passed, 6 skipped in Docker. |
+| `docker compose -f docker-compose.test.yml run --rm frontend-test` | Failed, then passed | Initial rerun used a stale pre-rebuild image. Rebuilt `frontend-test`, then lint, 8 Vitest files/53 tests, and production build passed. |
+| `docker compose -f docker-compose.test.yml down --remove-orphans` | Passed | Removed the temporary Docker test network. |
+| `.venv\Scripts\python.exe -m pip check` | Passed | No broken requirements found. |
+| `git diff --check` | Passed | No whitespace errors; Git reported expected LF-to-CRLF warnings on Windows. |
+
+### Phase 5 Verification Checklist
+
+- [x] File-type sniffing is tested for malformed and mismatched uploads
+- [x] DOCX extraction is tested
+- [x] HTML extraction is tested
+- [x] CSV and TSV extraction are tested
+- [x] PDF and text regression tests pass
+- [x] Duplicate document detection is tested
+- [x] OCR selection/skip behavior is tested without requiring optional OCR tools
+- [x] Extraction diagnostics are recorded and tested
+- [x] Existing synchronous and job-backed document flows pass regression tests
+- [x] Existing backend suite passes
+- [x] Frontend upload file picker behavior is tested
+- [x] Frontend lint, tests, and build pass
+- [x] Docker backend and frontend test services pass
+- [x] Phase 6 was not started

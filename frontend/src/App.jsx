@@ -3,17 +3,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   checkHealth,
   deleteConversation as deletePersistedConversation,
+  getJob,
   getCurrentUser,
   getModelStatus,
   importConversations,
-  indexDocument,
   listConversations,
   listDocumentIndexes,
   listDocuments,
   logout,
-  processDocument,
   searchDocuments,
   sendChatStream,
+  startIndexDocumentJob,
+  startProcessDocumentJob,
   uploadDocument,
 } from "./api.js";
 import {
@@ -41,6 +42,18 @@ import { Button, Input, Modal, Toast } from "./components/ui.jsx";
 import { useCapabilities } from "./hooks/useCapabilities.js";
 
 const API_KEY_STORAGE_KEY = "local-ai-coding-assistant.api-key";
+const SUPPORTED_DOCUMENT_EXTENSIONS = [
+  "txt",
+  "md",
+  "pdf",
+  "docx",
+  "html",
+  "htm",
+  "csv",
+  "tsv",
+];
+const SUPPORTED_DOCUMENT_MESSAGE =
+  "Only .txt, .md, .pdf, .docx, .html, .csv, and .tsv files are supported.";
 
 function App() {
   const composerRef = useRef(null);
@@ -74,6 +87,7 @@ function App() {
   const [documentsByChat, setDocumentsByChat] = useState({});
   const [documentIndexesByChat, setDocumentIndexesByChat] = useState({});
   const [documentBusy, setDocumentBusy] = useState(false);
+  const [documentJobProgress, setDocumentJobProgress] = useState(null);
   const [documentError, setDocumentError] = useState("");
   const [indexingDocumentId, setIndexingDocumentId] = useState("");
   const [documentSearchQuery, setDocumentSearchQuery] = useState("");
@@ -490,6 +504,32 @@ function App() {
     });
   }, []);
 
+  const waitForJob = useCallback(
+    async (jobId, label) => {
+      let lastJob = null;
+      for (let attempt = 0; attempt < 120; attempt += 1) {
+        const payload = await getJob(apiKey, jobId);
+        const job = payload?.job || payload;
+        lastJob = job;
+        setDocumentJobProgress({
+          id: job.id,
+          label,
+          state: job.state,
+          progress: job.progress || 0,
+          message: job.message || label,
+        });
+        if (["succeeded", "failed", "cancelled"].includes(job.state)) {
+          return job;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      throw new Error(
+        `${label} is still running. Check the job status and try again.`,
+      );
+    },
+    [apiKey],
+  );
+
   const handleUploadDocument = useCallback(
     async (file) => {
       if (!apiKey) {
@@ -503,8 +543,8 @@ function App() {
       }
 
       const extension = file.name.split(".").pop()?.toLowerCase() || "";
-      if (!["txt", "md", "pdf"].includes(extension)) {
-        setDocumentError("Only .txt, .md, and .pdf files are supported.");
+      if (!SUPPORTED_DOCUMENT_EXTENSIONS.includes(extension)) {
+        setDocumentError(SUPPORTED_DOCUMENT_MESSAGE);
         return false;
       }
 
@@ -526,12 +566,20 @@ function App() {
         );
         rememberDocument(conversationId, uploaded);
 
-        const processed = await processDocument(
+        const queued = await startProcessDocumentJob(
           apiKey,
           uploaded.documentId,
           conversationId,
           conversationSettings,
         );
+        const processJob = await waitForJob(
+          queued.job.id,
+          "Processing document",
+        );
+        if (processJob.state !== "succeeded") {
+          throw new Error(processJob.error || processJob.message || "Document processing failed.");
+        }
+        const processed = processJob.result || {};
         const processedDocument = processed.document || uploaded;
         rememberDocument(conversationId, processedDocument);
         await refreshDocuments(conversationId);
@@ -552,6 +600,7 @@ function App() {
         return false;
       } finally {
         setDocumentBusy(false);
+        setDocumentJobProgress(null);
       }
     },
     [
@@ -561,6 +610,7 @@ function App() {
       refreshDocuments,
       rememberDocument,
       showToast,
+      waitForJob,
     ],
   );
 
@@ -588,12 +638,17 @@ function App() {
       setDocumentSearchError("");
 
       try {
-        const result = await indexDocument(
+        const queued = await startIndexDocumentJob(
           apiKey,
           document.documentId,
           activeChat.id,
           conversationSettings,
         );
+        const indexJob = await waitForJob(queued.job.id, "Indexing document");
+        if (indexJob.state !== "succeeded") {
+          throw new Error(indexJob.error || indexJob.message || "Document indexing failed.");
+        }
+        const result = indexJob.result || {};
         await refreshDocumentIndexes(activeChat.id);
         showToast(
           `${document.originalFilename || "Document"} indexed (${result.indexedChunks || 0} chunks).`,
@@ -606,6 +661,7 @@ function App() {
         return false;
       } finally {
         setIndexingDocumentId("");
+        setDocumentJobProgress(null);
       }
     },
     [
@@ -614,6 +670,7 @@ function App() {
       defaultConversationSettings,
       refreshDocumentIndexes,
       showToast,
+      waitForJob,
     ],
   );
 
@@ -1094,6 +1151,7 @@ function App() {
       composerRef={composerRef}
       documentError={documentError}
       documentIndexes={activeDocumentIndexes}
+      documentJobProgress={documentJobProgress}
       documents={activeDocuments}
       documentSearchBusy={documentSearchBusy}
       documentSearchError={documentSearchError}

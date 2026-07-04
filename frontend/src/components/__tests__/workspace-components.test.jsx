@@ -147,6 +147,49 @@ describe("NavigationRail", () => {
 });
 
 describe("Workspace / Conversation / Composer", () => {
+  it("shows document job progress in the document tray", () => {
+    const composerRef = React.createRef();
+
+    render(
+      <Composer
+        activeChat={baseChat}
+        composerRef={composerRef}
+        documentJobProgress={{
+          id: "job-1",
+          label: "Indexing document",
+          progress: 45,
+          message: "Embedding document chunks.",
+          state: "running",
+        }}
+        isSending={false}
+        message=""
+        onMessageChange={vi.fn()}
+        onSendMessage={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Indexing document")).toBeInTheDocument();
+    expect(screen.getByText(/45% - Embedding document chunks/i)).toBeInTheDocument();
+  });
+
+  it("allows the document upload file types supported by ingestion v2", () => {
+    render(
+      <Composer
+        activeChat={baseChat}
+        composerRef={React.createRef()}
+        isSending={false}
+        message=""
+        onMessageChange={vi.fn()}
+        onSendMessage={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText(/document upload/i)).toHaveAttribute(
+      "accept",
+      ".txt,.md,.pdf,.docx,.html,.htm,.csv,.tsv",
+    );
+  });
+
   it("renders the no-repository onboarding state and composer controls", () => {
     render(
       <WorkspaceHarness />,

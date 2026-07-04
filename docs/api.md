@@ -45,13 +45,18 @@ The app uses two local authentication mechanisms:
 | `POST` | `/chat/stream` | Bearer key | Stream chat progress, tokens, metadata, and completion events |
 | `POST` | `/documents/upload` | Bearer key | Stage a document for one conversation |
 | `POST` | `/documents/{document_id}/process` | Bearer key | Extract text and chunk a staged document |
+| `POST` | `/documents/{document_id}/process/jobs` | Bearer key | Start a local background processing job |
 | `POST` | `/documents/{document_id}/index` | Bearer key | Embed and index one processed document |
+| `POST` | `/documents/{document_id}/index/jobs` | Bearer key | Start a local background indexing job |
 | `POST` | `/documents/search` | Bearer key | Search indexed document chunks without chat |
 | `GET` | `/documents` | Bearer key | List documents for one conversation |
 | `GET` | `/documents/indexes` | Bearer key | List vector collections for one conversation |
 | `DELETE` | `/documents/indexes/{collection_id}` | Bearer key | Delete one vector collection |
 | `GET` | `/documents/{document_id}` | Bearer key | Get document metadata |
 | `GET` | `/documents/{document_id}/chunks` | Bearer key | Get processed document chunks |
+| `GET` | `/jobs` | Bearer key | List recent local background jobs |
+| `GET` | `/jobs/{job_id}` | Bearer key | Read local job status, progress, result, or error |
+| `POST` | `/jobs/{job_id}/cancel` | Bearer key | Request conservative cancellation for a local job |
 | `POST` | `/repos/index-local` | Bearer key | Index a local repository with legacy keyword RAG |
 | `POST` | `/repos/ask` | Bearer key | Ask a grounded question against a repository index |
 
@@ -340,10 +345,13 @@ Common errors:
 ## Documents
 
 Document endpoints are scoped by `conversationId`. Supported uploads are
-`.txt`, `.md`, and `.pdf`. PDFs require an available parser such as PyMuPDF or
-pdfplumber inside the backend runtime. When `ocrEngine` is set to `ocrmypdf`
-and the selected parser extracts very little text, processing attempts an
-OCRmyPDF fallback if the `ocrmypdf` binary is available.
+`.txt`, `.md`, `.pdf`, `.docx`, `.html`, `.htm`, `.csv`, and `.tsv`. Uploads
+are sniffed before storage so malformed files and obvious extension/content
+mismatches return clear `400` errors. PDFs require an available parser such as
+PyMuPDF or pdfplumber inside the backend runtime. DOCX, HTML, CSV, and TSV
+extraction uses Python standard-library parsers. When `ocrEngine` is set to
+`ocrmypdf` and the selected parser extracts very little text, processing
+attempts an OCRmyPDF fallback if the `ocrmypdf` binary is available.
 
 Upload uses multipart form data. `conversationSettings` is a JSON string:
 
@@ -396,6 +404,27 @@ documents return `404`, invalid requests return `400`, unreadable artifacts
 return safe failed metadata or warnings, and malformed chunk artifacts are not
 indexed. Empty extracted text marks processing as failed instead of producing a
 processed document with zero chunks.
+Document metadata includes file-type sniffing fields, extraction diagnostics,
+and duplicate-upload markers when the same file content already exists in a
+conversation.
+
+The synchronous process and index endpoints remain available. For UI progress,
+start the job variants and poll `/jobs/{job_id}`:
+
+```bash
+curl -X POST http://localhost:8000/documents/DOCUMENT_ID/process/jobs \
+  -H "Authorization: Bearer your-private-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"conversationId":"chat-1","conversationSettings":{}}'
+
+curl http://localhost:8000/jobs/JOB_ID \
+  -H "Authorization: Bearer your-private-api-key"
+```
+
+Job states are `queued`, `running`, `succeeded`, `failed`,
+`cancel_requested`, and `cancelled`. Cancellation is best-effort and only takes
+effect at safe checkpoints; it does not interrupt an active Ollama request
+mid-call.
 
 Search indexed chunks:
 

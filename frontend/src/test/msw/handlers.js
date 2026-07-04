@@ -205,12 +205,14 @@ export function componentCapabilities(overrides = {}) {
 
 const documentsByConversation = new Map();
 const indexesByConversation = new Map();
+const jobsById = new Map();
 let persistedConversations = [];
 
 export function resetMockRuntimeState() {
   persistedConversations = [];
   documentsByConversation.clear();
   indexesByConversation.clear();
+  jobsById.clear();
 }
 
 function rememberDocument(conversationId, document) {
@@ -227,6 +229,11 @@ function rememberIndex(conversationId, collection) {
     (item) => item.collectionId !== collection.collectionId,
   );
   indexesByConversation.set(conversationId, [collection, ...withoutCollection]);
+}
+
+function rememberJob(job) {
+  jobsById.set(job.id, job);
+  return job;
 }
 
 export const runtimeOnlineHandlers = [
@@ -419,6 +426,51 @@ export const runtimeOnlineHandlers = [
       error: null,
     });
   }),
+  http.post(`${API_BASE_URL}/documents/:documentId/process/jobs`, async ({ params, request }) => {
+    const body = await request.json();
+    const conversationId = body.conversationId || "chat-1";
+    const existing = documentsByConversation
+      .get(conversationId)
+      ?.find((item) => item.documentId === params.documentId);
+    const document = {
+      ...(existing || {
+        documentId: params.documentId,
+        conversationId,
+        originalFilename: "Document",
+      }),
+      status: "processed",
+      chunkCount: 3,
+      processedAt: new Date().toISOString(),
+    };
+    rememberDocument(conversationId, document);
+    const job = rememberJob({
+      id: `job-${Date.now()}`,
+      type: "document.process",
+      state: "succeeded",
+      progress: 100,
+      message: "Completed.",
+      targetType: "document",
+      targetId: params.documentId,
+      payload: body,
+      result: {
+        document,
+        documentId: document.documentId,
+        conversationId,
+        status: "processed",
+        chunkCount: 3,
+        charLength: 120,
+        warnings: [],
+        error: null,
+      },
+      error: null,
+      cancelRequested: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+    });
+    return HttpResponse.json({ job }, { status: 202 });
+  }),
   http.post(`${API_BASE_URL}/documents/:documentId/index`, async ({ params, request }) => {
     const body = await request.json();
     const conversationId = body.conversationId || "chat-1";
@@ -446,6 +498,66 @@ export const runtimeOnlineHandlers = [
       internalStore: "json",
       warning: "Using local JSON vector store.",
     });
+  }),
+  http.post(`${API_BASE_URL}/documents/:documentId/index/jobs`, async ({ params, request }) => {
+    const body = await request.json();
+    const conversationId = body.conversationId || "chat-1";
+    const collection = {
+      collectionId: "json-demo",
+      conversationId,
+      embedderModel:
+        body.conversationSettings?.embedderModel || "nomic-embed-text:latest",
+      vectorDatabase:
+        body.conversationSettings?.vectorDatabase || "chroma",
+      documentIds: [params.documentId],
+      recordCount: 3,
+      updatedAt: new Date().toISOString(),
+      source: "json",
+    };
+    rememberIndex(conversationId, collection);
+    const job = rememberJob({
+      id: `job-${Date.now()}`,
+      type: "document.index",
+      state: "succeeded",
+      progress: 100,
+      message: "Completed.",
+      targetType: "document",
+      targetId: params.documentId,
+      payload: body,
+      result: {
+        collection,
+        collectionId: collection.collectionId,
+        conversationId,
+        documentId: params.documentId,
+        indexedChunks: 3,
+        embedderModel: collection.embedderModel,
+        vectorDatabase: collection.vectorDatabase,
+        internalStore: "json",
+        warning: "Using local JSON vector store.",
+      },
+      error: null,
+      cancelRequested: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+    });
+    return HttpResponse.json({ job }, { status: 202 });
+  }),
+  http.get(`${API_BASE_URL}/jobs/:jobId`, ({ params }) => {
+    const job = jobsById.get(params.jobId);
+    return job
+      ? HttpResponse.json({ job })
+      : HttpResponse.json({ detail: "Job was not found." }, { status: 404 });
+  }),
+  http.post(`${API_BASE_URL}/jobs/:jobId/cancel`, ({ params }) => {
+    const job = jobsById.get(params.jobId);
+    if (!job) {
+      return HttpResponse.json({ detail: "Job was not found." }, { status: 404 });
+    }
+    const nextJob = { ...job, cancelRequested: true };
+    jobsById.set(params.jobId, nextJob);
+    return HttpResponse.json({ job: nextJob });
   }),
   http.post(`${API_BASE_URL}/documents/search`, async ({ request }) => {
     const body = await request.json();

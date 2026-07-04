@@ -16,7 +16,7 @@ from app.metadata.store import (
 
 logger = logging.getLogger(__name__)
 
-CURRENT_METADATA_SCHEMA_VERSION = 1
+CURRENT_METADATA_SCHEMA_VERSION = 2
 
 
 class MetadataMigrationError(Exception):
@@ -85,6 +85,14 @@ class MetadataMigrationManager:
                             "initial_metadata_catalogue",
                         )
                         applied_versions.append(1)
+                    if previous_version < 2:
+                        self.store.apply_schema_v2(connection)
+                        self.store.record_migration(
+                            connection,
+                            2,
+                            "local_background_jobs",
+                        )
+                        applied_versions.append(2)
         except (OSError, UnicodeError, sqlite3.DatabaseError) as exc:
             raise MetadataMigrationError(
                 "Metadata migration failed before completion; existing JSON "

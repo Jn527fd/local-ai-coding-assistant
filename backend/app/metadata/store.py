@@ -107,6 +107,32 @@ SCHEMA_V1_STATEMENTS = [
     """,
 ]
 
+SCHEMA_V2_STATEMENTS = [
+    """
+    CREATE TABLE IF NOT EXISTS jobs (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        state TEXT NOT NULL,
+        progress INTEGER NOT NULL DEFAULT 0,
+        message TEXT,
+        target_type TEXT,
+        target_id TEXT,
+        payload_json TEXT NOT NULL,
+        result_json TEXT,
+        error TEXT,
+        cancel_requested INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        started_at TEXT,
+        finished_at TEXT
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_jobs_state_updated
+    ON jobs (state, updated_at DESC)
+    """,
+]
+
 
 class MetadataStore:
     """Small SQLite catalogue for local app metadata."""
@@ -172,6 +198,10 @@ class MetadataStore:
 
     def apply_schema_v1(self, connection: sqlite3.Connection) -> None:
         for statement in SCHEMA_V1_STATEMENTS:
+            connection.execute(statement)
+
+    def apply_schema_v2(self, connection: sqlite3.Connection) -> None:
+        for statement in SCHEMA_V2_STATEMENTS:
             connection.execute(statement)
 
     def record_migration(
@@ -490,11 +520,114 @@ class MetadataStore:
             "vector_collections",
             "repository_indexes",
             "schema_migrations",
+            "jobs",
         }:
             raise MetadataDatabaseError("Unsupported metadata table.")
         with self.connect() as connection:
             row = connection.execute(f"SELECT COUNT(*) AS count FROM {table}").fetchone()
         return int(row["count"] if row is not None else 0)
+
+    def upsert_job(self, job: dict[str, Any]) -> None:
+        now = self._now()
+        created_at = str(job.get("createdAt") or now)
+        updated_at = str(job.get("updatedAt") or now)
+        with self.connect() as connection:
+            with connection:
+                connection.execute(
+                    """
+                    INSERT INTO jobs
+                        (
+                            id, type, state, progress, message, target_type,
+                            target_id, payload_json, result_json, error,
+                            cancel_requested, created_at, updated_at,
+                            started_at, finished_at
+                        )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        type = excluded.type,
+                        state = excluded.state,
+                        progress = excluded.progress,
+                        message = excluded.message,
+                        target_type = excluded.target_type,
+                        target_id = excluded.target_id,
+                        payload_json = excluded.payload_json,
+                        result_json = excluded.result_json,
+                        error = excluded.error,
+                        cancel_requested = excluded.cancel_requested,
+                        updated_at = excluded.updated_at,
+                        started_at = excluded.started_at,
+                        finished_at = excluded.finished_at
+                    """,
+                    (
+                        str(job["id"]),
+                        str(job["type"]),
+                        str(job["state"]),
+                        int(job.get("progress") or 0),
+                        self._optional_text(job.get("message")),
+                        self._optional_text(job.get("targetType")),
+                        self._optional_text(job.get("targetId")),
+                        self._json(job.get("payload") or {}),
+                        (
+                            self._json(job.get("result"))
+                            if job.get("result") is not None
+                            else None
+                        ),
+                        self._optional_text(job.get("error")),
+                        1 if job.get("cancelRequested") else 0,
+                        created_at,
+                        updated_at,
+                        self._optional_text(job.get("startedAt")),
+                        self._optional_text(job.get("finishedAt")),
+                    ),
+                )
+
+    def get_job(self, job_id: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT *
+                FROM jobs
+                WHERE id = ?
+                """,
+                (job_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._job_from_row(row)
+
+    def list_jobs(self, limit: int = 50) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM jobs
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (max(1, min(limit, 200)),),
+            ).fetchall()
+        return [self._job_from_row(row) for row in rows]
+
+    def _job_from_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        payload = json.loads(row["payload_json"] or "{}")
+        result = json.loads(row["result_json"]) if row["result_json"] else None
+        return {
+            "id": row["id"],
+            "type": row["type"],
+            "state": row["state"],
+            "progress": row["progress"],
+            "message": row["message"],
+            "targetType": row["target_type"],
+            "targetId": row["target_id"],
+            "payload": payload,
+            "result": result,
+            "error": row["error"],
+            "cancelRequested": bool(row["cancel_requested"]),
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"],
+            "startedAt": row["started_at"],
+            "finishedAt": row["finished_at"],
+        }
 
     @staticmethod
     def _json(value: Any) -> str:

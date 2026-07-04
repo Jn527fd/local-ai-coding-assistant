@@ -12,6 +12,12 @@ automation is added.
   browser-to-backend migration, import/export endpoints, and delete semantics.
 - Local SQLite metadata catalogue with startup migrations, manual migration
   diagnostics, JSON metadata import, and conversation metadata mirroring.
+- Local background job tracking for document processing and indexing, with
+  progress/status endpoints, conservative cancellation, and minimal frontend
+  progress display.
+- Document ingestion v2 coverage for DOCX, HTML, CSV, and TSV uploads, with
+  file-type sniffing, extraction diagnostics, duplicate detection, and clearer
+  malformed-file errors.
 
 ### Release Candidate Checklist
 

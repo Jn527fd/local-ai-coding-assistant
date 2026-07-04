@@ -138,9 +138,13 @@ This project demonstrates more than a basic LLM chat interface:
 ### Documents and RAG
 
 - Upload and process local documents through the backend.
+- Show local job progress while processing and indexing documents.
+- Support text, Markdown, PDF, DOCX, HTML, CSV, and TSV uploads with safe
+  file-type sniffing before processing.
 - Extract PDF text with PyMuPDF or pdfplumber when installed.
 - Runs OCRmyPDF as a safe low-text PDF fallback when that binary is available
   and selected for the chat.
+- Record extraction diagnostics and detect duplicate document uploads.
 - Chunk documents with fixed and recursive chunking modes.
 - Embed chunks with local Ollama embedding models.
 - Store document chunks and vectors in a local JSON-backed index.
@@ -463,10 +467,13 @@ response examples, and error behavior.
 
 ## Document and Repository Indexing
 
-Document upload currently supports plain text, Markdown, and PDFs. PDF
-extraction uses PyMuPDF or pdfplumber when installed in the backend runtime.
-Processed chunks and embeddings are stored under ignored local data
-directories.
+Document upload currently supports plain text, Markdown, PDF, DOCX, HTML,
+CSV, and TSV files. Uploads are sniffed before processing so obvious
+extension/content mismatches fail with clear errors. PDF extraction uses
+PyMuPDF or pdfplumber when installed in the backend runtime. Processed chunks,
+extraction diagnostics, and embeddings are stored under ignored local data
+directories. Duplicate uploads in the same conversation reuse existing
+document metadata instead of storing another copy.
 
 Supported file extensions:
 
@@ -675,8 +682,8 @@ priority items are:
   exportable server-side store.
 - Add background jobs for long-running indexing, OCR, retrieval, and model
   operations.
-- Expand document ingestion, OCR, vector-store adapters, and retrieval quality
-  evaluation.
+- Continue expanding OCR coverage, vector-store adapters, and retrieval
+  quality evaluation.
 - Harden the trusted-network deployment model with stronger observability,
   packaging, backup, and security controls.
 

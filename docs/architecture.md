@@ -151,6 +151,7 @@ schema includes:
 - `documents`
 - `vector_collections`
 - `repository_indexes`
+- `jobs`
 
 `backend/app/metadata/migrations.py` runs forward-only startup migrations.
 Fresh installs create the database automatically. Existing JSON metadata is
@@ -163,6 +164,10 @@ Conversation writes from `ConversationPersistenceService` are mirrored into
 SQLite so the catalogue remains current after the initial migration. Uploaded
 files, extracted text, chunk payloads, vector embeddings, and repository index
 payloads remain in their existing artifact stores.
+
+`JobService` also persists local runtime job metadata in SQLite. Job execution
+is still in-process and local; there is no external queue, Redis, Celery, or
+remote worker.
 
 Manual migration diagnostics are available with:
 
@@ -283,13 +288,14 @@ Document flow:
 
 ```text
 POST /documents/upload
-  -> validate conversationId, extension, and size
+  -> validate conversationId, extension, content signature, and size
+  -> detect duplicate content within the conversation
   -> store original file under data/uploads/<conversation>/<document>
   -> write metadata.json
 
 POST /documents/{document_id}/process
   -> resolve conversation settings
-  -> extract text from .txt, .md, or .pdf
+  -> extract text from .txt, .md, .pdf, .docx, .html, .csv, or .tsv
   -> chunk text with fixed or recursive chunking
   -> write extracted.json, chunks.json, metadata.json
 
@@ -299,15 +305,26 @@ POST /documents/{document_id}/index
   -> upsert vectors into local JSON vector store
 ```
 
+The synchronous document endpoints remain available. The frontend uses
+`POST /documents/{document_id}/process/jobs` and
+`POST /documents/{document_id}/index/jobs` for minimal progress feedback, then
+polls `/jobs/{job_id}` until the job succeeds, fails, or is cancelled.
+Cancellation is conservative and only checked before or between safe steps.
+
 The document service validates conversation IDs, document IDs, upload
-extensions, upload size, artifact paths, and metadata identity. Missing or
-corrupt metadata is returned as failed document metadata instead of crashing
-list/get calls. Missing originals fail processing with `404`, empty extracted
-text fails processing with a clear error, and malformed chunk artifacts are not
-indexed.
+extensions, file signatures, upload size, artifact paths, and metadata
+identity. Missing or corrupt metadata is returned as failed document metadata
+instead of crashing list/get calls. Missing originals fail processing with
+`404`, empty extracted text fails processing with a clear error, malformed
+chunk artifacts are not indexed, and duplicate uploads reuse existing document
+metadata.
 
 PDF text extraction supports PyMuPDF and pdfplumber when installed in the
 backend runtime. Docling is discoverable but not implemented for parsing yet.
+DOCX, HTML, CSV, and TSV extraction uses conservative Python standard-library
+parsers. Extraction diagnostics such as parser name, text length, line counts,
+row counts, and paragraph counts are preserved in document metadata where
+available.
 When selected and available, OCRmyPDF is used as a fallback for PDFs whose
 parser output has too little selectable text. OCR warnings and resolved engine
 metadata are preserved in document metadata. Other OCR engines remain

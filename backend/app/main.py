@@ -24,11 +24,13 @@ from app.routers.components import router as components_router
 from app.routers.conversations import router as conversations_router
 from app.routers.documents import router as documents_router
 from app.routers.health import router as health_router
+from app.routers.jobs import router as jobs_router
 from app.routers.models import router as models_router
 from app.routers.repos import router as repos_router
 from app.services.component_registry import ComponentRegistry
 from app.services.conversation_service import ConversationPersistenceService
 from app.services.document_service import DocumentService
+from app.services.job_service import JobService
 from app.services.local_settings_service import LocalSettingsService
 from app.services.model_manager import ModelManager
 from app.services.ollama_service import OllamaService
@@ -82,6 +84,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ollama_service=model_manager.ollama_service,
         vector_store_manager=vector_store_manager,
     )
+    job_service = JobService(metadata_store=metadata_store)
     document_service = DocumentService(
         upload_directory=app_settings.upload_directory,
         max_upload_bytes=app_settings.document_max_upload_bytes,
@@ -132,6 +135,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         application.state.model_manager = model_manager
         application.state.component_registry = component_registry
+        application.state.job_service = job_service
         application.state.document_service = document_service
         application.state.conversation_service = conversation_service
         application.state.vector_store_manager = vector_store_manager
@@ -164,6 +168,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.metadata_migration_result = None
     application.state.model_manager = model_manager
     application.state.component_registry = component_registry
+    application.state.job_service = job_service
     application.state.document_service = document_service
     application.state.conversation_service = conversation_service
     application.state.vector_store_manager = vector_store_manager
@@ -190,6 +195,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(models_router)
     application.include_router(components_router)
     application.include_router(conversations_router)
+    application.include_router(jobs_router)
     application.include_router(documents_router)
     application.include_router(chat_router)
     application.include_router(repos_router)

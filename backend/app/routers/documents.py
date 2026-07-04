@@ -36,6 +36,7 @@ from app.services.document_service import (
     DocumentStorageError,
     DocumentValidationError,
 )
+from app.services.job_service import JobContext, JobService
 from app.services.model_manager import ModelManager
 from app.services.ollama_service import (
     OllamaResponseError,
@@ -73,6 +74,12 @@ def get_vector_store(request: Request) -> JsonVectorStore:
     """Return the local vector store."""
 
     return request.app.state.vector_store
+
+
+def get_job_service(request: Request) -> JobService:
+    """Return the local background job service."""
+
+    return request.app.state.job_service
 
 
 def parse_conversation_settings(
@@ -188,51 +195,17 @@ async def embed_texts_in_batches(
     return embeddings
 
 
-@router.post("/upload")
-async def upload_document(
-    document_service: Annotated[DocumentService, Depends(get_document_service)],
-    conversationId: Annotated[str, Form(min_length=1, max_length=100)],
-    file: Annotated[UploadFile, File()],
-    conversationSettings: Annotated[str | None, Form()] = None,
-) -> dict[str, Any]:
-    """Stage one document under the requested local conversation."""
-
-    settings = parse_conversation_settings(conversationSettings)
-    content = await file.read(document_service.max_upload_bytes + 1)
-    await file.close()
-    if len(content) > document_service.max_upload_bytes:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="Document is larger than the configured upload limit.",
-        )
-
-    try:
-        result = await run_in_threadpool(
-            document_service.upload,
-            conversationId,
-            file.filename or "document",
-            file.content_type,
-            content,
-            settings,
-        )
-    except (DocumentValidationError, DocumentNotFoundError, DocumentStorageError) as exc:
-        raise_document_http_error(exc)
-
-    return result.metadata
-
-
-@router.post("/{document_id}/process")
-async def process_document(
+async def run_process_document(
     document_id: str,
     process_request: ProcessDocumentRequest,
     request: Request,
-    document_service: Annotated[DocumentService, Depends(get_document_service)],
-    settings_resolver: Annotated[
-        AISettingsResolver,
-        Depends(get_ai_settings_resolver),
-    ],
+    document_service: DocumentService,
+    settings_resolver: AISettingsResolver,
+    job_context: JobContext | None = None,
 ) -> dict[str, Any]:
-    """Extract text and create local chunks for a staged document."""
+    if job_context is not None:
+        await job_context.progress(10, "Resolving document settings.")
+        job_context.check_cancelled()
 
     model_manager: ModelManager = request.app.state.model_manager
     execution_context = await settings_resolver.resolve(
@@ -240,6 +213,9 @@ async def process_document(
         active_model=model_manager.active_model,
         conversation_id=process_request.conversationId,
     )
+    if job_context is not None:
+        await job_context.progress(30, "Extracting and chunking document.")
+        job_context.check_cancelled()
     try:
         result = await run_in_threadpool(
             document_service.process,
@@ -250,7 +226,7 @@ async def process_document(
     except (DocumentValidationError, DocumentNotFoundError, DocumentStorageError) as exc:
         raise_document_http_error(exc)
 
-    return {
+    payload = {
         "document": result.metadata,
         "documentId": result.metadata["documentId"],
         "conversationId": result.metadata["conversationId"],
@@ -264,25 +240,24 @@ async def process_document(
         "warnings": result.metadata.get("extractionWarnings", []),
         "error": result.metadata.get("error"),
     }
+    if job_context is not None:
+        await job_context.progress(100, "Document processing completed.")
+    return payload
 
 
-@router.post("/{document_id}/index")
-async def index_document(
+async def run_index_document(
     document_id: str,
     index_request: IndexDocumentRequest,
     request: Request,
-    document_service: Annotated[DocumentService, Depends(get_document_service)],
-    settings_resolver: Annotated[
-        AISettingsResolver,
-        Depends(get_ai_settings_resolver),
-    ],
-    embedder_provider: Annotated[
-        OllamaEmbedderProvider,
-        Depends(get_embedder_provider),
-    ],
-    vector_store: Annotated[JsonVectorStore, Depends(get_vector_store)],
+    document_service: DocumentService,
+    settings_resolver: AISettingsResolver,
+    embedder_provider: OllamaEmbedderProvider,
+    vector_store: JsonVectorStore,
+    job_context: JobContext | None = None,
 ) -> dict[str, Any]:
-    """Embed and persist processed chunks for one conversation document."""
+    if job_context is not None:
+        await job_context.progress(5, "Resolving indexing settings.")
+        job_context.check_cancelled()
 
     model_manager: ModelManager = request.app.state.model_manager
     execution_context = await settings_resolver.resolve(
@@ -342,13 +317,7 @@ async def index_document(
             "charEnd": raw_chunk.get("charEnd"),
             "tokenEstimate": raw_chunk.get("tokenEstimate"),
         }
-        chunks.append(
-            Chunk(
-                id=chunk_id,
-                text=text,
-                metadata=chunk_metadata,
-            )
-        )
+        chunks.append(Chunk(id=chunk_id, text=text, metadata=chunk_metadata))
         texts.append(text)
 
     if not chunks:
@@ -357,6 +326,9 @@ async def index_document(
             detail="Document chunks artifact does not contain indexable text chunks.",
         )
 
+    if job_context is not None:
+        await job_context.progress(35, "Embedding document chunks.")
+        job_context.check_cancelled()
     try:
         embeddings = await embed_texts_in_batches(
             embedder_provider=embedder_provider,
@@ -373,6 +345,9 @@ async def index_document(
     ) as exc:
         raise_embedding_http_error(exc)
 
+    if job_context is not None:
+        await job_context.progress(75, "Writing vector index.")
+        job_context.check_cancelled()
     vector_database = execution_context.resolved_vector_database
     collection_id = JsonVectorStore.collection_id(
         conversation_id=index_request.conversationId,
@@ -402,7 +377,7 @@ async def index_document(
     except VectorStoreError as exc:
         raise_vector_http_error(exc)
 
-    return {
+    payload = {
         "collection": collection,
         "collectionId": collection_id,
         "conversationId": index_request.conversationId,
@@ -416,6 +391,184 @@ async def index_document(
             "Phase 5 persists vectors in the local JSON store."
         ),
     }
+    if job_context is not None:
+        await job_context.progress(100, "Document indexing completed.")
+    return payload
+
+
+@router.post("/upload")
+async def upload_document(
+    document_service: Annotated[DocumentService, Depends(get_document_service)],
+    conversationId: Annotated[str, Form(min_length=1, max_length=100)],
+    file: Annotated[UploadFile, File()],
+    conversationSettings: Annotated[str | None, Form()] = None,
+) -> dict[str, Any]:
+    """Stage one document under the requested local conversation."""
+
+    settings = parse_conversation_settings(conversationSettings)
+    content = await file.read(document_service.max_upload_bytes + 1)
+    await file.close()
+    if len(content) > document_service.max_upload_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Document is larger than the configured upload limit.",
+        )
+
+    try:
+        result = await run_in_threadpool(
+            document_service.upload,
+            conversationId,
+            file.filename or "document",
+            file.content_type,
+            content,
+            settings,
+        )
+    except (DocumentValidationError, DocumentNotFoundError, DocumentStorageError) as exc:
+        raise_document_http_error(exc)
+
+    return result.metadata
+
+
+@router.post("/{document_id}/process")
+async def process_document(
+    document_id: str,
+    process_request: ProcessDocumentRequest,
+    request: Request,
+    document_service: Annotated[DocumentService, Depends(get_document_service)],
+    settings_resolver: Annotated[
+        AISettingsResolver,
+        Depends(get_ai_settings_resolver),
+    ],
+) -> dict[str, Any]:
+    """Extract text and create local chunks for a staged document."""
+
+    return await run_process_document(
+        document_id,
+        process_request,
+        request,
+        document_service,
+        settings_resolver,
+    )
+
+
+@router.post("/{document_id}/process/jobs", status_code=status.HTTP_202_ACCEPTED)
+async def start_process_document_job(
+    document_id: str,
+    process_request: ProcessDocumentRequest,
+    request: Request,
+    document_service: Annotated[DocumentService, Depends(get_document_service)],
+    settings_resolver: Annotated[
+        AISettingsResolver,
+        Depends(get_ai_settings_resolver),
+    ],
+    job_service: Annotated[JobService, Depends(get_job_service)],
+) -> dict[str, Any]:
+    """Start local background processing for a staged document."""
+
+    async def runner(job_context: JobContext) -> dict[str, Any]:
+        return await run_process_document(
+            document_id,
+            process_request,
+            request,
+            document_service,
+            settings_resolver,
+            job_context,
+        )
+
+    job = job_service.create(
+        "document.process",
+        runner,
+        target_type="document",
+        target_id=document_id,
+        payload={
+            "conversationId": process_request.conversationId,
+            "conversationSettings": (
+                process_request.conversationSettings.model_dump()
+                if process_request.conversationSettings is not None
+                else None
+            ),
+        },
+        message="Document processing queued.",
+    )
+    return {"job": job.model_dump(mode="json")}
+
+
+@router.post("/{document_id}/index")
+async def index_document(
+    document_id: str,
+    index_request: IndexDocumentRequest,
+    request: Request,
+    document_service: Annotated[DocumentService, Depends(get_document_service)],
+    settings_resolver: Annotated[
+        AISettingsResolver,
+        Depends(get_ai_settings_resolver),
+    ],
+    embedder_provider: Annotated[
+        OllamaEmbedderProvider,
+        Depends(get_embedder_provider),
+    ],
+    vector_store: Annotated[JsonVectorStore, Depends(get_vector_store)],
+) -> dict[str, Any]:
+    """Embed and persist processed chunks for one conversation document."""
+
+    return await run_index_document(
+        document_id,
+        index_request,
+        request,
+        document_service,
+        settings_resolver,
+        embedder_provider,
+        vector_store,
+    )
+
+
+@router.post("/{document_id}/index/jobs", status_code=status.HTTP_202_ACCEPTED)
+async def start_index_document_job(
+    document_id: str,
+    index_request: IndexDocumentRequest,
+    request: Request,
+    document_service: Annotated[DocumentService, Depends(get_document_service)],
+    settings_resolver: Annotated[
+        AISettingsResolver,
+        Depends(get_ai_settings_resolver),
+    ],
+    embedder_provider: Annotated[
+        OllamaEmbedderProvider,
+        Depends(get_embedder_provider),
+    ],
+    vector_store: Annotated[JsonVectorStore, Depends(get_vector_store)],
+    job_service: Annotated[JobService, Depends(get_job_service)],
+) -> dict[str, Any]:
+    """Start local background indexing for a processed document."""
+
+    async def runner(job_context: JobContext) -> dict[str, Any]:
+        return await run_index_document(
+            document_id,
+            index_request,
+            request,
+            document_service,
+            settings_resolver,
+            embedder_provider,
+            vector_store,
+            job_context,
+        )
+
+    job = job_service.create(
+        "document.index",
+        runner,
+        target_type="document",
+        target_id=document_id,
+        payload={
+            "conversationId": index_request.conversationId,
+            "conversationSettings": (
+                index_request.conversationSettings.model_dump()
+                if index_request.conversationSettings is not None
+                else None
+            ),
+        },
+        message="Document indexing queued.",
+    )
+    return {"job": job.model_dump(mode="json")}
 
 
 @router.post("/search")

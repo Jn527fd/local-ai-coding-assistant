@@ -99,6 +99,7 @@ function Composer({
   composerRef,
   documentError = "",
   documentIndexes = [],
+  documentJobProgress = null,
   documentSearchBusy = false,
   documentSearchError = "",
   documentSearchQuery = "",
@@ -280,7 +281,7 @@ function Composer({
           <PlusIcon />
         </button>
         <input
-          accept=".txt,.md,.pdf"
+          accept=".txt,.md,.pdf,.docx,.html,.htm,.csv,.tsv"
           aria-label="Document upload"
           className="composer-file-input"
           disabled={!activeChat || isUploadingDocument}
@@ -393,11 +394,22 @@ function Composer({
           </div>
         )}
 
-        {(documents.length > 0 || documentError || isUploadingDocument) && (
+        {(documents.length > 0 ||
+          documentError ||
+          isUploadingDocument ||
+          documentJobProgress) && (
           <div className="document-tray" aria-live="polite">
             {isUploadingDocument && (
               <span className="document-chip document-chip--working">
                 Processing document...
+              </span>
+            )}
+            {documentJobProgress && (
+              <span className="document-chip document-chip--working">
+                <strong>{documentJobProgress.label}</strong>
+                <small>
+                  {documentJobProgress.progress || 0}% - {documentJobProgress.message}
+                </small>
               </span>
             )}
             {documentError && (

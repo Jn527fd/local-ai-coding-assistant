@@ -244,10 +244,21 @@ Typical document workflow:
 1. Pull a chat model and an embedding model with Ollama.
 2. Save an API key.
 3. Select the active chat's LLM and embedder in Conversation Settings.
-4. Upload a `.txt`, `.md`, or `.pdf` document.
+4. Upload a `.txt`, `.md`, `.pdf`, `.docx`, `.html`, `.htm`, `.csv`, or
+   `.tsv` document.
 5. Process the document.
 6. Build an index.
 7. Search indexed chunks or ask a RAG-enabled chat question.
+
+The UI runs document processing and indexing through small local background
+jobs so it can show progress. The original synchronous document API endpoints
+remain available for scripts and tests.
+
+Document uploads are sniffed before processing so obvious extension/content
+mismatches fail early with clear errors. DOCX, HTML, CSV, and TSV extraction
+uses Python standard-library parsers. Optional OCR tooling is selected through
+the chat settings when available, but missing optional tools do not break the
+default document flow.
 
 Document vectors use local JSON storage under `data/` by default. Chroma is
 available as an optional early adapter when `chromadb` is installed in the

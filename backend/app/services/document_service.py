@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from html.parser import HTMLParser
+import hashlib
+import io
 import importlib
 import json
 from pathlib import Path
 import re
 import uuid
 from typing import Any
+from zipfile import BadZipFile, ZipFile
+import xml.etree.ElementTree as ET
 
 from app.ai.ocr import (
     OCREngineError,
@@ -18,8 +24,20 @@ from app.ai.ocr import (
 from app.ai.execution_context import AIExecutionContext
 from app.schemas.chat import ConversationSettings
 
-ALLOWED_DOCUMENT_EXTENSIONS = {".txt", ".md", ".pdf"}
+ALLOWED_DOCUMENT_EXTENSIONS = {
+    ".txt",
+    ".md",
+    ".pdf",
+    ".docx",
+    ".html",
+    ".htm",
+    ".csv",
+    ".tsv",
+}
 CONVERSATION_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,100}$")
+DOCX_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+)
 
 
 class DocumentServiceError(Exception):
@@ -48,6 +66,14 @@ class ProcessedDocument:
     metadata: dict[str, Any]
     extracted: dict[str, Any] | None
     chunks: list[dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class SniffedDocumentType:
+    extension: str
+    content_type: str
+    confidence: str
+    warnings: list[str]
 
 
 class DocumentService:
@@ -80,58 +106,98 @@ class DocumentService:
         conversation_settings: ConversationSettings | None = None,
     ) -> UploadedDocument:
         safe_conversation_id = self._validate_conversation_id(conversation_id)
-        extension = self._extension_from_filename(original_filename)
-        if extension not in ALLOWED_DOCUMENT_EXTENSIONS:
+        filename_extension = self._extension_from_filename(original_filename)
+        if filename_extension not in ALLOWED_DOCUMENT_EXTENSIONS:
             raise DocumentValidationError(
-                "Only .txt, .md, and .pdf documents are supported."
+                "Only .txt, .md, .pdf, .docx, .html, .csv, and .tsv documents "
+                "are supported."
             )
         if len(content) > self.max_upload_bytes:
             raise DocumentValidationError(
                 "Document is larger than the configured upload limit."
             )
+        sniffed = self._sniff_document_type(
+            filename_extension,
+            content_type,
+            content,
+        )
+        content_hash = hashlib.sha256(content).hexdigest()
+        duplicate = self._find_duplicate(
+            safe_conversation_id,
+            content_hash,
+        )
 
-        document_id = uuid.uuid4().hex
+        document_id = str(duplicate.get("documentId")) if duplicate else uuid.uuid4().hex
         document_directory = self._document_directory(
             safe_conversation_id,
             document_id,
         )
         original_directory = document_directory / "original"
-        stored_filename = f"original{extension}"
+        stored_filename = f"original{sniffed.extension}"
         stored_path = original_directory / stored_filename
 
-        try:
-            original_directory.mkdir(parents=True, exist_ok=False)
-            stored_path.write_bytes(content)
-        except OSError as exc:
-            raise DocumentStorageError(
-                "Could not store uploaded document."
-            ) from exc
+        if not duplicate:
+            try:
+                original_directory.mkdir(parents=True, exist_ok=False)
+                stored_path.write_bytes(content)
+            except OSError as exc:
+                raise DocumentStorageError(
+                    "Could not store uploaded document."
+                ) from exc
 
         created_at = self._now()
+        existing_warnings = (
+            duplicate.get("extractionWarnings", [])
+            if isinstance(duplicate, dict)
+            else []
+        )
         metadata = {
             "documentId": document_id,
             "conversationId": safe_conversation_id,
             "originalFilename": self._display_filename(original_filename),
             "storedFilename": stored_filename,
             "storedPath": self._relative_artifact_path(stored_path),
-            "mimeType": content_type or "application/octet-stream",
+            "mimeType": sniffed.content_type,
             "size": len(content),
-            "extension": extension,
-            "createdAt": created_at,
-            "processedAt": None,
+            "contentHash": content_hash,
+            "extension": sniffed.extension,
+            "detectedType": sniffed.extension.strip("."),
+            "sniffConfidence": sniffed.confidence,
+            "createdAt": duplicate.get("createdAt") if duplicate else created_at,
+            "processedAt": duplicate.get("processedAt") if duplicate else None,
             "selectedSettings": self._settings_dict(conversation_settings),
-            "resolvedParser": None,
-            "resolvedOcrEngine": None,
+            "resolvedParser": duplicate.get("resolvedParser") if duplicate else None,
+            "resolvedOcrEngine": duplicate.get("resolvedOcrEngine") if duplicate else None,
             "selectedChunker": (
                 conversation_settings.chunker
                 if conversation_settings is not None
                 else None
             ),
-            "actualChunker": None,
-            "extractionWarnings": [],
-            "chunkCount": 0,
-            "status": "uploaded",
-            "error": None,
+            "actualChunker": duplicate.get("actualChunker") if duplicate else None,
+            "extractionWarnings": [
+                *(
+                    warning
+                    for warning in existing_warnings
+                    if isinstance(warning, str)
+                ),
+                *sniffed.warnings,
+            ],
+            "chunkCount": duplicate.get("chunkCount", 0) if duplicate else 0,
+            "status": duplicate.get("status", "uploaded") if duplicate else "uploaded",
+            "error": duplicate.get("error") if duplicate else None,
+            "duplicateOf": duplicate.get("documentId") if duplicate else None,
+            "duplicate": duplicate is not None,
+            "extractionDiagnostics": (
+                duplicate.get("extractionDiagnostics", {})
+                if duplicate
+                else {
+                    "detectedType": sniffed.extension.strip("."),
+                    "sniffConfidence": sniffed.confidence,
+                    "mimeType": sniffed.content_type,
+                    "sizeBytes": len(content),
+                    "contentHash": content_hash,
+                }
+            ),
         }
         self._write_json(document_directory / "metadata.json", metadata)
         return UploadedDocument(metadata=metadata)
@@ -164,7 +230,7 @@ class DocumentService:
         extension = str(metadata.get("extension") or original_path.suffix).lower()
 
         try:
-            text, extraction_warnings = self._extract_text(
+            text, extraction_warnings, diagnostics = self._extract_text(
                 file_path=original_path,
                 extension=extension,
                 execution_context=execution_context,
@@ -182,6 +248,7 @@ class DocumentService:
                 "extractedAt": self._now(),
                 "extractor": self._extractor_name(extension, execution_context),
                 "warnings": warnings,
+                "diagnostics": diagnostics,
             }
             chunks, actual_chunker, chunker_warnings = self._chunk_text(
                 text=text,
@@ -212,6 +279,12 @@ class DocumentService:
                     execution_context.conversation_settings.chunker
                 ),
                 "extractionWarnings": warnings,
+                "extractionDiagnostics": {
+                    **metadata.get("extractionDiagnostics", {}),
+                    **(extracted.get("diagnostics", {}) if extracted else {}),
+                    "charLength": len(extracted["text"]) if extracted else 0,
+                    "chunkCount": len(chunks),
+                },
                 "chunkCount": len(chunks),
                 "status": status,
                 "error": error,
@@ -330,27 +403,35 @@ class DocumentService:
         file_path: Path,
         extension: str,
         execution_context: AIExecutionContext,
-    ) -> tuple[str, list[str]]:
+    ) -> tuple[str, list[str], dict[str, Any]]:
         if extension in {".txt", ".md"}:
             return self._extract_plain_text(file_path)
         if extension == ".pdf":
             return self._extract_pdf_text(file_path, execution_context)
+        if extension == ".docx":
+            return self._extract_docx_text(file_path)
+        if extension in {".html", ".htm"}:
+            return self._extract_html_text(file_path)
+        if extension in {".csv", ".tsv"}:
+            return self._extract_delimited_text(file_path, extension)
         raise DocumentValidationError("Unsupported document type.")
 
-    def _extract_plain_text(self, file_path: Path) -> tuple[str, list[str]]:
+    def _extract_plain_text(self, file_path: Path) -> tuple[str, list[str], dict[str, Any]]:
         content = file_path.read_bytes()
         try:
-            return content.decode("utf-8"), []
+            text = content.decode("utf-8")
+            return text, [], self._text_diagnostics(text, "plain-text")
         except UnicodeDecodeError:
-            return content.decode("utf-8", errors="replace"), [
+            text = content.decode("utf-8", errors="replace")
+            return text, [
                 "Document was decoded as UTF-8 with replacement characters.",
-            ]
+            ], self._text_diagnostics(text, "plain-text")
 
     def _extract_pdf_text(
         self,
         file_path: Path,
         execution_context: AIExecutionContext,
-    ) -> tuple[str, list[str]]:
+    ) -> tuple[str, list[str], dict[str, Any]]:
         warnings: list[str] = []
         parser = execution_context.resolved_pdf_parser
         if parser in {"", "none"}:
@@ -383,7 +464,80 @@ class DocumentService:
 
         if not text.strip():
             raise DocumentValidationError("No text could be extracted from the PDF.")
-        return text, warnings
+        return text, warnings, self._text_diagnostics(text, "pdf")
+
+    def _extract_docx_text(self, file_path: Path) -> tuple[str, list[str], dict[str, Any]]:
+        try:
+            with ZipFile(file_path) as archive:
+                try:
+                    xml_bytes = archive.read("word/document.xml")
+                except KeyError as exc:
+                    raise DocumentValidationError(
+                        "DOCX file is missing word/document.xml."
+                    ) from exc
+        except BadZipFile as exc:
+            raise DocumentValidationError("DOCX file is not a valid ZIP container.") from exc
+        try:
+            root = ET.fromstring(xml_bytes)
+        except ET.ParseError as exc:
+            raise DocumentValidationError("DOCX document XML is malformed.") from exc
+        namespace = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+        paragraphs: list[str] = []
+        for paragraph in root.iter(f"{namespace}p"):
+            texts = [
+                node.text or ""
+                for node in paragraph.iter(f"{namespace}t")
+                if node.text
+            ]
+            if texts:
+                paragraphs.append("".join(texts))
+        text = "\n".join(paragraphs)
+        diagnostics = self._text_diagnostics(text, "docx")
+        diagnostics["paragraphCount"] = len(paragraphs)
+        return text, [], diagnostics
+
+    def _extract_html_text(self, file_path: Path) -> tuple[str, list[str], dict[str, Any]]:
+        raw = file_path.read_bytes()
+        try:
+            html = raw.decode("utf-8")
+            warnings: list[str] = []
+        except UnicodeDecodeError:
+            html = raw.decode("utf-8", errors="replace")
+            warnings = ["HTML document was decoded as UTF-8 with replacement characters."]
+        parser = _HTMLTextExtractor()
+        parser.feed(html)
+        text = parser.text()
+        diagnostics = self._text_diagnostics(text, "html")
+        diagnostics["elementCount"] = parser.element_count
+        return text, warnings, diagnostics
+
+    def _extract_delimited_text(
+        self,
+        file_path: Path,
+        extension: str,
+    ) -> tuple[str, list[str], dict[str, Any]]:
+        raw = file_path.read_bytes()
+        try:
+            content = raw.decode("utf-8-sig")
+            warnings: list[str] = []
+        except UnicodeDecodeError:
+            content = raw.decode("utf-8-sig", errors="replace")
+            warnings = ["Delimited document was decoded as UTF-8 with replacement characters."]
+        delimiter = "\t" if extension == ".tsv" else ","
+        try:
+            rows = list(csv.reader(content.splitlines(), delimiter=delimiter))
+        except csv.Error as exc:
+            raise DocumentValidationError(f"Delimited document is malformed: {exc}") from exc
+        lines = [
+            " | ".join(str(cell).strip() for cell in row)
+            for row in rows
+            if any(str(cell).strip() for cell in row)
+        ]
+        text = "\n".join(lines)
+        diagnostics = self._text_diagnostics(text, extension.strip("."))
+        diagnostics["rowCount"] = len(rows)
+        diagnostics["columnCount"] = max((len(row) for row in rows), default=0)
+        return text, warnings, diagnostics
 
     def _extract_with_pymupdf(self, file_path: Path) -> str:
         try:
@@ -641,6 +795,7 @@ class DocumentService:
             "selectedChunker": None,
             "actualChunker": None,
             "extractionWarnings": [warning],
+            "extractionDiagnostics": {},
             "chunkCount": 0,
             "status": "failed",
             "error": warning,
@@ -693,6 +848,92 @@ class DocumentService:
             raise DocumentValidationError("Invalid conversationId.")
         return conversation_id
 
+    def _sniff_document_type(
+        self,
+        extension: str,
+        content_type: str | None,
+        content: bytes,
+    ) -> SniffedDocumentType:
+        warnings: list[str] = []
+        mime_type = content_type or "application/octet-stream"
+        normalized_mime = mime_type.split(";", maxsplit=1)[0].strip().lower()
+        signature_extension = self._signature_extension(content)
+        text_like = self._looks_like_text(content)
+
+        if extension == ".pdf" and signature_extension != ".pdf":
+            raise DocumentValidationError("PDF upload is malformed or has the wrong file type.")
+        if extension == ".docx" and signature_extension != ".docx":
+            raise DocumentValidationError("DOCX upload is malformed or has the wrong file type.")
+        if extension in {".txt", ".md", ".html", ".htm", ".csv", ".tsv"} and not text_like:
+            raise DocumentValidationError(
+                "Text-like document upload is malformed or has the wrong file type."
+            )
+        if signature_extension in {".pdf", ".docx"} and signature_extension != extension:
+            raise DocumentValidationError(
+                "Uploaded file content does not match the filename extension."
+            )
+
+        expected_mimes = {
+            ".txt": {"text/plain", "application/octet-stream"},
+            ".md": {"text/markdown", "text/plain", "application/octet-stream"},
+            ".pdf": {"application/pdf", "application/octet-stream"},
+            ".docx": {DOCX_CONTENT_TYPE, "application/octet-stream"},
+            ".html": {"text/html", "application/xhtml+xml", "text/plain", "application/octet-stream"},
+            ".htm": {"text/html", "application/xhtml+xml", "text/plain", "application/octet-stream"},
+            ".csv": {"text/csv", "application/csv", "text/plain", "application/octet-stream"},
+            ".tsv": {"text/tab-separated-values", "text/plain", "application/octet-stream"},
+        }
+        if normalized_mime and normalized_mime not in expected_mimes.get(extension, set()):
+            warnings.append(
+                f"Upload MIME type '{normalized_mime}' did not match extension '{extension}'."
+            )
+
+        return SniffedDocumentType(
+            extension=extension,
+            content_type=normalized_mime or "application/octet-stream",
+            confidence="signature" if signature_extension else "text",
+            warnings=warnings,
+        )
+
+    @staticmethod
+    def _signature_extension(content: bytes) -> str | None:
+        if content.startswith(b"%PDF-"):
+            return ".pdf"
+        if content.startswith(b"PK\x03\x04"):
+            try:
+                with ZipFile(io.BytesIO(content)) as archive:
+                    names = set(archive.namelist())
+            except BadZipFile:
+                return ".zip"
+            if "word/document.xml" in names:
+                return ".docx"
+            return ".zip"
+        return None
+
+    @staticmethod
+    def _looks_like_text(content: bytes) -> bool:
+        return b"\x00" not in content[:4096]
+
+    def _find_duplicate(
+        self,
+        conversation_id: str,
+        content_hash: str,
+    ) -> dict[str, Any] | None:
+        conversation_directory = self._conversation_directory(conversation_id)
+        if not conversation_directory.exists():
+            return None
+        for document_directory in sorted(conversation_directory.iterdir()):
+            if not document_directory.is_dir():
+                continue
+            metadata = self._read_metadata(
+                conversation_id,
+                document_directory.name,
+                document_directory,
+            )
+            if metadata.get("contentHash") == content_hash:
+                return metadata
+        return None
+
     def _extension_from_filename(self, filename: str) -> str:
         name = self._display_filename(filename)
         return Path(name).suffix.lower()
@@ -726,7 +967,25 @@ class DocumentService:
             return "plain-text"
         if extension == ".pdf":
             return execution_context.resolved_pdf_parser
+        if extension == ".docx":
+            return "docx-zip-xml"
+        if extension in {".html", ".htm"}:
+            return "html-parser"
+        if extension in {".csv", ".tsv"}:
+            return "csv"
         return "unknown"
+
+    @staticmethod
+    def _text_diagnostics(text: str, extractor: str) -> dict[str, Any]:
+        lines = text.splitlines()
+        non_empty_lines = [line for line in lines if line.strip()]
+        return {
+            "extractor": extractor,
+            "charLength": len(text),
+            "lineCount": len(lines),
+            "nonEmptyLineCount": len(non_empty_lines),
+            "wordEstimate": len(re.findall(r"\S+", text)),
+        }
 
     def _read_json(self, path: Path) -> Any:
         try:
@@ -761,3 +1020,66 @@ class DocumentService:
     @staticmethod
     def _now() -> str:
         return datetime.now(timezone.utc).isoformat()
+
+
+class _HTMLTextExtractor(HTMLParser):
+    """Small stdlib HTML-to-text extractor for trusted local documents."""
+
+    BLOCK_TAGS = {
+        "address",
+        "article",
+        "aside",
+        "blockquote",
+        "br",
+        "div",
+        "footer",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "header",
+        "li",
+        "main",
+        "p",
+        "section",
+        "table",
+        "tr",
+    }
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self.element_count = 0
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.element_count += 1
+        if tag in {"script", "style"}:
+            self._skip_depth += 1
+            return
+        if tag in self.BLOCK_TAGS:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in {"script", "style"} and self._skip_depth > 0:
+            self._skip_depth -= 1
+            return
+        if tag in self.BLOCK_TAGS:
+            self.parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if self._skip_depth:
+            return
+        cleaned = re.sub(r"\s+", " ", data).strip()
+        if cleaned:
+            self.parts.append(cleaned)
+
+    def text(self) -> str:
+        joined = " ".join(self.parts)
+        lines = [
+            re.sub(r"\s+", " ", line).strip()
+            for line in joined.splitlines()
+        ]
+        return "\n".join(line for line in lines if line)

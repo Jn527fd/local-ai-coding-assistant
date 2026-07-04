@@ -1,7 +1,7 @@
 import React from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { delay, http, HttpResponse } from "msw";
+import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 
 import App from "../App.jsx";
@@ -59,47 +59,6 @@ describe("main app integration", () => {
   });
 
   it("sends a chat message and shows a streaming state before the answer", async () => {
-    server.use(
-      http.post(`${API_BASE_URL}/chat`, async ({ request }) => {
-        const body = await request.json();
-        await delay(220);
-        return HttpResponse.json({
-          model: "qwen3:4b",
-          answer: `Fake streaming answer: ${body.message}`,
-          ragUsed: true,
-          rerankingUsed: true,
-          rerankerModel: "bge-reranker:latest",
-          ragWarnings: ["Document context skipped one stale index."],
-          rerankWarnings: ["Reranker skipped one low-confidence score."],
-          compressionUsed: true,
-          compressorMode: "token",
-          compressionWarnings: ["Token compression trimmed 2 older history messages."],
-          compressionStats: {
-            originalCharEstimate: 18000,
-            compressedCharEstimate: 9000,
-            originalTokenEstimate: 4500,
-            compressedTokenEstimate: 2250,
-            messagesTrimmed: 2,
-            contextTrimmed: 0,
-            summaryGenerated: false,
-          },
-          sources: [
-            {
-              sourceNumber: 1,
-              documentId: "doc-1",
-              documentName: "notes.txt",
-              chunkId: "chunk-1",
-              chunkIndex: 0,
-              score: 0.91,
-              vectorScore: 0.51,
-              rerankScore: 0.91,
-              finalRank: 1,
-              textPreview: "The FastAPI app is created in backend/app/main.py.",
-            },
-          ],
-        });
-      }),
-    );
     const user = userEvent.setup();
     await renderAuthenticatedApp();
 
@@ -111,7 +70,9 @@ describe("main app integration", () => {
     await user.keyboard("{Control>}{Enter}{/Control}");
 
     expect(await screen.findByLabelText(/assistant is responding/i)).toBeInTheDocument();
-    expect(await screen.findByText(/Fake streaming answer/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Fake streaming answer/, {}, { timeout: 6000 }),
+    ).toBeInTheDocument();
     expect(screen.getByText(/used reranked document context/i)).toBeInTheDocument();
     expect(screen.getByText(/context compressed/i)).toBeInTheDocument();
     expect(screen.getByText(/stale index/i)).toBeInTheDocument();

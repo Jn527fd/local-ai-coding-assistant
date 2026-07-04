@@ -395,6 +395,22 @@ export function processDocument(
   });
 }
 
+export function startProcessDocumentJob(
+  apiKey,
+  documentId,
+  conversationId,
+  conversationSettings = null,
+) {
+  return request(`/documents/${encodeURIComponent(documentId)}/process/jobs`, {
+    method: "POST",
+    apiKey,
+    body: {
+      conversationId,
+      conversationSettings,
+    },
+  });
+}
+
 export function listDocuments(apiKey, conversationId) {
   const params = new URLSearchParams({ conversationId });
   return request(`/documents?${params.toString()}`, { apiKey });
@@ -429,6 +445,33 @@ export function indexDocument(
       conversationId,
       conversationSettings,
     },
+  });
+}
+
+export function startIndexDocumentJob(
+  apiKey,
+  documentId,
+  conversationId,
+  conversationSettings = null,
+) {
+  return request(`/documents/${encodeURIComponent(documentId)}/index/jobs`, {
+    method: "POST",
+    apiKey,
+    body: {
+      conversationId,
+      conversationSettings,
+    },
+  });
+}
+
+export function getJob(apiKey, jobId) {
+  return request(`/jobs/${encodeURIComponent(jobId)}`, { apiKey });
+}
+
+export function cancelJob(apiKey, jobId) {
+  return request(`/jobs/${encodeURIComponent(jobId)}/cancel`, {
+    method: "POST",
+    apiKey,
   });
 }
 

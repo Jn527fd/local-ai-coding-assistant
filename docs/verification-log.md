@@ -1021,3 +1021,316 @@ does not call Ollama by default. Tests seed a temporary JSON vector store from
 - [x] Docker backend test service passes
 - [x] Documentation and changelog are updated
 - [x] Phase 8 was not started
+
+## Roadmap v2 Phase 8 Unified Repository Intelligence
+
+Date: 2026-07-04
+
+Scope:
+
+- Preserve legacy `/repos/index-local` and `/repos/ask` keyword repository RAG.
+- Add repository file fingerprints and stale-index warnings.
+- Add configured local repository root validation.
+- Add opt-in repository vector indexing and vector search endpoints.
+- Store repository vector collections separately from document vector
+  collections.
+- Do not add Git clone/update automation, language-aware parsing, Tree-sitter,
+  or Phase 9 work.
+
+### Repository Intelligence Design
+
+Legacy repository indexes remain JSON files under `data/indexes/` and now
+include file metadata plus a deterministic fingerprint. Repository vector
+indexing reuses the existing settings resolver, embedder provider, and active
+vector store, but writes `sourceType=repository` collections with `repo-*`
+collection ids so document search and document RAG remain isolated.
+
+### Environment Notes
+
+- Host shell: Windows PowerShell.
+- Backend test runtime: Python 3.12.13 from `.venv`.
+- Docker verification was run after approving Docker Compose access outside the
+  workspace sandbox.
+- Frontend checks were not run because Phase 8 did not change frontend files.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `.venv\Scripts\python.exe -m pytest tests\test_repositories.py` | Passed | 5 passed. Covered legacy repo RAG, stale warnings, vector opt-in/search, document search isolation, and root validation. |
+| `.venv\Scripts\python.exe -m pytest tests\test_vector_indexes.py tests\test_chat.py` | Passed | 42 passed. Nearby vector/document RAG regressions remained green. |
+| `.venv\Scripts\python.exe -m pytest tests\test_repositories.py tests\test_vector_indexes.py tests\test_chat.py` | Passed | 47 passed after docs/config updates. |
+| `.venv\Scripts\python.exe -m pytest` | Passed | 144 passed, 7 skipped. Optional OCRmyPDF, live Ollama, Ollama smoke, and local Chroma tests skipped. |
+| `.venv\Scripts\python.exe -m compileall backend\app tests\test_repositories.py` | Passed | Backend app and new repository tests compiled successfully. |
+| `.venv\Scripts\python.exe -m pip check` | Passed | No broken requirements found. |
+| `git diff --check` | Passed | No whitespace errors; Git reported expected LF-to-CRLF warnings on Windows. |
+| `docker compose -f docker-compose.test.yml build backend-test` | Failed, then passed | Sandboxed run could not read Docker config; approved outside-sandbox build succeeded. |
+| `docker compose -f docker-compose.test.yml run --rm backend-test` | Passed | Docker backend passed with 145 passed, 6 skipped. Live Ollama skipped; repository metadata check skipped because `.git` is not available in the container context. |
+| `docker compose -f docker-compose.test.yml down --remove-orphans` | Passed | Removed the temporary Docker test network. |
+
+### Phase 8 Verification Checklist
+
+- [x] Legacy keyword repository RAG still works
+- [x] Vector repository indexing is opt-in
+- [x] Repository paths stay inside configured allowed roots
+- [x] Freshness warnings are clear and tested
+- [x] Repository vector collections do not leak into document search/RAG
+- [x] Targeted repo/vector/chat tests pass
+- [x] Existing backend suite passes
+- [x] Docker backend test service passes
+- [x] Documentation and changelog are updated
+- [x] Phase 9 was not started
+
+## Roadmap v2 Phase 9 Language-Aware Code Parsing
+
+Date: 2026-07-04
+
+Scope:
+
+- Add lightweight language-aware repository chunking without heavy parser
+  dependencies.
+- Preserve existing repository index readability by keeping legacy chunk fields
+  and treating metadata as optional.
+- Add symbol metadata for practical Python, JS/TS, Markdown, JSON/YAML, HTML,
+  and CSS fixtures.
+- Fall back to line-based chunks when parsing fails or no symbols are found.
+- Surface symbol context in repository prompt citations and repository vector
+  search metadata.
+- Do not start Phase 10 frontend architecture work.
+
+### Parser Design
+
+Python uses the standard-library `ast` module for top-level classes and
+functions. JS/TS, Markdown, YAML, HTML, and CSS use conservative regex
+heuristics. JSON uses the standard-library `json` module for top-level object
+keys. All parser paths fall back to existing line-aware chunking, and repository
+chunks still include `content`, `file_path`, `start_line`, and `end_line`.
+
+### Environment Notes
+
+- Host shell: Windows PowerShell.
+- Backend test runtime: Python 3.12.13 from `.venv`.
+- No frontend files changed, so frontend lint/tests/build were not run.
+- Docker verification was run after approving Docker Compose access outside the
+  workspace sandbox.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `.venv\Scripts\python.exe -m pytest tests\test_repository_parsing.py tests\test_repositories.py` | Failed, then passed | First run exposed an indexer indentation typo and a Markdown heading metadata bug; after fixes, 10 passed. |
+| `.venv\Scripts\python.exe -m pytest tests\test_repository_parsing.py tests\test_repositories.py tests\test_vector_indexes.py tests\test_chat.py` | Passed | 52 passed. Covered parser fixtures, repo API, vector search, and chat regressions. |
+| `.venv\Scripts\python.exe -m pytest` | Passed | 149 passed, 7 skipped. Optional OCRmyPDF, live Ollama, Ollama smoke, and local Chroma tests skipped. |
+| `.venv\Scripts\python.exe -m compileall backend\app tests\test_repository_parsing.py tests\test_repositories.py` | Passed | Backend app and repository parser/API tests compiled successfully. |
+| `.venv\Scripts\python.exe -m pip check` | Passed | No broken requirements found. |
+| `git diff --check` | Passed | No whitespace errors; Git reported expected LF-to-CRLF warnings on Windows. |
+| `docker compose -f docker-compose.test.yml build backend-test` | Failed, then passed | Sandboxed run could not read Docker config; approved outside-sandbox build succeeded. |
+| `docker compose -f docker-compose.test.yml run --rm backend-test` | Passed | Docker backend passed with 150 passed, 6 skipped. Live Ollama skipped; repository metadata check skipped because `.git` is not available in the container context. |
+| `docker compose -f docker-compose.test.yml down --remove-orphans` | Passed | Removed the temporary Docker test network. |
+
+### Phase 9 Verification Checklist
+
+- [x] Parser failures fall back safely
+- [x] Line ranges remain accurate in parser fixtures
+- [x] Existing version-1 repository indexes remain retrievable
+- [x] Source citations show useful symbol context
+- [x] Repository vector search returns language and symbol metadata
+- [x] Targeted parser/repo/vector/chat tests pass
+- [x] Existing backend suite passes
+- [x] Docker backend test service passes
+- [x] Documentation and changelog are updated
+- [x] Phase 10 was not started
+
+## Roadmap v2 Phase 10 Frontend State and Component Architecture
+
+Date: 2026-07-04
+
+Scope:
+
+- Extract chat send/stream logic from `App.jsx` into `useChatSender`.
+- Extract document upload/process/index/search workflow state into
+  `useDocumentWorkflow`.
+- Extract API key localStorage ownership into `useStoredApiKey`.
+- Keep visual components and UI behavior unchanged.
+- Preserve browser-local conversation fallback, backend migration behavior,
+  document ingestion/job progress, RAG indicators, and settings flows.
+- Do not start Phase 11 accessibility/mobile/UX polish work.
+
+### Frontend State Boundaries
+
+`App.jsx` remains the application shell for authentication restoration, chat
+list lifecycle, conversation persistence mode, navigation/dialog state, and
+toasts. Workflow hooks now own focused state:
+
+- `useChatSender`: optimistic user/assistant message creation, SSE token
+  updates, response metadata mapping, and send errors.
+- `useDocumentWorkflow`: document cache, index cache, upload/process/index job
+  polling, retrieval-only search, warnings, and document errors.
+- `useStoredApiKey`: API key localStorage read/write boundary.
+
+### Environment Notes
+
+- Host shell: Windows PowerShell.
+- Frontend local `npm` was not available on PATH, so commands used the bundled
+  Node runtime path and local project binaries.
+- Initial sandboxed Vitest run could not load the config because esbuild tried
+  to read restricted paths; the approved outside-sandbox run succeeded.
+- Backend files were not changed during Phase 10, so backend tests were not
+  rerun for this phase.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `npm run test:run -- src/hooks/useStoredApiKey.test.js src/hooks/useChatSender.test.js src/hooks/useDocumentWorkflow.test.js src/__tests__/app.integration.test.jsx` from `frontend/` | Blocked | Global `npm` was not available in this shell. |
+| `.\\node_modules\\.bin\\vitest.cmd run src/hooks/useStoredApiKey.test.js src/hooks/useChatSender.test.js src/hooks/useDocumentWorkflow.test.js src/__tests__/app.integration.test.jsx` from `frontend/` with bundled Node on PATH | Failed, then passed | Sandboxed run could not load Vitest config; approved run passed with 4 files and 17 tests. |
+| `node scripts\lint-check.mjs` from `frontend/` with bundled Node on PATH | Passed | Lint guard passed for 45 frontend files. |
+| `.\\node_modules\\.bin\\vitest.cmd run` from `frontend/` with bundled Node on PATH | Passed | 11 files and 62 tests passed. |
+| `.\\node_modules\\.bin\\vite.cmd build` from `frontend/` with bundled Node on PATH | Passed | Production build succeeded. |
+| `docker compose -f docker-compose.test.yml build frontend-test` | Failed, then passed | Sandboxed run could not read Docker config; approved outside-sandbox build succeeded. |
+| `docker compose -f docker-compose.test.yml run --rm frontend-test` | Passed | Docker frontend lint, Vitest, and production build passed; 62 Vitest tests passed. React act warnings appeared in existing accessibility tests but did not fail the suite. |
+| `docker compose -f docker-compose.test.yml down --remove-orphans` | Passed | Removed the temporary Docker test network. |
+
+### Phase 10 Verification Checklist
+
+- [x] No UI redesign was introduced
+- [x] Chat send/stream behavior is covered by focused hook tests
+- [x] Document workflow behavior is covered by focused hook tests
+- [x] API key storage boundary is covered by focused hook tests
+- [x] Existing app integration tests pass
+- [x] Conversation localStorage/backend migration behavior remains covered
+- [x] Frontend lint, full Vitest, and production build pass
+- [x] Docker frontend test service passes
+- [x] Documentation and changelog are updated
+- [x] Phase 11 was not started
+
+## Roadmap v2 Phase 11 Accessibility, Mobile, and UX Polish
+
+Date: 2026-07-04
+
+Scope:
+
+- Improve keyboard and screen-reader affordances for composer status, document
+  job progress, document search warnings/errors, source citations, settings
+  drawer focus, shared modal focus, and assistant streaming/warning states.
+- Improve narrow-screen wrapping for composer document chips, document search
+  controls/results, and source citation chips.
+- Preserve existing chat, RAG, repository, document, settings, persistence, and
+  job behavior.
+- Do not start Phase 12 security hardening work.
+
+### Frontend Accessibility and Mobile Notes
+
+The composer now exposes a polite status region for sending, document
+processing, document search, and warning states. Document jobs expose progress
+semantics. Source citations are grouped as a list while preserving each source
+as a button. The settings drawer focuses its close control when opened, and the
+shared modal primitive focuses the first actionable control. Mobile CSS wraps
+long document and source text rather than clipping or overflowing it.
+
+### Environment Notes
+
+- Host shell: Windows PowerShell.
+- Frontend local `npm` was not used; commands used the bundled Node runtime
+  path and local project binaries.
+- Initial sandboxed Vitest run could not load the Vite/Vitest config because
+  esbuild tried to read a restricted parent directory; approved outside-sandbox
+  reruns succeeded.
+- Backend files were not changed during Phase 11, so backend tests were not
+  rerun for this phase.
+- Docker was available and the frontend test service passed.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `.\\node_modules\\.bin\\vitest.cmd run src\\components\\__tests__\\workspace-components.test.jsx src\\__tests__\\accessibility.a11y.test.jsx` from `frontend/` with bundled Node on PATH | Failed, then passed | Sandboxed run could not load the config. First approved run exposed a missing progressbar implementation on document job progress; after the fix, 2 files and 15 tests passed. |
+| `node scripts\\lint-check.mjs` from `frontend/` with bundled Node on PATH | Passed | Lint guard passed for 45 frontend files. |
+| `.\\node_modules\\.bin\\vitest.cmd run` from `frontend/` with bundled Node on PATH | Passed | 11 files and 63 tests passed. |
+| `.\\node_modules\\.bin\\vite.cmd build` from `frontend/` with bundled Node on PATH | Passed | Production build succeeded. |
+| `docker compose -f docker-compose.test.yml build frontend-test` | Passed | Rebuilt the frontend test image. |
+| `docker compose -f docker-compose.test.yml run --rm frontend-test` | Passed | Docker frontend lint, Vitest, and production build passed; 11 Vitest files and 63 tests passed. |
+| `docker compose -f docker-compose.test.yml down --remove-orphans` | Passed | Removed the temporary Docker test network. |
+
+### Phase 11 Verification Checklist
+
+- [x] Keyboard focus improvements are covered for shared modals and settings
+      drawer opening.
+- [x] Composer/document progress status semantics are covered by component
+      tests.
+- [x] Source citation list/button semantics are covered by component tests.
+- [x] Existing axe accessibility smoke coverage passes.
+- [x] Frontend lint, full Vitest, and production build pass.
+- [x] Docker frontend test service passes.
+- [x] Documentation and changelog are updated.
+- [x] Phase 12 was not started.
+
+## Roadmap v2 Phase 12 Security Hardening v2
+
+Date: 2026-07-04
+
+Scope:
+
+- Add CSRF protection for unsafe session-cookie routes.
+- Add optional signed session cookies through `SESSION_SIGNING_KEY`.
+- Add in-memory login rate limiting and lockout behavior.
+- Add backend security response headers.
+- Add redacted audit logging for auth and API-key changes.
+- Add API-key rotation UX in Settings while preserving explicit save behavior.
+- Preserve local development defaults and trusted-network limitations.
+- Do not start Phase 13 diagnostics/observability work.
+
+### Security Design Notes
+
+Session routes still use the local credentials file and browser cookies. By
+default, sessions remain in-memory for simple local development. When
+`SESSION_SIGNING_KEY` is configured, session cookies are HMAC-signed and can be
+validated after backend restart until they expire. Unsafe cookie-authenticated
+requests require the readable CSRF cookie to match the `X-CSRF-Token` header.
+Bearer-key AI/data routes remain bearer-protected and do not use the browser
+session cookie.
+
+Login rate limiting is in-memory by username and client address. Audit logs are
+written through `app.audit` and include event, username, client, success state,
+and reason where useful; passwords and API-key values are not logged.
+
+### Environment Notes
+
+- Host shell: Windows PowerShell.
+- Backend test runtime: Python 3.12.13 from `.venv`.
+- Frontend local `npm` was not used; commands used the bundled Node runtime
+  path and local project binaries.
+- Sandboxed Vitest could not load Vite/Vitest config because esbuild tried to
+  read a restricted parent directory. An escalation request to rerun Vitest was
+  rejected by the environment usage-limit guard, so frontend Vitest was not
+  completed in this phase.
+- Docker Compose could not read `C:\Users\naran\.docker\config.json` inside the
+  sandbox. Escalation was not available due the same usage-limit guard, so
+  Docker verification was blocked.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `.venv\\Scripts\\python.exe -m pytest tests\\test_login.py tests\\test_account.py tests\\test_browser_session_flow.py tests\\test_auth.py` | Passed | 13 passed. Covered login cookies, CSRF, rate limiting, signed sessions, security headers, and audit redaction. |
+| `.venv\\Scripts\\python.exe -m pytest` | Passed | Final run passed with 155 passed and 7 skipped. Optional OCRmyPDF, live Ollama, Ollama smoke, and local Chroma tests skipped. |
+| `.\\node_modules\\.bin\\vitest.cmd run src\\api.test.js src\\components\\AccountPanel.conversation-settings.test.jsx` from `frontend/` with bundled Node on PATH | Blocked | Sandboxed run failed to load config due restricted parent-directory access. Escalated rerun was rejected by the environment usage-limit guard. |
+| `node scripts\\lint-check.mjs` from `frontend/` with bundled Node on PATH | Passed | Lint guard passed for 45 frontend files. |
+| `.\\node_modules\\.bin\\vite.cmd build` from `frontend/` with bundled Node on PATH | Passed | Production build succeeded. |
+| `.venv\\Scripts\\python.exe -m compileall backend\\app\\auth backend\\app\\routers tests\\test_login.py tests\\test_account.py` | Passed | Auth/session/router code and targeted tests compiled successfully. |
+| `.venv\\Scripts\\python.exe -m compileall backend\\app tests\\test_login.py tests\\test_account.py` | Passed | Backend app and targeted security tests compiled successfully. |
+| `git diff --check` | Passed | No whitespace errors; Git reported expected LF-to-CRLF warnings on Windows. |
+| `docker compose -f docker-compose.test.yml build backend-test frontend-test` | Blocked | Docker config access was denied in the sandbox: `C:\Users\naran\.docker\config.json: Access is denied.` Escalation was unavailable due the usage-limit guard. |
+
+### Phase 12 Verification Checklist
+
+- [x] Auth routes remain usable locally.
+- [x] Unsafe session-cookie routes require CSRF tokens.
+- [x] Optional signed sessions are covered by regression tests.
+- [x] Login rate limiting is covered by regression tests.
+- [x] Security headers are covered by regression tests.
+- [x] Audit logs avoid passwords and API-key values.
+- [x] Backend targeted and full test suites pass.
+- [x] Frontend lint and production build pass.
+- [x] Security controls and limitations are documented.
+- [x] Phase 13 was not started.

@@ -488,6 +488,24 @@ Ignored directories:
 ```
 
 Legacy repository indexes are stored as readable JSON under `data/indexes/`.
+Repository indexes include a local file fingerprint; repository answers and
+vector searches warn when the source files have changed since the last index.
+Local repository paths must be inside configured roots. By default, the backend
+allows the project root, the configured data directory, and `/repositories` for
+Docker mounts. Set `REPOSITORY_ALLOWED_ROOTS` to a comma-separated list for
+other trusted local folders.
+
+Repository vector indexing is available as an explicit opt-in through
+`/repos/index-local/vector` and `/repos/search-vector`. It reuses the selected
+embedder and vector backend, stores collections separately from document
+collections, and does not change legacy `/repos/index-local` or `/repos/ask`
+keyword behavior.
+
+Repository chunks use lightweight language-aware parsing for Python, JS/TS,
+Markdown, JSON/YAML, HTML, and CSS. Source citations and vector metadata can
+include language, symbol kind, and symbol name. If a parser cannot understand a
+file, indexing falls back to safe line-based chunks.
+
 Document vectors use local JSON-backed storage by default, with an optional
 Chroma adapter available when `chromadb` is installed and
 `VECTOR_STORE_BACKEND=chroma` is set. Vector backend health and fallback

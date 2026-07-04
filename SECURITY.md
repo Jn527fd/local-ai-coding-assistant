@@ -25,6 +25,13 @@ daemon directly to the public internet. Use a reverse proxy with HTTPS and
 additional access controls before accessing the app across an untrusted
 network.
 
+Current local controls include HttpOnly SameSite session cookies, CSRF checks
+for unsafe cookie-authenticated requests, optional persistent session signing,
+in-memory login rate limiting, security response headers, redacted audit logs
+for auth/settings changes, and Bearer-key protection for AI/data endpoints.
+These controls improve trusted-network safety but do not make the app a public
+multi-tenant service.
+
 ## Sensitive Data
 
 The following files and directories can contain private data and must remain

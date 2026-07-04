@@ -227,6 +227,18 @@ describe("AccountPanel conversation settings", () => {
     ).toBeInTheDocument();
   });
 
+  it("generates a replacement local api key before saving", async () => {
+    const user = userEvent.setup();
+    renderAccountPanel();
+
+    await user.click(screen.getByRole("button", { name: /rotate key/i }));
+
+    const apiKeyInput = screen.getByLabelText(/local api key/i);
+    expect(apiKeyInput).toHaveAttribute("type", "text");
+    expect(apiKeyInput.value).toMatch(/^local-/);
+    expect(apiKeyInput.value).not.toBe("test-key");
+  });
+
   it("lets users opt into backend conversation persistence", async () => {
     const user = userEvent.setup();
     const onEnableBackendPersistence = vi.fn();

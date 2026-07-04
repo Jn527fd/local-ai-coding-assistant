@@ -24,6 +24,20 @@ automation is added.
 - Deterministic retrieval quality evaluation harness with a non-sensitive
   fixture corpus, expected source fixtures, recall/rank/source metadata
   metrics, and warning-behavior coverage.
+- Opt-in repository vector indexing/search, repository index freshness
+  warnings, repository vector collection metadata, and configured local
+  repository root validation while preserving legacy keyword repository RAG.
+- Lightweight language-aware repository chunking for Python, JS/TS, Markdown,
+  JSON/YAML, HTML, and CSS with symbol metadata and safe line-based fallback.
+- Frontend workflow hooks for chat streaming, document operations, API key
+  storage, and focused hook tests while preserving existing UI behavior.
+- Accessibility and mobile polish for composer status announcements, document
+  job progress, source citations, settings drawer focus, shared dialog focus,
+  and narrow-screen document/source layouts.
+- Security hardening for trusted-network deployments, including CSRF checks for
+  unsafe session-cookie requests, optional signed session cookies, login
+  rate-limiting, backend security headers, redacted audit logs, and API-key
+  rotation UX.
 
 ### Release Candidate Checklist
 

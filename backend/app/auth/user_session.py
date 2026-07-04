@@ -1,3 +1,5 @@
+import hmac
+
 from fastapi import HTTPException, Request, status
 
 from app.auth.session import SessionService
@@ -20,4 +22,20 @@ def require_user_session(
             detail="Login required.",
         )
 
+    _require_csrf_token(request, settings)
     return username
+
+
+def _require_csrf_token(request: Request, settings: Settings) -> None:
+    if request.method.upper() in {"GET", "HEAD", "OPTIONS"}:
+        return
+
+    csrf_cookie = request.cookies.get(settings.csrf_cookie_name)
+    csrf_header = request.headers.get(settings.csrf_header_name)
+    if csrf_cookie and csrf_header and hmac.compare_digest(csrf_cookie, csrf_header):
+        return
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="CSRF token missing or invalid.",
+    )

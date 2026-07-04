@@ -77,6 +77,9 @@ def logged_in_client(client: TestClient) -> TestClient:
         json={"username": TEST_USERNAME, "password": TEST_PASSWORD},
     )
     assert response.status_code == 200
+    csrf_token = client.cookies.get("local_ai_csrf")
+    assert csrf_token
+    client.headers.update({"X-CSRF-Token": csrf_token})
     return client
 
 

@@ -49,12 +49,17 @@ The frontend is a React single-page application built by Vite.
 
 ```text
 frontend/src/
-|-- App.jsx                 # Main state container
+|-- App.jsx                 # Application shell and workflow orchestration
 |-- api.js                  # Fetch helpers and error handling
 |-- apiBase.js              # Runtime API base URL resolution
 |-- chatState.js            # Browser-local chat/settings fallback state
 |-- main.jsx
 |-- styles.css
+|-- hooks/
+|   |-- useCapabilities.js
+|   |-- useChatSender.js
+|   |-- useDocumentWorkflow.js
+|   `-- useStoredApiKey.js
 `-- components/
     |-- AccountPanel.jsx    # API key, capabilities, per-chat settings
     |-- Conversation.jsx
@@ -64,10 +69,26 @@ frontend/src/
     `-- ...
 ```
 
-`App.jsx` currently owns most application state: authentication, API key,
-capabilities, chats, active chat settings, document lists, indexes, search
-results, chat sending, dialogs, and toasts. This is functional but large; a
-future roadmap phase should extract focused hooks.
+`App.jsx` owns shell-level orchestration: authentication session restoration,
+chat list lifecycle, conversation persistence mode, account panel visibility,
+navigation/dialog state, and toasts. Focused hooks own workflow state:
+
+- `useCapabilities` owns component capability loading and refresh status.
+- `useStoredApiKey` owns API key localStorage reads/writes.
+- `useChatSender` owns optimistic chat send/stream state and assistant
+  response metadata mapping.
+- `useDocumentWorkflow` owns document lists, indexes, upload/process/index job
+  progress, retrieval-only search, warnings, and document errors.
+
+This keeps visual components mostly prop-driven while preserving existing
+browser-local and backend conversation persistence behavior.
+
+Accessibility conventions are handled in the component layer. Long-running
+frontend states use polite status regions, failures use alert regions where
+appropriate, source citations remain keyboard-addressable buttons grouped as a
+source list, and shared dialogs focus their first actionable control when
+opened. Mobile layout rules favor wrapping long filenames, source labels, and
+document search controls instead of clipping them.
 
 Conversation storage behavior:
 
@@ -185,8 +206,21 @@ fallback behavior is preserved.
 ## Authentication
 
 The browser login flow verifies salted PBKDF2 hashes from the ignored
-credentials file and creates a random, in-memory session. The session token is
-sent in an HttpOnly SameSite=Lax cookie.
+credentials file and creates a random session. By default sessions are
+in-memory and end when the backend restarts. Operators can set
+`SESSION_SIGNING_KEY` to sign session cookies so they remain valid across a
+backend restart. The session token is sent in an HttpOnly SameSite=Lax cookie.
+
+Unsafe session-cookie requests require a matching CSRF header and readable CSRF
+cookie. The React API helper mirrors the `local_ai_csrf` cookie into
+`X-CSRF-Token` for POST, PUT, PATCH, and DELETE requests. Login attempts are
+rate-limited in memory by username and client address. Auth and settings
+changes emit redacted audit log events that include action, username, client,
+and success/failure without passwords or API-key values.
+
+The backend adds conservative response headers on all routes:
+`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, and
+`Permissions-Policy`.
 
 Session-protected endpoints:
 
@@ -422,18 +456,39 @@ Repository indexing remains available through `/repos/index-local` and
 POST /repos/index-local
   -> validate directory
   -> recursively discover supported source files
-  -> split text into line-aware chunks
+  -> split text into language-aware symbol chunks when practical
+  -> fall back to line-aware chunks when parsing fails
+  -> record file fingerprints for freshness checks
   -> write data/indexes/<safe-name>.json
 
 POST /repos/ask
   -> load repository JSON index
+  -> compare freshness metadata with current files
   -> keyword score chunks
   -> build guarded prompt
   -> generate with Ollama
+
+POST /repos/index-local/vector
+  -> run the same local repository indexer
+  -> resolve the selected embedder/vector backend
+  -> embed repository chunks into a sourceType=repository collection
+
+POST /repos/search-vector
+  -> search only sourceType=repository vector collections
+  -> return file path, line range, score, and freshness warnings
 ```
 
-This path uses keyword overlap, not embeddings. It is intentionally preserved
-while document RAG evolves separately.
+The legacy ask path still uses keyword overlap, not embeddings. Repository
+vector indexing is explicit opt-in and stores separate collections so existing
+document search/RAG does not start returning code chunks accidentally.
+Repository paths must resolve inside configured trusted roots. Git clone/update
+automation remains later roadmap work.
+
+Language-aware parsing is intentionally lightweight. Python uses the standard
+library AST. JS/TS, Markdown, JSON/YAML, HTML, and CSS use conservative
+standard-library or regex heuristics. Chunks preserve file path, language, line
+range, and optional symbol metadata. Existing version-1 repository indexes
+remain readable because repository retrieval treats metadata as optional.
 
 ## Container Deployment
 

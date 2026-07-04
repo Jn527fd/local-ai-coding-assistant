@@ -518,23 +518,22 @@ function SourceCitations({ onOpenSourceDetails, sources }) {
   }
 
   return (
-    <div className="source-citations" aria-label="Sources used">
+    <div className="source-citations" aria-label="Sources used" role="list">
       {sources.map((source) => {
         const normalized = normalizeSource(source);
         return (
-          <Tooltip
-            content={`${normalized.path}: ${normalized.snippet}`}
-            key={normalized.id}
-          >
-            <SourceChip
-              aria-label={`Open source ${normalized.path} ${normalized.label}`}
-              className="citation-chip"
-              onClick={() => onOpenSourceDetails?.(normalized.path)}
-              type="button"
-            >
-              {normalized.label}
-            </SourceChip>
-          </Tooltip>
+          <span className="source-citations__item" key={normalized.id} role="listitem">
+            <Tooltip content={`${normalized.path}: ${normalized.snippet}`}>
+              <SourceChip
+                aria-label={`Open source ${normalized.path}. ${normalized.snippet}`}
+                className="citation-chip"
+                onClick={() => onOpenSourceDetails?.(normalized.path)}
+                type="button"
+              >
+                {normalized.label}
+              </SourceChip>
+            </Tooltip>
+          </span>
         );
       })}
     </div>
@@ -724,7 +723,15 @@ function AssistantMessage({
             <div>
               <span className="message-avatar message-avatar--assistant">Assistant</span>
               <time>{formatMessageTime(message.createdAt)}</time>
-              {(isStreaming || activelyStreaming) && <span className="assistant-live-status">Streaming locally</span>}
+              {(isStreaming || activelyStreaming) && (
+                <span
+                  aria-live="polite"
+                  className="assistant-live-status"
+                  role="status"
+                >
+                  Streaming locally
+                </span>
+              )}
               {message.ragUsed && (
                 <span className="rag-context-badge">
                   {message.rerankingUsed
@@ -766,8 +773,9 @@ function AssistantMessage({
             {retrievalWarnings.length > 0 && (
               <div
                 aria-label="Retrieval warnings"
+                aria-live="polite"
                 className="rag-warning-list"
-                role="status"
+                role="alert"
               >
                 {retrievalWarnings.map((warning) => (
                   <p key={warning}>{warning}</p>

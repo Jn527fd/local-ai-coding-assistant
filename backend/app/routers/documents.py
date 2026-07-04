@@ -611,6 +611,7 @@ async def search_documents(
         for collection in collections
         if collection.get("embedderModel") == embedder_model
         and collection.get("vectorDatabase") == vector_database
+        and collection.get("sourceType") != "repository"
     ]
     mismatched_collections = [
         collection
@@ -736,7 +737,14 @@ async def list_document_indexes(
         collections = await vector_store.list_collections(conversationId)
     except VectorStoreError as exc:
         raise_vector_http_error(exc)
-    return {"conversationId": conversationId, "indexes": collections}
+    return {
+        "conversationId": conversationId,
+        "indexes": [
+            collection
+            for collection in collections
+            if collection.get("sourceType") != "repository"
+        ],
+    }
 
 
 @router.delete("/indexes/{collection_id}")

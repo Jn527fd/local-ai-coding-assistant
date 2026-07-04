@@ -3,19 +3,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   checkHealth,
   deleteConversation as deletePersistedConversation,
-  getJob,
   getCurrentUser,
   getModelStatus,
   importConversations,
   listConversations,
-  listDocumentIndexes,
-  listDocuments,
   logout,
-  searchDocuments,
-  sendChatStream,
-  startIndexDocumentJob,
-  startProcessDocumentJob,
-  uploadDocument,
 } from "./api.js";
 import {
   buildDefaultConversationSettings,
@@ -29,7 +21,6 @@ import {
   PERSISTENCE_MODE_BACKEND,
   PERSISTENCE_MODE_LOCAL,
   saveConversationPersistenceMode,
-  titleFromMessage,
 } from "./chatState.js";
 import AccountPanel from "./components/AccountPanel.jsx";
 import AppLayout from "./components/AppLayout.jsx";
@@ -39,30 +30,17 @@ import LoginPage from "./components/LoginPage.jsx";
 import NavigationRail from "./components/NavigationRail.jsx";
 import Workspace from "./components/Workspace.jsx";
 import { Button, Input, Modal, Toast } from "./components/ui.jsx";
+import { useChatSender } from "./hooks/useChatSender.js";
 import { useCapabilities } from "./hooks/useCapabilities.js";
-
-const API_KEY_STORAGE_KEY = "local-ai-coding-assistant.api-key";
-const SUPPORTED_DOCUMENT_EXTENSIONS = [
-  "txt",
-  "md",
-  "pdf",
-  "docx",
-  "html",
-  "htm",
-  "csv",
-  "tsv",
-];
-const SUPPORTED_DOCUMENT_MESSAGE =
-  "Only .txt, .md, .pdf, .docx, .html, .csv, and .tsv files are supported.";
+import { useDocumentWorkflow } from "./hooks/useDocumentWorkflow.js";
+import { useStoredApiKey } from "./hooks/useStoredApiKey.js";
 
 function App() {
   const composerRef = useRef(null);
 
   const [authState, setAuthState] = useState("checking");
   const [user, setUser] = useState(null);
-  const [apiKey, setApiKey] = useState(
-    () => window.localStorage.getItem(API_KEY_STORAGE_KEY) || "",
-  );
+  const { apiKey, setApiKey } = useStoredApiKey();
   const [accountOpen, setAccountOpen] = useState(false);
   const [modelStatus, setModelStatus] = useState(null);
   const {
@@ -83,20 +61,7 @@ function App() {
   );
   const [conversationPersistenceStatus, setConversationPersistenceStatus] =
     useState("Browser-local storage");
-  const [sendingChatId, setSendingChatId] = useState("");
-  const [documentsByChat, setDocumentsByChat] = useState({});
-  const [documentIndexesByChat, setDocumentIndexesByChat] = useState({});
-  const [documentBusy, setDocumentBusy] = useState(false);
-  const [documentJobProgress, setDocumentJobProgress] = useState(null);
-  const [documentError, setDocumentError] = useState("");
-  const [indexingDocumentId, setIndexingDocumentId] = useState("");
-  const [documentSearchQuery, setDocumentSearchQuery] = useState("");
-  const [documentSearchResults, setDocumentSearchResults] = useState([]);
-  const [documentSearchWarnings, setDocumentSearchWarnings] = useState([]);
-  const [documentSearchBusy, setDocumentSearchBusy] = useState(false);
-  const [documentSearchError, setDocumentSearchError] = useState("");
   const [draftMessage, setDraftMessage] = useState("");
-  const [chatError, setChatError] = useState("");
   const [toast, setToast] = useState(null);
   const [chatDialog, setChatDialog] = useState({
     chatId: "",
@@ -111,14 +76,6 @@ function App() {
   const activeChat = useMemo(
     () => chats.find((chat) => chat.id === activeChatId) || null,
     [activeChatId, chats],
-  );
-  const activeDocuments = useMemo(
-    () => documentsByChat[activeChatId] || [],
-    [activeChatId, documentsByChat],
-  );
-  const activeDocumentIndexes = useMemo(
-    () => documentIndexesByChat[activeChatId] || [],
-    [activeChatId, documentIndexesByChat],
   );
   const dialogChat = useMemo(
     () => chats.find((chat) => chat.id === chatDialog.chatId) || null,
@@ -147,6 +104,48 @@ function App() {
     }, 3200);
   }, []);
 
+  const {
+    activeDocumentIndexes,
+    activeDocuments,
+    clearDocumentSearchState,
+    documentBusy,
+    documentError,
+    documentJobProgress,
+    documentSearchBusy,
+    documentSearchError,
+    documentSearchQuery,
+    documentSearchResults,
+    documentSearchWarnings,
+    handleIndexDocument,
+    handleSearchDocuments,
+    handleUploadDocument,
+    indexingDocumentId,
+    resetAllDocuments,
+    setDocumentError,
+    setDocumentSearchQuery,
+  } = useDocumentWorkflow({
+    activeChat,
+    apiKey,
+    authState,
+    defaultConversationSettings,
+    showToast,
+  });
+
+  const {
+    chatError,
+    handleSendMessage,
+    resetChatSender,
+    sendingChatId,
+    setChatError,
+  } = useChatSender({
+    activeChat,
+    apiKey,
+    defaultConversationSettings,
+    modelStatus,
+    setChats,
+    setCurrentSection,
+  });
+
   const refreshModelStatus = useCallback(async () => {
     const status = await getModelStatus();
     setModelStatus(status);
@@ -173,50 +172,6 @@ function App() {
       setApiStatus({ status: "offline", message: error.message });
     }
   }, []);
-
-  const refreshDocuments = useCallback(
-    async (conversationId) => {
-      if (!apiKey || !conversationId) {
-        return [];
-      }
-
-      try {
-        const result = await listDocuments(apiKey, conversationId);
-        const documents = Array.isArray(result?.documents) ? result.documents : [];
-        setDocumentsByChat((current) => ({
-          ...current,
-          [conversationId]: documents,
-        }));
-        return documents;
-      } catch (error) {
-        setDocumentError(error.message);
-        return [];
-      }
-    },
-    [apiKey],
-  );
-
-  const refreshDocumentIndexes = useCallback(
-    async (conversationId) => {
-      if (!apiKey || !conversationId) {
-        return [];
-      }
-
-      try {
-        const result = await listDocumentIndexes(apiKey, conversationId);
-        const indexes = Array.isArray(result?.indexes) ? result.indexes : [];
-        setDocumentIndexesByChat((current) => ({
-          ...current,
-          [conversationId]: indexes,
-        }));
-        return indexes;
-      } catch (error) {
-        setDocumentSearchError(error.message);
-        return [];
-      }
-    },
-    [apiKey],
-  );
 
   const initializeAuthenticatedSession = useCallback(
     async (session) => {
@@ -328,24 +283,6 @@ function App() {
   }, [authState, chats, conversationPersistenceMode, showToast, user]);
 
   useEffect(() => {
-    if (authState !== "authenticated" || !activeChatId || !apiKey) {
-      return;
-    }
-
-    refreshDocuments(activeChatId);
-    refreshDocumentIndexes(activeChatId);
-    setDocumentSearchResults([]);
-    setDocumentSearchWarnings([]);
-    setDocumentSearchError("");
-  }, [
-    activeChatId,
-    apiKey,
-    authState,
-    refreshDocumentIndexes,
-    refreshDocuments,
-  ]);
-
-  useEffect(() => {
     if (authState !== "authenticated") {
       return undefined;
     }
@@ -375,23 +312,14 @@ function App() {
       setActiveChatId("");
       setConversationPersistenceMode(PERSISTENCE_MODE_LOCAL);
       setConversationPersistenceStatus("Browser-local storage");
-      setDocumentsByChat({});
-      setDocumentIndexesByChat({});
-      setDocumentBusy(false);
-      setDocumentError("");
-      setIndexingDocumentId("");
-      setDocumentSearchQuery("");
-      setDocumentSearchResults([]);
-      setDocumentSearchWarnings([]);
-      setDocumentSearchBusy(false);
-      setDocumentSearchError("");
+      resetAllDocuments();
       setDraftMessage("");
+      resetChatSender();
     }
   }
 
   function handleApiKeyChange(nextKey) {
     setApiKey(nextKey);
-    window.localStorage.setItem(API_KEY_STORAGE_KEY, nextKey);
   }
 
   const handleEnableBackendPersistence = useCallback(async () => {
@@ -487,248 +415,6 @@ function App() {
     [activeChatId, updateConversationSettings],
   );
 
-  const rememberDocument = useCallback((conversationId, document) => {
-    if (!conversationId || !document?.documentId) {
-      return;
-    }
-
-    setDocumentsByChat((current) => {
-      const existing = current[conversationId] || [];
-      const withoutDocument = existing.filter(
-        (item) => item.documentId !== document.documentId,
-      );
-      return {
-        ...current,
-        [conversationId]: [document, ...withoutDocument],
-      };
-    });
-  }, []);
-
-  const waitForJob = useCallback(
-    async (jobId, label) => {
-      let lastJob = null;
-      for (let attempt = 0; attempt < 120; attempt += 1) {
-        const payload = await getJob(apiKey, jobId);
-        const job = payload?.job || payload;
-        lastJob = job;
-        setDocumentJobProgress({
-          id: job.id,
-          label,
-          state: job.state,
-          progress: job.progress || 0,
-          message: job.message || label,
-        });
-        if (["succeeded", "failed", "cancelled"].includes(job.state)) {
-          return job;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      }
-      throw new Error(
-        `${label} is still running. Check the job status and try again.`,
-      );
-    },
-    [apiKey],
-  );
-
-  const handleUploadDocument = useCallback(
-    async (file) => {
-      if (!apiKey) {
-        setDocumentError("Save and verify your API key before uploading documents.");
-        return false;
-      }
-
-      if (!activeChat) {
-        setDocumentError("Create a chat before uploading documents.");
-        return false;
-      }
-
-      const extension = file.name.split(".").pop()?.toLowerCase() || "";
-      if (!SUPPORTED_DOCUMENT_EXTENSIONS.includes(extension)) {
-        setDocumentError(SUPPORTED_DOCUMENT_MESSAGE);
-        return false;
-      }
-
-      const conversationId = activeChat.id;
-      const conversationSettings = normalizeConversationSettings(
-        activeChat.settings,
-        defaultConversationSettings,
-      );
-
-      setDocumentBusy(true);
-      setDocumentError("");
-
-      try {
-        const uploaded = await uploadDocument(
-          apiKey,
-          conversationId,
-          file,
-          conversationSettings,
-        );
-        rememberDocument(conversationId, uploaded);
-
-        const queued = await startProcessDocumentJob(
-          apiKey,
-          uploaded.documentId,
-          conversationId,
-          conversationSettings,
-        );
-        const processJob = await waitForJob(
-          queued.job.id,
-          "Processing document",
-        );
-        if (processJob.state !== "succeeded") {
-          throw new Error(processJob.error || processJob.message || "Document processing failed.");
-        }
-        const processed = processJob.result || {};
-        const processedDocument = processed.document || uploaded;
-        rememberDocument(conversationId, processedDocument);
-        await refreshDocuments(conversationId);
-
-        if (processed.status === "processed") {
-          showToast(
-            `${processedDocument.originalFilename || file.name} processed (${processed.chunkCount || 0} chunks).`,
-            "success",
-          );
-        } else {
-          setDocumentError(processed.error || "Document processing failed.");
-          showToast("Document uploaded, but processing failed.", "error");
-        }
-        return processed.status === "processed";
-      } catch (error) {
-        setDocumentError(error.message);
-        showToast("Document upload failed.", "error");
-        return false;
-      } finally {
-        setDocumentBusy(false);
-        setDocumentJobProgress(null);
-      }
-    },
-    [
-      activeChat,
-      apiKey,
-      defaultConversationSettings,
-      refreshDocuments,
-      rememberDocument,
-      showToast,
-      waitForJob,
-    ],
-  );
-
-  const handleIndexDocument = useCallback(
-    async (document) => {
-      if (!apiKey) {
-        setDocumentSearchError("Save and verify your API key before indexing documents.");
-        return false;
-      }
-
-      if (!activeChat || !document?.documentId) {
-        return false;
-      }
-
-      if (document.status !== "processed") {
-        setDocumentSearchError("Process the document before indexing it.");
-        return false;
-      }
-
-      const conversationSettings = normalizeConversationSettings(
-        activeChat.settings,
-        defaultConversationSettings,
-      );
-      setIndexingDocumentId(document.documentId);
-      setDocumentSearchError("");
-
-      try {
-        const queued = await startIndexDocumentJob(
-          apiKey,
-          document.documentId,
-          activeChat.id,
-          conversationSettings,
-        );
-        const indexJob = await waitForJob(queued.job.id, "Indexing document");
-        if (indexJob.state !== "succeeded") {
-          throw new Error(indexJob.error || indexJob.message || "Document indexing failed.");
-        }
-        const result = indexJob.result || {};
-        await refreshDocumentIndexes(activeChat.id);
-        showToast(
-          `${document.originalFilename || "Document"} indexed (${result.indexedChunks || 0} chunks).`,
-          "success",
-        );
-        return true;
-      } catch (error) {
-        setDocumentSearchError(error.message);
-        showToast("Document indexing failed.", "error");
-        return false;
-      } finally {
-        setIndexingDocumentId("");
-        setDocumentJobProgress(null);
-      }
-    },
-    [
-      activeChat,
-      apiKey,
-      defaultConversationSettings,
-      refreshDocumentIndexes,
-      showToast,
-      waitForJob,
-    ],
-  );
-
-  const handleSearchDocuments = useCallback(async () => {
-    const query = documentSearchQuery.trim();
-    if (!query) {
-      setDocumentSearchError("");
-      setDocumentSearchResults([]);
-      return false;
-    }
-
-    if (!apiKey) {
-      setDocumentSearchError("Save and verify your API key before searching documents.");
-      return false;
-    }
-
-    if (!activeChat) {
-      setDocumentSearchError("Create a chat before searching documents.");
-      return false;
-    }
-
-    const conversationSettings = normalizeConversationSettings(
-      activeChat.settings,
-      defaultConversationSettings,
-    );
-    setDocumentSearchBusy(true);
-    setDocumentSearchError("");
-    setDocumentSearchWarnings([]);
-
-    try {
-      const result = await searchDocuments(
-        apiKey,
-        activeChat.id,
-        query,
-        conversationSettings,
-        { topK: 5 },
-      );
-      setDocumentSearchResults(
-        Array.isArray(result?.results) ? result.results : [],
-      );
-      setDocumentSearchWarnings(
-        Array.isArray(result?.warnings) ? result.warnings : [],
-      );
-      return true;
-    } catch (error) {
-      setDocumentSearchError(error.message);
-      setDocumentSearchResults([]);
-      return false;
-    } finally {
-      setDocumentSearchBusy(false);
-    }
-  }, [
-    activeChat,
-    apiKey,
-    defaultConversationSettings,
-    documentSearchQuery,
-  ]);
-
   const handleNewChat = useCallback(() => {
     if (chats.length >= MAX_CHATS) {
       setChatError("You already have five chats. Delete one before creating another.");
@@ -742,13 +428,16 @@ function App() {
     setDocumentError("");
     setCurrentSection("ask");
     setDraftMessage("");
-    setDocumentSearchQuery("");
-    setDocumentSearchResults([]);
-    setDocumentSearchWarnings([]);
-    setDocumentSearchError("");
+    clearDocumentSearchState();
     focusComposer();
     showToast("New private thread ready.", "success");
-  }, [chats.length, defaultConversationSettings, focusComposer, showToast]);
+  }, [
+    chats.length,
+    clearDocumentSearchState,
+    defaultConversationSettings,
+    focusComposer,
+    showToast,
+  ]);
 
   function handleDeleteChat(chatId = activeChat?.id) {
     const targetChat = chats.find((chat) => chat.id === chatId);
@@ -867,175 +556,6 @@ function App() {
     showToast("Message removed from this thread.", "success");
   }
 
-  async function handleSendMessage(message, imageAttachments = []) {
-    if (!apiKey) {
-      setChatError("Save and verify your API key from Settings before chatting.");
-      return false;
-    }
-
-    if (!activeChat) {
-      setChatError("Create a chat before sending a message.");
-      return false;
-    }
-
-    const chatId = activeChat.id;
-    const history = activeChat.messages
-      .slice(-30)
-      .map(({ role, content }) => ({ role, content }));
-    const userMessage = {
-      role: "user",
-      content: message,
-      imageAttachments: imageAttachments.map(({ data, ...metadata }) => metadata),
-      createdAt: new Date().toISOString(),
-    };
-    const assistantMessageId =
-      globalThis.crypto?.randomUUID?.() || `assistant-${Date.now()}`;
-
-    setChatError("");
-    setSendingChatId(chatId);
-    setCurrentSection("ask");
-    setChats((current) =>
-      current.map((chat) =>
-        chat.id === chatId
-          ? {
-              ...chat,
-              title:
-                chat.messages.length === 0 ? titleFromMessage(message) : chat.title,
-              messages: [
-                ...chat.messages,
-                userMessage,
-                {
-                  id: assistantMessageId,
-                  role: "assistant",
-                  content: "",
-                  streaming: true,
-                  createdAt: new Date().toISOString(),
-                },
-              ],
-              updatedAt: new Date().toISOString(),
-            }
-          : chat,
-      ),
-    );
-
-    try {
-      const generationStartedAt =
-        typeof globalThis.performance?.now === "function"
-          ? globalThis.performance.now()
-          : Date.now();
-      const conversationSettings = normalizeConversationSettings(
-        activeChat.settings,
-        defaultConversationSettings,
-      );
-      let streamedContent = "";
-      const result = await sendChatStream(
-        apiKey,
-        message,
-        history,
-        conversationSettings,
-        chatId,
-        null,
-        imageAttachments.map(({ name, mimeType, data }) => ({
-          name,
-          mimeType,
-          data,
-        })),
-        {
-          onToken: (token) => {
-            streamedContent += token;
-            setChats((current) =>
-              current.map((chat) =>
-                chat.id === chatId
-                  ? {
-                      ...chat,
-                      messages: chat.messages.map((item) =>
-                        item.id === assistantMessageId
-                          ? { ...item, content: streamedContent }
-                          : item,
-                      ),
-                    }
-                  : chat,
-              ),
-            );
-          },
-        },
-      );
-      const generationEndedAt =
-        typeof globalThis.performance?.now === "function"
-          ? globalThis.performance.now()
-          : Date.now();
-      const sources = Array.isArray(result.sources) ? result.sources : [];
-      const ragWarnings = Array.isArray(result.ragWarnings)
-        ? result.ragWarnings
-        : [];
-      const rerankWarnings = Array.isArray(result.rerankWarnings)
-        ? result.rerankWarnings
-        : [];
-      const compressionWarnings = Array.isArray(result.compressionWarnings)
-        ? result.compressionWarnings
-        : [];
-      setChats((current) =>
-        current.map((chat) =>
-          chat.id === chatId
-            ? {
-                ...chat,
-                messages: chat.messages.map((item) =>
-                  item.id === assistantMessageId
-                    ? {
-                        ...item,
-                        content: result.answer || streamedContent,
-                        streaming: false,
-                        generationTimeMs: Math.max(0, Math.round(generationEndedAt - generationStartedAt)),
-                        model:
-                          result.model ||
-                          result.model_used ||
-                          modelStatus?.active_model ||
-                          "Local model",
-                        ragUsed: Boolean(result.ragUsed),
-                        ragWarnings,
-                        rerankingUsed: Boolean(result.rerankingUsed),
-                        rerankerModel: result.rerankerModel || "",
-                        rerankWarnings,
-                        compressionUsed: Boolean(result.compressionUsed),
-                        compressorMode: result.compressorMode || "none",
-                        compressionWarnings,
-                        compressionStats: result.compressionStats || null,
-                        visionUsed: Boolean(result.visionUsed),
-                        visionModel: result.visionModel || "",
-                        visionWarnings: Array.isArray(result.visionWarnings)
-                          ? result.visionWarnings
-                          : [],
-                        sources,
-                      }
-                    : item,
-                ),
-                updatedAt: new Date().toISOString(),
-              }
-            : chat,
-        ),
-      );
-      return true;
-    } catch (requestError) {
-      setChatError(requestError.message);
-      setChats((current) =>
-        current.map((chat) =>
-          chat.id === chatId
-            ? {
-                ...chat,
-                messages: chat.messages.filter(
-                  (item) => item.id !== assistantMessageId,
-                ),
-                updatedAt: new Date().toISOString(),
-              }
-            : chat,
-        ),
-      );
-      return false;
-    } finally {
-      setSendingChatId("");
-    }
-  }
-
   function handleOpenModelSettings() {
     setCurrentSection("settings");
     setAccountOpen(true);
@@ -1126,10 +646,7 @@ function App() {
           setChatError("");
           setDocumentError("");
           setDraftMessage("");
-          setDocumentSearchQuery("");
-          setDocumentSearchResults([]);
-          setDocumentSearchWarnings([]);
-          setDocumentSearchError("");
+          clearDocumentSearchState();
           setRecentsDrawerOpen(false);
         }}
         onSelectSection={setCurrentSection}

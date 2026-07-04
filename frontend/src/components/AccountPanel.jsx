@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   getAccountStatus,
@@ -51,6 +51,18 @@ function SettingsStatusRow({ detail, label, tone = "neutral", value }) {
       {detail && <small>{detail}</small>}
     </div>
   );
+}
+
+function generateLocalApiKey() {
+  if (typeof globalThis.crypto?.getRandomValues !== "function") {
+    return `local-${Date.now().toString(36)}`;
+  }
+  const bytes = new Uint8Array(24);
+  globalThis.crypto.getRandomValues(bytes);
+  const randomPart = Array.from(bytes, (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  return `local-${randomPart}`;
 }
 
 function capabilityId(item) {
@@ -364,6 +376,7 @@ function AccountPanel({
   const [modelError, setModelError] = useState("");
   const [isRefreshingCapabilities, setIsRefreshingCapabilities] = useState(false);
   const [settingsVerified, setSettingsVerified] = useState(false);
+  const closeButtonRef = useRef(null);
   async function refreshAccountStatus(key = draftApiKey) {
     setIsCheckingKey(true);
     setAccountError("");
@@ -417,6 +430,18 @@ function AccountPanel({
     setSettingsVerified(false);
   }, [activeConversationSettings, activeConversationTitle]);
 
+  useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      closeButtonRef.current?.focus();
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [isOpen]);
+
   async function handleSaveApiKey(event) {
     event.preventDefault();
     const trimmedKey = draftApiKey.trim();
@@ -448,6 +473,12 @@ function AccountPanel({
     } finally {
       setIsRefreshingCapabilities(false);
     }
+  }
+
+  function handleRotateApiKey() {
+    setDraftApiKey(generateLocalApiKey());
+    setShowApiKey(true);
+    setAccountError("");
   }
 
   if (!isOpen) {
@@ -483,7 +514,14 @@ function AccountPanel({
             <p className="section-kicker">Account</p>
             <h2>{username}</h2>
           </div>
-          <Button className="icon-button" onClick={onClose} type="button" variant="ghost">
+          <Button
+            aria-label="Close account and API settings"
+            className="icon-button"
+            onClick={onClose}
+            ref={closeButtonRef}
+            type="button"
+            variant="ghost"
+          >
             Close
           </Button>
         </div>
@@ -702,6 +740,15 @@ function AccountPanel({
                 variant="secondary"
               >
                 {isSavingKey ? "Saving..." : "Save key"}
+              </Button>
+              <Button
+                className="secondary-button"
+                disabled={isSavingKey}
+                onClick={handleRotateApiKey}
+                type="button"
+                variant="secondary"
+              >
+                Rotate key
               </Button>
             </div>
           </form>

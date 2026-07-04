@@ -22,8 +22,14 @@ class Settings(BaseSettings):
         PROJECT_ROOT / "data" / "config" / "app-settings.json"
     )
     session_cookie_name: str = "local_ai_session"
+    csrf_cookie_name: str = "local_ai_csrf"
+    csrf_header_name: str = "x-csrf-token"
     session_ttl_hours: int = Field(default=12, ge=1, le=168)
     session_cookie_secure: bool = False
+    session_signing_key: SecretStr = SecretStr("")
+    login_rate_limit_attempts: int = Field(default=5, ge=1, le=100)
+    login_rate_limit_window_seconds: int = Field(default=300, ge=30, le=3600)
+    login_lockout_seconds: int = Field(default=300, ge=30, le=3600)
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     cors_origin_regex: str = (
         r"^https?://("
@@ -66,6 +72,7 @@ class Settings(BaseSettings):
     )
     default_model: str = Field(default="qwen3:4b", min_length=1)
     data_directory: Path = PROJECT_ROOT / "data"
+    repository_allowed_roots: str = ""
     repo_chunk_size: int = Field(default=2000, ge=200, le=20_000)
     rag_top_k: int = Field(default=5, ge=1, le=20)
     rag_candidate_k: int = Field(default=20, ge=1, le=50)
@@ -114,6 +121,24 @@ class Settings(BaseSettings):
         """Return the directory used for generated repository indexes."""
 
         return self.data_directory.expanduser().resolve() / "indexes"
+
+    @property
+    def repository_allowed_root_paths(self) -> list[Path]:
+        """Return local roots from which repositories may be indexed."""
+
+        configured_roots = [
+            value.strip()
+            for value in self.repository_allowed_roots.split(",")
+            if value.strip()
+        ]
+        roots = [Path(value).expanduser().resolve() for value in configured_roots]
+        if not roots:
+            roots = [
+                PROJECT_ROOT.resolve(),
+                self.data_directory.expanduser().resolve(),
+                Path("/repositories").resolve(),
+            ]
+        return roots
 
     @property
     def upload_directory(self) -> Path:

@@ -15,7 +15,9 @@ from app.ai.rerankers import OllamaRerankerProvider
 from app.ai.vectorstores import VectorStoreManager
 from app.config import Settings, get_settings
 from app.auth.credentials import CredentialsService
+from app.auth.rate_limit import LoginRateLimiter
 from app.auth.session import SessionService
+from app.middleware.security_headers import add_security_headers
 from app.metadata import MetadataMigrationManager, MetadataStore
 from app.routers.account import router as account_router
 from app.routers.auth import router as auth_router
@@ -35,6 +37,7 @@ from app.services.job_service import JobService
 from app.services.local_settings_service import LocalSettingsService
 from app.services.model_manager import ModelManager
 from app.services.ollama_service import OllamaService
+from app.services.audit_log import AuditLogger
 from app.utils.logging import configure_logging
 
 logger = logging.getLogger(__name__)
@@ -57,7 +60,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     credentials_service = CredentialsService(
         app_settings.resolved_credentials_file
     )
-    session_service = SessionService(ttl_hours=app_settings.session_ttl_hours)
+    session_service = SessionService(
+        ttl_hours=app_settings.session_ttl_hours,
+        signing_key=app_settings.session_signing_key.get_secret_value(),
+    )
+    login_rate_limiter = LoginRateLimiter(
+        attempts=app_settings.login_rate_limit_attempts,
+        window_seconds=app_settings.login_rate_limit_window_seconds,
+        lockout_seconds=app_settings.login_lockout_seconds,
+    )
+    audit_logger = AuditLogger()
     local_settings_service = LocalSettingsService(
         app_settings.resolved_local_settings_file
     )
@@ -128,6 +140,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.state.settings = app_settings
         application.state.credentials_service = credentials_service
         application.state.session_service = session_service
+        application.state.login_rate_limiter = login_rate_limiter
+        application.state.audit_logger = audit_logger
         application.state.local_settings_service = local_settings_service
         application.state.metadata_store = metadata_store
         application.state.metadata_migration_manager = metadata_migration_manager
@@ -163,6 +177,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.settings = app_settings
     application.state.credentials_service = credentials_service
     application.state.session_service = session_service
+    application.state.login_rate_limiter = login_rate_limiter
+    application.state.audit_logger = audit_logger
     application.state.local_settings_service = local_settings_service
     application.state.metadata_store = metadata_store
     application.state.metadata_migration_manager = metadata_migration_manager
@@ -189,6 +205,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    application.middleware("http")(add_security_headers)
 
     application.include_router(health_router)
     application.include_router(auth_router)

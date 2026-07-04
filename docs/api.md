@@ -12,7 +12,8 @@ The app uses two local authentication mechanisms:
 1. **Login session cookie:** `/auth/login` verifies
    `data/config/credentials.json` and sets an HttpOnly cookie. Account,
    model, component-discovery, and optional conversation-persistence endpoints
-   require this cookie.
+   require this cookie. Unsafe session-cookie requests also require the CSRF
+   token from the readable `local_ai_csrf` cookie in the `X-CSRF-Token` header.
 2. **Bearer API key:** `/chat`, `/documents/*`, and `/repos/*` require
    `Authorization: Bearer <API_KEY>`. The active key comes from the ignored
    local app-settings file, with the `API_KEY` environment variable as a
@@ -63,6 +64,8 @@ The app uses two local authentication mechanisms:
 | `POST` | `/jobs/{job_id}/cancel` | Bearer key | Request conservative cancellation for a local job |
 | `POST` | `/repos/index-local` | Bearer key | Index a local repository with legacy keyword RAG |
 | `POST` | `/repos/ask` | Bearer key | Ask a grounded question against a repository index |
+| `POST` | `/repos/index-local/vector` | Bearer key | Opt into embedding repository chunks |
+| `POST` | `/repos/search-vector` | Bearer key | Search opt-in repository vector collections |
 
 ## Public Endpoints
 
@@ -95,15 +98,24 @@ Successful response:
 {"username":"YOUR_USERNAME"}
 ```
 
-Check or end the session:
+Check the session:
 
 ```bash
 curl -b session.cookies http://localhost:8000/auth/me
-curl -b session.cookies -X POST http://localhost:8000/auth/logout
+```
+
+For unsafe session-cookie requests such as logout or API-key updates, send the
+CSRF token from the cookie jar:
+
+```bash
+CSRF_TOKEN=$(grep local_ai_csrf session.cookies | awk '{print $7}')
+curl -b session.cookies -X POST http://localhost:8000/auth/logout \
+  -H "X-CSRF-Token: $CSRF_TOKEN"
 ```
 
 Invalid credentials return `401`. A missing or malformed credentials file
-returns `503` with a local setup message.
+returns `503` with a local setup message. Repeated invalid attempts return
+`429` until the local lockout window expires.
 
 ## Account API Key
 
@@ -113,6 +125,7 @@ key is recommended for normal use:
 ```bash
 curl -b session.cookies -X PUT http://localhost:8000/account/api-key \
   -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: $CSRF_TOKEN" \
   -d '{"api_key":"your-private-api-key"}'
 ```
 
@@ -547,12 +560,23 @@ curl -X POST http://localhost:8000/repos/index-local \
 ```
 
 Docker uses `/repositories/...` paths. The response contains `repo_name`,
-`indexed_files`, and `indexed_chunks`. Index files are stored beneath
-`DATA_DIRECTORY/indexes`.
+`indexed_files`, `indexed_chunks`, and freshness metadata. Index files are
+stored beneath `DATA_DIRECTORY/indexes`.
+
+Repository paths must be inside trusted roots. By default, the backend allows
+the project root, the configured data directory, and `/repositories`. Set
+`REPOSITORY_ALLOWED_ROOTS` to a comma-separated list to allow other local
+folders.
 
 Supported extensions are `.py`, `.js`, `.jsx`, `.ts`, `.tsx`, `.md`, `.json`,
 `.yaml`, `.yml`, `.html`, and `.css`. `.git`, `node_modules`, `.venv`,
 `__pycache__`, `dist`, and `build` directories are ignored.
+
+The repository indexer uses lightweight language-aware parsing for supported
+extensions. Chunks can include `language`, `symbol_name`, `symbol_kind`,
+`chunk_type`, and parser metadata while preserving the older `content`,
+`file_path`, `start_line`, and `end_line` fields. Parser failures fall back to
+line-based chunks.
 
 ## Repository Questions
 
@@ -571,9 +595,55 @@ Response:
 ```json
 {
   "answer": "The functions are implemented in sample_app/calculator.py.",
-  "sources": ["app.py", "sample_app/calculator.py"]
+  "sources": ["app.py", "sample_app/calculator.py"],
+  "warnings": [],
+  "freshness": {
+    "fresh": true,
+    "warnings": []
+  }
 }
 ```
+
+## Repository Vector Search
+
+Repository vector indexing is opt-in and separate from document vector
+collections:
+
+```bash
+curl -X POST http://localhost:8000/repos/index-local/vector \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "path": "/repositories/sample-code-repository",
+    "conversationId": "local-chat-1",
+    "conversationSettings": {
+      "embedderModel": "all-minilm"
+    }
+  }'
+```
+
+Search indexed repository vectors without changing legacy keyword repository
+RAG:
+
+```bash
+curl -X POST http://localhost:8000/repos/search-vector \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "conversationId": "local-chat-1",
+    "query": "Where is authentication handled?",
+    "topK": 5,
+    "conversationSettings": {
+      "embedderModel": "all-minilm"
+    }
+  }'
+```
+
+Repository vector results include `repoName`, `filePath`, line range metadata,
+`language`, `symbolName`, `symbolKind`, vector score, and stale-index warnings
+when the source files have changed.
+Document search and document RAG ignore repository vector collections unless a
+future phase explicitly unifies those prompts.
 
 ## Security Notes
 

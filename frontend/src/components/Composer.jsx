@@ -147,6 +147,38 @@ function Composer({
     });
     return ids;
   }, [documentIndexes]);
+  const composerStatus = useMemo(() => {
+    if (isSending) {
+      return "Sending message. Assistant response is streaming.";
+    }
+    if (documentJobProgress) {
+      return `${documentJobProgress.label}: ${documentJobProgress.progress || 0} percent. ${documentJobProgress.message}`;
+    }
+    if (isUploadingDocument) {
+      return "Processing document.";
+    }
+    if (documentSearchBusy) {
+      return "Searching indexed documents.";
+    }
+    if (documentError) {
+      return `Document error: ${documentError}`;
+    }
+    if (documentSearchError) {
+      return `Document search error: ${documentSearchError}`;
+    }
+    if (documentSearchWarnings.length > 0) {
+      return `Document search warning: ${documentSearchWarnings[0]}`;
+    }
+    return "";
+  }, [
+    documentError,
+    documentJobProgress,
+    documentSearchBusy,
+    documentSearchError,
+    documentSearchWarnings,
+    isSending,
+    isUploadingDocument,
+  ]);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -263,9 +295,14 @@ function Composer({
 
   return (
     <form
+      aria-busy={isSending || isUploadingDocument || documentSearchBusy}
+      aria-label="Chat composer"
       className={`composer smart-composer ${focused ? "smart-composer--focused" : ""}`}
       onSubmit={handleSubmit}
     >
+      <div aria-live="polite" className="sr-only" role="status">
+        {composerStatus}
+      </div>
       <div className="smart-composer__input-shell">
         <label className="sr-only" htmlFor="chat-message">
           Message assistant
@@ -367,7 +404,12 @@ function Composer({
         )}
 
         {(imageAttachments.length > 0 || imageError) && (
-          <div className="image-attachment-tray" aria-live="polite">
+          <div
+            aria-label="Image attachments"
+            aria-live="polite"
+            className="image-attachment-tray"
+            role="status"
+          >
             {imageError && (
               <span className="document-chip document-chip--error">
                 {imageError}
@@ -378,6 +420,7 @@ function Composer({
                 <strong>{image.name}</strong>
                 <small>Image attached</small>
                 <Button
+                  aria-label={`Remove image ${image.name}`}
                   className="document-chip__action"
                   onClick={() =>
                     setImageAttachments((current) =>
@@ -398,14 +441,26 @@ function Composer({
           documentError ||
           isUploadingDocument ||
           documentJobProgress) && (
-          <div className="document-tray" aria-live="polite">
+          <div
+            aria-label="Document processing status"
+            aria-live="polite"
+            className="document-tray"
+            role="status"
+          >
             {isUploadingDocument && (
               <span className="document-chip document-chip--working">
                 Processing document...
               </span>
             )}
             {documentJobProgress && (
-              <span className="document-chip document-chip--working">
+              <span
+                aria-label={`${documentJobProgress.label} ${documentJobProgress.progress || 0} percent`}
+                aria-valuemax="100"
+                aria-valuemin="0"
+                aria-valuenow={documentJobProgress.progress || 0}
+                className="document-chip document-chip--working"
+                role="progressbar"
+              >
                 <strong>{documentJobProgress.label}</strong>
                 <small>
                   {documentJobProgress.progress || 0}% - {documentJobProgress.message}
@@ -431,6 +486,11 @@ function Composer({
                 </small>
                 {document.status === "processed" && onIndexDocument && (
                   <Button
+                    aria-label={`${
+                      indexedDocumentIds.has(document.documentId)
+                        ? "Reindex"
+                        : "Index"
+                    } ${document.originalFilename || "Document"}`}
                     className="document-chip__action"
                     disabled={indexingDocumentId === document.documentId}
                     onClick={() => onIndexDocument(document)}
@@ -453,7 +513,11 @@ function Composer({
           documentSearchResults.length > 0 ||
           documentSearchError ||
           documentSearchWarnings.length > 0) && (
-          <div className="document-search-panel">
+          <div
+            aria-label="Indexed document search"
+            className="document-search-panel"
+            role="region"
+          >
             <div className="document-search-controls">
               <input
                 aria-label="Search indexed documents"
@@ -481,12 +545,15 @@ function Composer({
             </div>
 
             {documentSearchError && (
-              <p className="document-search-message document-search-message--error">
+              <p
+                className="document-search-message document-search-message--error"
+                role="alert"
+              >
                 {documentSearchError}
               </p>
             )}
             {documentSearchWarnings.map((warning) => (
-              <p className="document-search-message" key={warning}>
+              <p className="document-search-message" key={warning} role="status">
                 {warning}
               </p>
             ))}

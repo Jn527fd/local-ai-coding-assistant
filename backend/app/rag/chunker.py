@@ -8,6 +8,7 @@ class TextChunk:
     content: str
     start_line: int
     end_line: int
+    metadata: dict[str, object] | None = None
 
 
 def chunk_text(text: str, max_chars: int = 2000) -> list[TextChunk]:

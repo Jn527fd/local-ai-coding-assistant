@@ -12,6 +12,7 @@ from app.services.local_settings_service import (
     LocalSettingsError,
     LocalSettingsService,
 )
+from app.services.audit_log import AuditLogger
 
 router = APIRouter(
     prefix="/account",
@@ -76,9 +77,16 @@ async def update_api_key(
         request.app.state.local_settings_service
     )
     settings: Settings = request.app.state.settings
+    audit_logger: AuditLogger = request.app.state.audit_logger
 
     try:
         await run_in_threadpool(local_settings.set_api_key, update.api_key)
+        audit_logger.settings_event(
+            "api_key_updated",
+            username=username,
+            client_host=request.client.host if request.client else "",
+            success=True,
+        )
         return await run_in_threadpool(
             _account_status,
             username,
@@ -90,6 +98,12 @@ async def update_api_key(
             local_settings,
         )
     except LocalSettingsError as exc:
+        audit_logger.settings_event(
+            "api_key_update_failed",
+            username=username,
+            client_host=request.client.host if request.client else "",
+            success=False,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(exc),

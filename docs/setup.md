@@ -302,8 +302,14 @@ API_KEY=
 CREDENTIALS_FILE=../data/config/credentials.json
 LOCAL_SETTINGS_FILE=../data/config/app-settings.json
 SESSION_COOKIE_NAME=local_ai_session
+CSRF_COOKIE_NAME=local_ai_csrf
+CSRF_HEADER_NAME=x-csrf-token
 SESSION_TTL_HOURS=12
 SESSION_COOKIE_SECURE=false
+SESSION_SIGNING_KEY=
+LOGIN_RATE_LIMIT_ATTEMPTS=5
+LOGIN_RATE_LIMIT_WINDOW_SECONDS=300
+LOGIN_LOCKOUT_SECONDS=300
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_TIMEOUT_SECONDS=120
 OLLAMA_NUM_PREDICT=768
@@ -316,6 +322,7 @@ CONTEXT_COMPRESSION_MAX_RETRIEVED_CONTEXT_CHARS=6000
 CONTEXT_COMPRESSION_MAX_SUMMARY_CHARS=2000
 DEFAULT_MODEL=qwen3:4b
 DATA_DIRECTORY=../data
+REPOSITORY_ALLOWED_ROOTS=
 REPO_CHUNK_SIZE=2000
 RAG_TOP_K=5
 RAG_CANDIDATE_K=20
@@ -335,6 +342,20 @@ METADATA_DATABASE_FILE=
 the `chromadb` Python package is installed in the backend runtime; otherwise
 the app falls back to JSON.
 
+`REPOSITORY_ALLOWED_ROOTS` is optional. When empty, the backend allows
+repository indexing from the project root, the configured data directory, and
+`/repositories` for Docker mounts. Set it to a comma-separated list of trusted
+absolute paths when you want to index repositories from another local folder.
+Repository indexes include freshness fingerprints and return warnings when
+files change after indexing. Repository vector indexing is opt-in through the
+`/repos/index-local/vector` endpoint and uses separate vector collections from
+document RAG.
+
+Repository source parsing does not require extra parser packages. The backend
+uses Python's standard-library AST for Python and conservative lightweight
+heuristics for JS/TS, Markdown, JSON/YAML, HTML, and CSS. Parser failures fall
+back to line-based chunks so indexing can continue.
+
 Check backend availability with:
 
 ```bash
@@ -347,8 +368,17 @@ collection from JSON to an available adapter. If the requested target backend
 is unavailable, the operation falls back to JSON and reports that fallback in
 the response.
 
-Login sessions are stored in memory and end when the backend restarts. Set
-`SESSION_COOKIE_SECURE=true` only when the site is served over HTTPS.
+Login sessions are stored in memory by default and end when the backend
+restarts. Set `SESSION_SIGNING_KEY` to a long random local secret when you want
+session cookies to remain valid across backend restarts. Keep that value out of
+Git and back it up with other local secrets.
+
+Cookie-authenticated unsafe requests use a double-submit CSRF token. The
+backend sets an HttpOnly session cookie and a readable `CSRF_COOKIE_NAME`
+cookie; the frontend sends that value in `CSRF_HEADER_NAME`. Login attempts are
+rate-limited by username and client address with the `LOGIN_*` settings.
+
+Set `SESSION_COOKIE_SECURE=true` only when the site is served over HTTPS.
 
 ## Files Intentionally Ignored by Git
 

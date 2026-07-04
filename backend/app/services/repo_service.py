@@ -5,7 +5,7 @@ import re
 from typing import Any
 from uuid import uuid4
 
-from app.rag.indexer import build_repository_index
+from app.rag.indexer import build_repository_index, build_repository_snapshot
 
 
 class RepositoryServiceError(Exception):
@@ -45,25 +45,24 @@ class RepositoryIndexResult:
 class RepositoryService:
     """Index local source repositories into JSON files."""
 
-    def __init__(self, index_directory: Path, chunk_size: int) -> None:
+    def __init__(
+        self,
+        index_directory: Path,
+        chunk_size: int,
+        allowed_roots: list[Path] | None = None,
+        metadata_store: Any | None = None,
+    ) -> None:
         self.index_directory = index_directory
         self.chunk_size = chunk_size
+        self.allowed_roots = [
+            root.expanduser().resolve() for root in (allowed_roots or [])
+        ]
+        self.metadata_store = metadata_store
 
     def index_local(self, repository_path: str) -> RepositoryIndexResult:
         """Index a local directory and persist its JSON representation."""
 
-        try:
-            resolved_path = Path(repository_path).expanduser().resolve(strict=True)
-        except (OSError, RuntimeError) as exc:
-            raise InvalidRepositoryPathError(
-                f"Repository path does not exist or cannot be resolved: "
-                f"{repository_path}"
-            ) from exc
-
-        if not resolved_path.is_dir():
-            raise InvalidRepositoryPathError(
-                f"Repository path is not a directory: {resolved_path}"
-            )
+        resolved_path = self.resolve_repository_path(repository_path)
 
         try:
             index_data = build_repository_index(
@@ -77,6 +76,7 @@ class RepositoryService:
         repo_name = str(index_data["repo_name"])
         index_path = self.index_directory / f"{self._safe_name(repo_name)}.json"
         self._write_index(index_path, index_data)
+        self._write_metadata(index_data, index_path)
 
         return RepositoryIndexResult(
             repo_name=repo_name,
@@ -113,6 +113,75 @@ class RepositoryService:
 
         return index_data
 
+    def resolve_repository_path(self, repository_path: str) -> Path:
+        """Resolve and validate a local repository path."""
+
+        try:
+            resolved_path = Path(repository_path).expanduser().resolve(strict=True)
+        except (OSError, RuntimeError) as exc:
+            raise InvalidRepositoryPathError(
+                f"Repository path does not exist or cannot be resolved: "
+                f"{repository_path}"
+            ) from exc
+
+        if not resolved_path.is_dir():
+            raise InvalidRepositoryPathError(
+                f"Repository path is not a directory: {resolved_path}"
+            )
+        if self.allowed_roots and not any(
+            self._is_relative_to(resolved_path, root) for root in self.allowed_roots
+        ):
+            roots = ", ".join(str(root) for root in self.allowed_roots)
+            raise RepositoryAccessError(
+                f"Repository path must be inside an allowed root: {roots}"
+            )
+        return resolved_path
+
+    def freshness(self, index_data: dict[str, Any]) -> dict[str, Any]:
+        """Compare a saved repository index to the current filesystem state."""
+
+        source_path = index_data.get("source_path")
+        indexed_fingerprint = index_data.get("fingerprint")
+        if not isinstance(source_path, str) or not source_path:
+            return {
+                "fresh": False,
+                "warnings": ["Repository index has no source path metadata."],
+            }
+        if not isinstance(indexed_fingerprint, str) or not indexed_fingerprint:
+            return {
+                "fresh": False,
+                "warnings": [
+                    "Repository index has no freshness fingerprint; re-index it."
+                ],
+            }
+
+        try:
+            resolved_path = self.resolve_repository_path(source_path)
+            snapshot = build_repository_snapshot(resolved_path)
+        except RepositoryServiceError as exc:
+            return {"fresh": False, "warnings": [str(exc)]}
+        except OSError as exc:
+            return {
+                "fresh": False,
+                "warnings": [f"Unable to inspect repository freshness: {exc}"],
+            }
+
+        current_fingerprint = snapshot["fingerprint"]
+        fresh = indexed_fingerprint == current_fingerprint
+        warnings = []
+        if not fresh:
+            warnings.append(
+                "Repository index is stale; re-index before relying on answers."
+            )
+        return {
+            "fresh": fresh,
+            "warnings": warnings,
+            "indexedFingerprint": indexed_fingerprint,
+            "currentFingerprint": current_fingerprint,
+            "indexedFileCount": len(index_data.get("files") or []),
+            "currentFileCount": len(snapshot.get("files") or []),
+        }
+
     def index_path_for(self, repo_name: str) -> Path:
         """Return the index path for a repository name."""
 
@@ -144,9 +213,31 @@ class RepositoryService:
                 except OSError:
                     pass
 
+    def _write_metadata(self, index_data: dict[str, Any], index_path: Path) -> None:
+        if self.metadata_store is None:
+            return
+        try:
+            with self.metadata_store.connect() as connection:
+                with connection:
+                    self.metadata_store.upsert_repository_index(
+                        connection,
+                        index_data,
+                        index_path,
+                    )
+        except Exception:
+            return
+
     @staticmethod
     def _safe_name(repo_name: str) -> str:
         """Convert a repository name into a safe index filename."""
 
         safe_name = re.sub(r"[^A-Za-z0-9._-]+", "-", repo_name).strip(".-")
         return safe_name or "repository"
+
+    @staticmethod
+    def _is_relative_to(path: Path, root: Path) -> bool:
+        try:
+            path.relative_to(root)
+            return True
+        except ValueError:
+            return False

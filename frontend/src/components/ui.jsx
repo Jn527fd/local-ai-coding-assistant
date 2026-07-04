@@ -1,27 +1,28 @@
-import { forwardRef } from "react";
+import { forwardRef, useEffect, useRef } from "react";
 
 function cx(...classes) {
   return classes.filter(Boolean).join(" ");
 }
 
-export function Button({
+export const Button = forwardRef(function Button({
   children,
   className = "",
   size = "md",
   type = "button",
   variant = "secondary",
   ...props
-}) {
+}, ref) {
   return (
     <button
       className={cx("ui-button", `ui-button--${variant}`, `ui-button--${size}`, className)}
+      ref={ref}
       type={type}
       {...props}
     >
       {children}
     </button>
   );
-}
+});
 
 export function IconButton({ children, className = "", label, type = "button", ...props }) {
   return (
@@ -177,13 +178,25 @@ export function Modal({
   title,
   ...props
 }) {
+  const dialogRef = useRef(null);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    const focusTarget = dialog?.querySelector(
+      "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])",
+    );
+    (focusTarget || dialog)?.focus();
+  }, []);
+
   return (
     <div className={cx("ui-modal-overlay", overlayClassName)} role="presentation">
       <section
         aria-label={title}
         aria-modal="true"
         className={cx("ui-modal", className)}
+        ref={dialogRef}
         role="dialog"
+        tabIndex={-1}
         {...props}
       >
         {children}

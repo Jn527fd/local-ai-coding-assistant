@@ -19,6 +19,7 @@ async function importApiForTest() {
 }
 
 afterEach(() => {
+  document.cookie = "local_ai_csrf=; Max-Age=0; path=/";
   vi.unstubAllGlobals();
 });
 
@@ -69,6 +70,28 @@ describe("api login", () => {
 });
 
 describe("api chat", () => {
+  it("sends the csrf header for cookie-backed unsafe requests", async () => {
+    const calls = [];
+    document.cookie = "local_ai_csrf=test-csrf-token; path=/";
+    vi.stubGlobal("fetch", async (url, options) => {
+      calls.push({ url, options });
+      return jsonResponse({
+        username: "chuy",
+        api_key_configured: true,
+        api_key_active: true,
+      });
+    });
+
+    const { updateApiKey } = await importApiForTest();
+    await updateApiKey("rotated-key");
+
+    expect(calls[0].url).toBe("http://192.168.1.204:8000/account/api-key");
+    expect(calls[0].options.headers["X-CSRF-Token"]).toBe("test-csrf-token");
+    expect(JSON.parse(calls[0].options.body)).toEqual({
+      api_key: "rotated-key",
+    });
+  });
+
   it("sends conversation settings with chat requests", async () => {
     const calls = [];
     vi.stubGlobal("fetch", async (url, options) => {

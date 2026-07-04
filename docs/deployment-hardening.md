@@ -49,6 +49,9 @@ Recommended proxy behavior:
   `DOCUMENT_MAX_UPLOAD_BYTES`.
 - Add upstream timeouts long enough for local model generation.
 - Do not proxy Ollama directly.
+- Keep or add security response headers. The backend already sets
+  `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+  `Referrer-Policy: no-referrer`, and a restrictive `Permissions-Policy`.
 
 Example path groups for a reverse proxy:
 
@@ -73,8 +76,24 @@ Set `SESSION_COOKIE_SECURE=true` only when the app is served over HTTPS. Keep
 it `false` for plain local HTTP development, or browsers will not send the
 session cookie.
 
+Set `SESSION_SIGNING_KEY` to a long random local secret when you want browser
+sessions to survive backend restarts. If the key changes, existing sessions are
+invalidated. Unsafe session-cookie requests require the readable CSRF cookie to
+match the `X-CSRF-Token` header; the bundled frontend sends this automatically.
+
+Login attempts are rate-limited in memory by username and client address.
+Adjust `LOGIN_RATE_LIMIT_ATTEMPTS`, `LOGIN_RATE_LIMIT_WINDOW_SECONDS`, and
+`LOGIN_LOCKOUT_SECONDS` only if trusted local users are being locked out during
+normal use.
+
 Use a strong Bearer API key for normal use. Rotate it before a public demo,
 after screen sharing, and after copying local configuration between machines.
+The Settings panel can generate a replacement local API key, but the user must
+still press **Save key** to activate it.
+
+Auth and API-key changes emit redacted audit log events. These logs include
+action, username, client, and success/failure state, but not passwords or API
+key values.
 
 ## Host and Container Controls
 

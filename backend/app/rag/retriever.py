@@ -35,6 +35,9 @@ class RetrievedChunk:
     end_line: int
     content: str
     score: int
+    language: str | None = None
+    symbol_name: str | None = None
+    symbol_kind: str | None = None
 
 
 def tokenize(text: str) -> set[str]:
@@ -75,6 +78,9 @@ def retrieve_relevant_chunks(
         content = raw_chunk.get("content")
         start_line = raw_chunk.get("start_line")
         end_line = raw_chunk.get("end_line")
+        language = raw_chunk.get("language")
+        symbol_name = raw_chunk.get("symbol_name")
+        symbol_kind = raw_chunk.get("symbol_kind")
 
         if (
             not isinstance(file_path, str)
@@ -97,6 +103,9 @@ def retrieve_relevant_chunks(
                 end_line=end_line,
                 content=content,
                 score=score,
+                language=language if isinstance(language, str) else None,
+                symbol_name=symbol_name if isinstance(symbol_name, str) else None,
+                symbol_kind=symbol_kind if isinstance(symbol_kind, str) else None,
             )
         )
 
@@ -120,9 +129,15 @@ def build_rag_prompt(
 
     context_sections = []
     for chunk in chunks:
+        symbol_context = ""
+        if chunk.symbol_name:
+            symbol_label = chunk.symbol_kind or "symbol"
+            symbol_context = f", {symbol_label}: {chunk.symbol_name}"
+        language_context = f", language: {chunk.language}" if chunk.language else ""
         context_sections.append(
             f"[Source: {chunk.file_path}, lines "
-            f"{chunk.start_line}-{chunk.end_line}]\n{chunk.content}"
+            f"{chunk.start_line}-{chunk.end_line}"
+            f"{language_context}{symbol_context}]\n{chunk.content}"
         )
 
     context = "\n\n---\n\n".join(context_sections)

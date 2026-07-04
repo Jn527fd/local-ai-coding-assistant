@@ -8,6 +8,7 @@ import CommandPalette from "../CommandPalette.jsx";
 import Composer from "../Composer.jsx";
 import NavigationRail from "../NavigationRail.jsx";
 import Workspace from "../Workspace.jsx";
+import { Modal } from "../ui.jsx";
 
 const baseChat = {
   id: "chat-1",
@@ -170,6 +171,10 @@ describe("Workspace / Conversation / Composer", () => {
 
     expect(screen.getByText("Indexing document")).toBeInTheDocument();
     expect(screen.getByText(/45% - Embedding document chunks/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("progressbar", { name: /indexing document 45 percent/i }),
+    ).toHaveAttribute("aria-valuenow", "45");
+    expect(screen.getByRole("status", { name: /document processing status/i })).toBeInTheDocument();
   });
 
   it("allows the document upload file types supported by ingestion v2", () => {
@@ -329,6 +334,8 @@ describe("Workspace / Conversation / Composer", () => {
       name: new RegExp(`open source ${longDocumentName}`, "i"),
     });
 
+    expect(screen.getByRole("list", { name: /sources used/i })).toBeInTheDocument();
+    expect(screen.getByRole("listitem")).toContainElement(sourceButton);
     expect(sourceButton).toHaveTextContent(`Source 1: ${longDocumentName}`);
     expect(sourceButton).toHaveTextContent("R 0.91");
 
@@ -375,6 +382,21 @@ describe("CommandPalette", () => {
   });
 });
 
+describe("Modal accessibility", () => {
+  it("focuses the first actionable control when opened", async () => {
+    render(
+      <Modal title="Delete chat">
+        <button type="button">Cancel</button>
+        <button type="button">Delete</button>
+      </Modal>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /cancel/i })).toHaveFocus();
+    });
+  });
+});
+
 describe("Conversation model settings", () => {
   it("loads mocked Ollama models in per-chat account settings", async () => {
     render(
@@ -403,5 +425,6 @@ describe("Conversation model settings", () => {
     });
     expect(screen.getByText(/llama3.2:3b/i)).toBeInTheDocument();
     expect(screen.getByText("Ollama connected")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /close account and api settings/i })).toHaveFocus();
   });
 });

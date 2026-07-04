@@ -15,6 +15,17 @@ export class ApiError extends Error {
   }
 }
 
+function readCookie(name) {
+  if (typeof document === "undefined" || !document.cookie) {
+    return "";
+  }
+  return document.cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${name}=`))
+    ?.slice(name.length + 1) || "";
+}
+
 function errorMessageFromDetail(detail, status) {
   if (typeof detail === "string" && detail) {
     return detail;
@@ -50,6 +61,13 @@ async function request(
 
   if (apiKey) {
     headers.Authorization = `Bearer ${apiKey}`;
+  }
+
+  if (!["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase())) {
+    const csrfToken = readCookie("local_ai_csrf");
+    if (csrfToken) {
+      headers["X-CSRF-Token"] = decodeURIComponent(csrfToken);
+    }
   }
 
   if (body !== undefined && formData === undefined) {

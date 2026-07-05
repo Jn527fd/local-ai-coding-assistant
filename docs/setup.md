@@ -433,6 +433,19 @@ docker compose up --build --detach
 docker compose ps
 ```
 
+For a production-style local host, use the safer template:
+
+```bash
+python3 scripts/validate_env.py
+docker compose -f docker-compose.prod.yml up --build --detach
+```
+
+`docker-compose.prod.yml` binds the frontend to `127.0.0.1:5173` by default,
+keeps the backend on host networking for local Ollama access, mounts
+repositories read-only, and does not expose Ollama. Set
+`FRONTEND_BIND_ADDRESS` only when a trusted reverse proxy or LAN exposure is
+intentional.
+
 `./data` is mounted at `/app/data`, so credentials, API settings, uploaded
 documents, backend-persisted conversations, the SQLite metadata database,
 repository indexes, and vector indexes persist across container replacement.
@@ -467,6 +480,18 @@ Then rebuild once:
 ```bash
 docker compose up --build --detach
 ```
+
+Before replacing containers on a production-style install, run the upgrade
+helper. It validates local env files and creates a zip archive of `data/`
+before any Compose replacement:
+
+```bash
+python3 scripts/upgrade.py
+python3 scripts/upgrade.py --apply
+```
+
+The first command is a dry run that stops after backup. The `--apply` form runs
+Docker Compose only after validation and backup succeed.
 
 HTTP does not encrypt passwords, cookies, or API keys; use an HTTPS reverse
 proxy before accessing the app across an untrusted network.

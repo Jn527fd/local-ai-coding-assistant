@@ -222,6 +222,13 @@ The backend adds conservative response headers on all routes:
 `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, and
 `Permissions-Policy`.
 
+Diagnostics endpoints are Bearer-key protected and intentionally metadata-only.
+They summarize runtime, model, document, retrieval, vector, and job state
+without prompts, chat messages, document/OCR contents, secrets, session values,
+CSRF values, cookies, or private file paths. The support bundle endpoint wraps
+the same redacted data for local troubleshooting and should still be reviewed
+before sharing.
+
 Session-protected endpoints:
 
 - `/auth/me`

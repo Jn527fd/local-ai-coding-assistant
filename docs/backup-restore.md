@@ -49,6 +49,19 @@ tar --exclude=.git \
 Store the archive somewhere encrypted if it contains credentials, API keys,
 uploaded documents, or private source-derived indexes.
 
+For container upgrades, the scripted helper creates a `data/` zip backup before
+replacing services:
+
+```bash
+python3 scripts/upgrade.py
+```
+
+Re-run with `--apply` only after reviewing validation warnings:
+
+```bash
+python3 scripts/upgrade.py --apply
+```
+
 ## Restore
 
 On the target machine:

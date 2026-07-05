@@ -1334,3 +1334,225 @@ and reason where useful; passwords and API-key values are not logged.
 - [x] Frontend lint and production build pass.
 - [x] Security controls and limitations are documented.
 - [x] Phase 13 was not started.
+
+## Roadmap v2 Phase 13 Observability and Diagnostics
+
+Date: 2026-07-04
+
+Scope:
+
+- Add safe structured diagnostics endpoints for runtime, model, document,
+  retrieval/vector, and job status.
+- Add a metadata-only support-bundle endpoint.
+- Add recursive redaction helpers for secrets, session/cookie/CSRF values,
+  prompts, chat text, document/OCR contents, and private paths.
+- Add a small frontend Diagnostics panel reachable from the existing rail.
+- Do not start Phase 14 packaging/deployment-template work.
+
+### Diagnostics Design
+
+`GET /diagnostics/status` and `GET /diagnostics/support-bundle` are
+Bearer-protected. The status payload reports counts, modes, backend health, and
+recent job state only. The support bundle wraps the same diagnostics with
+redaction metadata. Redaction runs recursively over the returned payload and is
+covered by tests with intentionally sensitive fixture data.
+
+### Environment Notes
+
+- Host shell: Windows PowerShell.
+- Backend test runtime: Python 3.12.13 from `.venv`.
+- Frontend commands used the bundled Node runtime path and local project
+  binaries.
+- Targeted Vitest was blocked by the same sandbox config-read limitation seen
+  in Phase 12; this blocker was recorded once.
+- Docker Compose was blocked by sandboxed access to
+  `C:\Users\naran\.docker\config.json`; this blocker was recorded once.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `.venv\\Scripts\\python.exe -m pytest tests\\test_diagnostics.py tests\\test_health.py tests\\test_jobs.py tests\\test_models.py` | Failed, then passed | Initial runs tightened support-bundle redaction for declaration fields and neutral field names; final run passed with 15 passed. |
+| `.venv\\Scripts\\python.exe -m pytest` | Passed | Full backend suite passed with 159 passed and 7 skipped. Optional OCRmyPDF, live Ollama, Ollama smoke, and local Chroma tests skipped. |
+| `node scripts\\lint-check.mjs` from `frontend/` with bundled Node on PATH | Passed | Lint guard passed for 46 frontend files. |
+| `.\\node_modules\\.bin\\vite.cmd build` from `frontend/` with bundled Node on PATH | Passed | Production build succeeded. |
+| `.\\node_modules\\.bin\\vitest.cmd run src\\__tests__\\app.integration.test.jsx src\\api.test.js` from `frontend/` with bundled Node on PATH | Blocked | Sandboxed run failed to load config due restricted parent-directory access. |
+| `docker compose -f docker-compose.test.yml build backend-test frontend-test` | Blocked | Docker config access was denied in the sandbox: `C:\Users\naran\.docker\config.json: Access is denied.` |
+| `.venv\\Scripts\\python.exe -m compileall backend\\app\\services\\diagnostics.py backend\\app\\services\\redaction.py backend\\app\\routers\\diagnostics.py tests\\test_diagnostics.py` | Passed | New diagnostics service/router/tests compiled successfully. |
+| `git diff --check` | Passed | No whitespace errors; Git reported expected LF-to-CRLF warnings on Windows. |
+
+### Phase 13 Verification Checklist
+
+- [x] Diagnostics endpoints require Bearer API key.
+- [x] Support bundle is metadata-only by default.
+- [x] Redaction strips secrets, tokens, cookies, sessions, CSRF values, prompt
+      and chat content, document/OCR content, and private paths.
+- [x] Runtime/model/document/retrieval/job summaries are structured and bounded.
+- [x] Frontend diagnostics panel builds successfully.
+- [x] Backend targeted and full test suites pass.
+- [x] Documentation and changelog are updated.
+- [x] Phase 14 was not started.
+
+## Roadmap v2 Phase 14 Packaging and Deployment Templates
+
+Date: 2026-07-04
+
+Scope:
+
+- Add a production-style Compose template with safe defaults.
+- Add local deployment environment validation tooling.
+- Add an upgrade helper that validates and backs up `data/` before container
+  replacement.
+- Update setup, deployment, backup, release, README, and changelog docs.
+- Do not start Phase 15 public release candidate QA.
+
+### Packaging Design
+
+`docker-compose.prod.yml` keeps the backend on host networking for local
+Ollama access, binds the frontend to `127.0.0.1:${FRONTEND_PORT:-5173}` by
+default, mounts `./data` as the only mutable application state, and mounts
+repositories read-only at `/repositories`. It does not publish Ollama or map a
+public backend API port.
+
+`scripts/validate_env.py` checks local production readiness without external
+dependencies. `scripts/upgrade.py` runs validation, creates
+`backups/pre-upgrade-data-*.zip` from `data/`, and only runs Docker Compose
+when `--apply` is passed.
+
+Systemd examples were deferred because they would be host-specific and larger
+than the smallest safe Phase 14 slice.
+
+### Environment Notes
+
+- Host shell: Windows PowerShell.
+- Backend test runtime: Python 3.12.13 from `.venv`.
+- The local checkout intentionally lacks production secrets (`.env`,
+  `backend/.env`, and `data/config/credentials.json`), so env validation fails
+  with actionable setup errors in this environment.
+- Docker Compose config validation was blocked by sandboxed access to
+  `C:\Users\naran\.docker\config.json`.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `.venv\\Scripts\\python.exe -m pytest tests\\test_deployment_scripts.py` | Passed | 4 passed. Covered env validation and backup archive creation. |
+| `.venv\\Scripts\\python.exe -m compileall scripts\\validate_env.py scripts\\upgrade.py tests\\test_deployment_scripts.py` | Passed | Scripts and tests compiled successfully. |
+| `.venv\\Scripts\\python.exe scripts\\validate_env.py` | Failed as expected | Reported missing local production `.env`, `backend/.env`, and credentials, plus warnings for empty API/session values. This checkout does not contain secrets. |
+| `.venv\\Scripts\\python.exe -m pytest` | Passed | Full backend suite passed with 163 passed and 7 skipped. Optional OCRmyPDF, live Ollama, Ollama smoke, and local Chroma tests skipped. |
+| `docker compose -f docker-compose.prod.yml config` | Blocked | Docker config access was denied in the sandbox: `C:\Users\naran\.docker\config.json: Access is denied.` |
+
+### Phase 14 Verification Checklist
+
+- [x] Production Compose template does not expose Ollama by default.
+- [x] Production Compose template keeps frontend localhost-bound by default.
+- [x] Env validation reports unsafe or missing deployment configuration clearly.
+- [x] Upgrade helper creates a data backup before Compose replacement.
+- [x] Script tests pass.
+- [x] Full backend suite passes.
+- [x] Documentation and changelog are updated.
+- [x] Phase 15 was not started.
+
+## Roadmap v2 Phase 15 Public Release Candidate QA
+
+Date: 2026-07-04
+
+Scope:
+
+- Freeze scope after Roadmap v2 Phase 14.
+- Audit README, API, setup, backup/restore, deployment hardening, security,
+  changelog, and release checklist docs for current release-candidate claims.
+- Draft release notes for `0.2.0-rc1`.
+- Run available backend, frontend lint/build, script, compile, hygiene, and
+  docs-adjacent checks.
+- Do not create a release tag unless all critical checks pass.
+- Do not start Phase 16 or new roadmap work.
+
+### Release Readiness Notes
+
+The RC is not ready to tag from this environment. Backend tests, frontend lint,
+frontend production build, script tests, compile checks, and whitespace checks
+passed. Frontend Vitest and Docker/Compose validation were blocked by sandbox
+access restrictions. Production env validation correctly failed because this
+checkout does not include local secrets or credentials.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `.venv\\Scripts\\python.exe -m pytest tests\\test_deployment_scripts.py tests\\test_diagnostics.py tests\\test_login.py tests\\test_account.py` | Passed | 17 passed. Covered deployment scripts, diagnostics, login, and account security tests. |
+| `.venv\\Scripts\\python.exe -m compileall backend\\app scripts tests\\test_deployment_scripts.py tests\\test_diagnostics.py` | Passed | Backend app, scripts, and targeted tests compiled successfully. |
+| `git ls-files -ci --exclude-standard` | Passed | No tracked ignored files were reported. |
+| `rg -n "coming soon\|not implemented\|future upload\|backend does not persist\|Conversations live in browser localStorage\|external vector database backends are not wired\|not wired yet\|TODO\|FIXME" README.md docs CHANGELOG.md SECURITY.md` | Passed | Remaining matches are accurate limitations or historical verification-log/roadmap text. |
+| `.venv\\Scripts\\python.exe -m pytest` | Passed | Full backend suite passed with 163 passed and 7 skipped. Optional OCRmyPDF, live Ollama, Ollama smoke, and local Chroma tests skipped. |
+| `node scripts\\lint-check.mjs` from `frontend/` with bundled Node on PATH | Passed | Lint guard passed for 46 frontend files. |
+| `.\\node_modules\\.bin\\vite.cmd build` from `frontend/` with bundled Node on PATH | Passed | Production build succeeded. |
+| `.venv\\Scripts\\python.exe scripts\\validate_env.py` | Failed as expected | Reported missing local production `.env`, `backend/.env`, and credentials, plus warnings for empty API/session values. This checkout does not contain secrets. |
+| `git diff --check` | Passed | No whitespace errors; Git reported expected LF-to-CRLF warnings on Windows. |
+| `.\\node_modules\\.bin\\vitest.cmd run` from `frontend/` with bundled Node on PATH | Blocked | Sandboxed run failed to load config due restricted parent-directory access. |
+| `docker compose -f docker-compose.prod.yml config` | Blocked | Docker config access was denied in the sandbox: `C:\Users\naran\.docker\config.json: Access is denied.` |
+| `Test-Path docs\\assets\\login-preview.png; Test-Path docs\\assets\\dashboard-preview.png` | Passed | Both screenshot assets exist. |
+| `git tag --list` | Passed | No existing local tags were listed; no tag was created. |
+
+### Phase 15 Verification Checklist
+
+- [x] Scope frozen for Phase 15.
+- [x] README/docs/API/security/setup/backup/deployment docs audited.
+- [x] Changelog updated with RC status.
+- [x] Release notes drafted.
+- [x] Backend full test suite passed.
+- [x] Frontend lint and production build passed.
+- [x] Script/config tests passed.
+- [x] `git diff --check` passed.
+- [x] Screenshot references exist.
+- [x] Release blockers and deferred checks documented.
+- [x] No release tag was created.
+- [x] Phase 16/new roadmap work was not started.
+
+## Roadmap v2 Phase 16 Stable v2 Release and Post-RC Stabilization
+
+Date: 2026-07-05
+
+Scope:
+
+- Review Phase 15 verification, release checklist, changelog, README, setup,
+  deployment hardening, security, and backup docs.
+- Prepare stable v2 release notes without adding new feature work.
+- Add support and hotfix guidance.
+- Re-run release verification available in this environment.
+- Do not start Phase 17 or new feature work.
+
+### Release Status
+
+Stable v2 is not tagged from this environment. The remaining blockers are
+environmental or manual release gates: frontend Vitest in a non-sandboxed
+frontend environment, Docker/Compose validation with readable Docker config,
+target-machine production env validation, manual browser smoke, and optional
+live Ollama smoke.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `.venv\\Scripts\\python.exe -m pytest tests\\test_deployment_scripts.py tests\\test_diagnostics.py tests\\test_login.py tests\\test_account.py` | Passed | 17 passed. Covered deployment scripts, diagnostics, login, and account/security behavior. |
+| `.venv\\Scripts\\python.exe -m pytest` | Passed | Full backend suite passed with 163 passed and 7 skipped. Optional OCRmyPDF, live Ollama, Ollama smoke, and local Chroma tests skipped. |
+| `node scripts\\lint-check.mjs` from `frontend/` with bundled Node on PATH | Passed | Lint guard passed for 46 frontend files. |
+| `.\\node_modules\\.bin\\vite.cmd build` from `frontend/` with bundled Node on PATH | Passed | Production build succeeded. |
+| `.venv\\Scripts\\python.exe scripts\\validate_env.py` | Failed as expected | Reported missing local production `.env`, `backend/.env`, and credentials, plus warnings for empty API/session values. This checkout does not contain secrets. |
+| `git diff --check` | Passed | No whitespace errors; Git reported expected LF-to-CRLF warnings on Windows. |
+| `git tag --list` | Passed | No existing local tags were listed; no tag was created. |
+| `docker compose -f docker-compose.prod.yml config` | Blocked | Docker config access was denied in the sandbox: `C:\Users\naran\.docker\config.json: Access is denied.` |
+
+### Phase 16 Verification Checklist
+
+- [x] Phase 15 verification log and release checklist reviewed.
+- [x] README, setup, deployment hardening, security, and backup docs reviewed.
+- [x] Stable v2 release notes prepared.
+- [x] Support and hotfix guidance added.
+- [x] Backend full test suite passed.
+- [x] Frontend lint and production build passed.
+- [x] Deployment script tests passed.
+- [x] `git diff --check` passed.
+- [x] Remaining release blockers documented.
+- [x] No release tag was created.
+- [x] Phase 17/new feature work was not started.

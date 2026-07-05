@@ -95,6 +95,18 @@ describe("main app integration", () => {
     );
   });
 
+  it("opens diagnostics from the rail", async () => {
+    const user = userEvent.setup();
+    await renderAuthenticatedApp();
+
+    await user.click(screen.getByRole("button", { name: /^diagnostics$/i }));
+
+    expect(await screen.findByRole("region", { name: /diagnostics/i })).toBeInTheDocument();
+    expect(screen.getByText("Runtime overview")).toBeInTheDocument();
+    expect(screen.getByText("qwen3:4b")).toBeInTheDocument();
+    expect(screen.getByText("document_index: 1")).toBeInTheDocument();
+  });
+
   it("keeps browser storage by default and migrates when explicitly requested", async () => {
     let importBody = null;
     server.use(

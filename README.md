@@ -350,6 +350,17 @@ docker compose up --build --detach
 docker compose ps
 ```
 
+For production-style local hosting, validate env files and use the safer
+template that binds the frontend to localhost by default:
+
+```bash
+python3 scripts/validate_env.py
+docker compose -f docker-compose.prod.yml up --build --detach
+```
+
+Before replacing containers, run `python3 scripts/upgrade.py` to create a
+pre-upgrade `data/` backup, then rerun with `--apply` when ready.
+
 Both services should eventually report as healthy. Useful lifecycle commands:
 
 ```bash
@@ -723,8 +734,10 @@ priority items are:
 - [Backup and restore](docs/backup-restore.md)
 - [Dependency and security review](docs/dependency-security.md)
 - [Release checklist](docs/release-checklist.md)
+- [Support and hotfix guidance](docs/support.md)
 - [Security policy](SECURITY.md)
 - [Changelog](CHANGELOG.md)
+- [Release notes: 0.2.0 stable v2](docs/release-notes-0.2.0.md)
 - [Roadmap v2](roadmap_v2.md)
 - [Feature ideas v2](feature_ideas_v2.md)
 
@@ -733,6 +746,8 @@ priority items are:
 This project is under continuous development. Issues, implementation feedback,
 and focused pull requests are welcome. Please avoid committing secrets,
 generated indexes, local model files, or machine-specific configuration.
+For issue triage and hotfix expectations, see
+[docs/support.md](docs/support.md).
 
 ## License
 

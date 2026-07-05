@@ -38,6 +38,11 @@ automation is added.
   unsafe session-cookie requests, optional signed session cookies, login
   rate-limiting, backend security headers, redacted audit logs, and API-key
   rotation UX.
+- Metadata-only diagnostics and redacted support-bundle export for runtime,
+  model, document, retrieval, vector, and job troubleshooting, plus a small
+  frontend diagnostics panel.
+- Production deployment template, environment validation tooling, and a
+  backup-before-upgrade helper for safer self-hosted container replacement.
 
 ### Release Candidate Checklist
 
@@ -45,6 +50,15 @@ automation is added.
 - [x] Setup docs aligned with the JSON default and optional Chroma adapter.
 - [x] Example configuration files reviewed for placeholders, empty secrets, and
   trusted-network defaults.
+- [x] Release candidate notes drafted in `docs/release-notes-0.2.0-rc1.md`.
+- [x] Stable v2 release notes drafted in `docs/release-notes-0.2.0.md`.
+- [x] Support and hotfix guidance added in `docs/support.md`.
+- [x] Local backend, frontend lint/build, script tests, compile checks, and
+  docs/security/deployment audit completed for RC QA.
+- [ ] Frontend Vitest and Docker verification pending on a non-sandboxed
+  machine.
+- [ ] Manual browser smoke, optional live Ollama smoke, and target-machine env
+  validation pending.
 - [ ] Final release tag and release date pending after full release-candidate
   verification.
 

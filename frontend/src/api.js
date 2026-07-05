@@ -161,6 +161,14 @@ export function getModelStatus() {
   return request("/models/status");
 }
 
+export function getDiagnosticsStatus(apiKey) {
+  return request("/diagnostics/status", { apiKey });
+}
+
+export function getSupportBundle(apiKey) {
+  return request("/diagnostics/support-bundle", { apiKey });
+}
+
 function buildChatRequestBody(
   message,
   history = [],

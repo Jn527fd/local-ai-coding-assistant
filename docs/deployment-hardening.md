@@ -33,6 +33,18 @@ For Docker Compose, keep the default model:
 - `./data` is the only persistent mutable application state mounted into the
   backend.
 
+Use `docker-compose.prod.yml` for production-style local deployments:
+
+```bash
+python3 scripts/validate_env.py
+docker compose -f docker-compose.prod.yml up --build --detach
+```
+
+The production template binds the frontend to `127.0.0.1:${FRONTEND_PORT:-5173}`
+by default, keeps the backend off public port mappings, mounts repositories
+read-only at `/repositories`, and does not publish Ollama. Put an HTTPS reverse
+proxy in front of the frontend when remote access is required.
+
 ## HTTPS Reverse Proxy
 
 Use HTTPS before sending passwords, cookies, or Bearer API keys across an
@@ -94,6 +106,31 @@ still press **Save key** to activate it.
 Auth and API-key changes emit redacted audit log events. These logs include
 action, username, client, and success/failure state, but not passwords or API
 key values.
+
+Diagnostics and support bundles are available behind the Bearer API key. They
+are metadata-only and redacted by default, but operators should still inspect
+`local-ai-support-bundle.json` before sharing it outside the trusted team.
+
+## Upgrade Flow
+
+Run the upgrade helper before replacing containers:
+
+```bash
+python3 scripts/upgrade.py
+python3 scripts/upgrade.py --apply
+```
+
+The helper validates `.env`, `backend/.env`, and local credential presence,
+then creates `backups/pre-upgrade-data-*.zip` from `data/`. Without `--apply`,
+it stops after backup. With `--apply`, it runs:
+
+```bash
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up --build --detach
+```
+
+If validation fails, no backup or container replacement is attempted. If Docker
+Compose fails after backup, keep the archive and inspect logs before retrying.
 
 ## Host and Container Controls
 

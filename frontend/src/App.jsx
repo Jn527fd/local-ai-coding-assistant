@@ -26,6 +26,7 @@ import AccountPanel from "./components/AccountPanel.jsx";
 import AppLayout from "./components/AppLayout.jsx";
 import CommandPalette from "./components/CommandPalette.jsx";
 import Composer from "./components/Composer.jsx";
+import DiagnosticsPanel from "./components/DiagnosticsPanel.jsx";
 import LoginPage from "./components/LoginPage.jsx";
 import NavigationRail from "./components/NavigationRail.jsx";
 import Workspace from "./components/Workspace.jsx";
@@ -662,7 +663,7 @@ function App() {
     </div>
   ) : null;
 
-  const composer = (
+  const composer = currentSection === "diagnostics" ? null : (
     <Composer
       activeChat={activeChat}
       composerRef={composerRef}
@@ -794,7 +795,10 @@ function App() {
       navigation={navigation}
       toast={toastNode}
     >
-      <Workspace
+      {currentSection === "diagnostics" ? (
+        <DiagnosticsPanel apiKey={apiKey} />
+      ) : (
+        <Workspace
           activeChat={activeChat}
           error={chatError}
           isSending={sendingChatId === activeChatId}
@@ -804,6 +808,7 @@ function App() {
           onOpenSourceDetails={handleOpenSourceDetails}
           onRenameChat={handleRenameChat}
         />
+      )}
     </AppLayout>
   );
 }

@@ -32,6 +32,10 @@ for auth/settings changes, and Bearer-key protection for AI/data endpoints.
 These controls improve trusted-network safety but do not make the app a public
 multi-tenant service.
 
+Diagnostics and support-bundle exports are metadata-only by default and redact
+secrets, session material, CSRF values, prompts, chat text, document/OCR
+contents, and private paths. Review any exported bundle before sharing it.
+
 ## Sensitive Data
 
 The following files and directories can contain private data and must remain
@@ -55,6 +59,9 @@ or private source code in a public issue.
 If the repository hosting platform provides private vulnerability reporting,
 use that first. Otherwise, open a minimal issue describing the affected area
 without sensitive data and ask for a private disclosure channel.
+
+For non-security bugs, release support notes, and hotfix workflow guidance, see
+[Support and hotfix guidance](docs/support.md).
 
 ## Before Broader Deployment
 

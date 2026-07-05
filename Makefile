@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: docker-build docker-down docker-logs docker-up help install-backend install-dev install-frontend run-backend run-frontend setup setup-ollama-smoke smoke smoke-docker start status test test-backend test-backend-docker test-docker test-frontend test-frontend-docker test-ollama test-ollama-smoke
+.PHONY: docker-build docker-down docker-logs docker-up help install-backend install-dev install-frontend run-backend run-frontend setup setup-ollama-smoke smoke smoke-docker start status test test-backend test-backend-docker test-docker test-frontend test-frontend-docker test-ollama test-ollama-smoke upgrade validate-env
 
 help: ## Show available commands
 	@echo "Local AI Coding Assistant"
@@ -27,6 +27,8 @@ help: ## Show available commands
 	@echo "  make docker-up         Build and start the Compose services"
 	@echo "  make docker-down       Stop and remove the Compose services"
 	@echo "  make docker-logs       Follow Compose service logs"
+	@echo "  make validate-env      Validate local deployment env files"
+	@echo "  make upgrade           Back up data before a dry-run production upgrade"
 	@echo "  make status            Show the current implementation phase"
 
 install-backend: ## Install backend dependencies
@@ -87,6 +89,12 @@ smoke-docker: ## Run quick Docker smoke checks
 	docker compose -f docker-compose.test.yml run --rm backend-test python -m pytest tests/test_health.py tests/test_component_capabilities.py
 	docker compose -f docker-compose.test.yml run --rm frontend-test npm run lint
 	docker compose -f docker-compose.test.yml down --remove-orphans
+
+validate-env: ## Validate local deployment env files
+	python3 scripts/validate_env.py
+
+upgrade: ## Validate env and back up data before a dry-run production upgrade
+	python3 scripts/upgrade.py
 
 test-ollama: ## Run optional live Ollama tests
 	RUN_OLLAMA_TESTS=1 python3 -m pytest -m ollama

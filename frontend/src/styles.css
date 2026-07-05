@@ -8382,6 +8382,29 @@ textarea:disabled,
   -webkit-line-clamp: 3 !important;
 }
 
+.diagnostics-panel {
+  width: min(100%, 1100px);
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.diagnostics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.diagnostics-card {
+  min-width: 0;
+}
+
+.diagnostics-card h3 {
+  margin: 0 0 10px;
+  color: var(--color-text-soft);
+  font-size: 0.96rem;
+}
+
 @media (max-width: 760px) {
   .composer-region {
     width: min(100%, calc(100vw - 24px)) !important;

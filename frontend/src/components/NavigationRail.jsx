@@ -15,6 +15,7 @@ function Icon({ name }) {
   const paths = {
     app: "M12 3.5 19.5 8v8L12 20.5 4.5 16V8L12 3.5Zm-4.5 6.1L12 12.2l4.5-2.6M12 12.2v5.1",
     ask: "M5 6.75A3.75 3.75 0 0 1 8.75 3h6.5A3.75 3.75 0 0 1 19 6.75v4.5A3.75 3.75 0 0 1 15.25 15H12l-4.5 4v-4A3.75 3.75 0 0 1 4 11.25v-4.5Z",
+    diagnostics: "M4 19.25h16M6.5 16V9.5M12 16V4.75M17.5 16v-8",
     menu: "M4.75 7.25h14.5M4.75 12h14.5M4.75 16.75h14.5",
     search: "m20 20-4.35-4.35M18 10.5a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z",
     plus: "M12 5v14M5 12h14",
@@ -225,6 +226,11 @@ function NavigationRail({
     onCloseDrawer();
   }
 
+  function openDiagnostics() {
+    onSelectSection("diagnostics");
+    onCloseDrawer();
+  }
+
   return (
     <>
       <aside aria-label="Primary navigation" className="navigation-rail navigation-rail--icon-only">
@@ -241,6 +247,13 @@ function NavigationRail({
           <div className="navigation-rail__spacer" />
 
           <div className="rail-icon-stack rail-icon-stack--bottom">
+            <RailIconButton
+              active={currentSection === "diagnostics"}
+              label="Diagnostics"
+              onClick={openDiagnostics}
+            >
+              <Icon name="diagnostics" />
+            </RailIconButton>
             <RailIconButton active={currentSection === "settings"} label="Settings" onClick={openSettings}>
               <Icon name="settings" />
             </RailIconButton>

@@ -59,6 +59,8 @@ The app uses two local authentication mechanisms:
 | `GET` | `/vectorstores/collections/export` | Bearer key | Export one vector collection as a portable JSON payload |
 | `POST` | `/vectorstores/collections/import` | Bearer key | Import a portable vector collection payload |
 | `POST` | `/vectorstores/collections/migrate` | Bearer key | Copy a collection from one available vector backend to another |
+| `GET` | `/diagnostics/status` | Bearer key | Return redacted runtime/model/document/retrieval/job diagnostics |
+| `GET` | `/diagnostics/support-bundle` | Bearer key | Export a redacted metadata-only support bundle |
 | `GET` | `/jobs` | Bearer key | List recent local background jobs |
 | `GET` | `/jobs/{job_id}` | Bearer key | Read local job status, progress, result, or error |
 | `POST` | `/jobs/{job_id}/cancel` | Bearer key | Request conservative cancellation for a local job |
@@ -513,6 +515,29 @@ curl -X POST http://localhost:8000/vectorstores/collections/migrate \
 The portable export format is intended for local backup and adapter migration.
 If a requested optional backend is unavailable, migration/import falls back to
 JSON and reports `fallbackUsed: true`.
+
+## Diagnostics
+
+Diagnostics endpoints are Bearer-key protected and return metadata only. They
+are intended for local troubleshooting, not public telemetry.
+
+```bash
+curl -H "Authorization: Bearer $API_KEY" \
+  http://localhost:8000/diagnostics/status
+
+curl -H "Authorization: Bearer $API_KEY" \
+  http://localhost:8000/diagnostics/support-bundle
+```
+
+`/diagnostics/status` summarizes runtime configuration, model/Ollama status,
+document counts, retrieval/vector backend status, and recent job states.
+`/diagnostics/support-bundle` wraps that status with redaction metadata and is
+safe by default for sharing with maintainers after review.
+
+Diagnostics and support bundles exclude secrets, bearer values, cookies,
+session identifiers, CSRF values, prompts, chat text, document/OCR contents,
+and private file paths. Failure messages are redacted recursively before being
+returned.
 
 ## RAG, Reranking, and Compression
 

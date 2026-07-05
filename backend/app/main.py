@@ -25,6 +25,7 @@ from app.routers.chat import router as chat_router
 from app.routers.components import router as components_router
 from app.routers.conversations import router as conversations_router
 from app.routers.documents import router as documents_router
+from app.routers.diagnostics import router as diagnostics_router
 from app.routers.health import router as health_router
 from app.routers.jobs import router as jobs_router
 from app.routers.models import router as models_router
@@ -33,6 +34,7 @@ from app.routers.vectorstores import router as vectorstores_router
 from app.services.component_registry import ComponentRegistry
 from app.services.conversation_service import ConversationPersistenceService
 from app.services.document_service import DocumentService
+from app.services.diagnostics import DiagnosticsService
 from app.services.job_service import JobService
 from app.services.local_settings_service import LocalSettingsService
 from app.services.model_manager import ModelManager
@@ -129,6 +131,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     context_compression_manager = ContextCompressionManager(
         llm_provider=llm_provider,
     )
+    diagnostics_service = DiagnosticsService(
+        settings=app_settings,
+        document_service=document_service,
+        job_service=job_service,
+        model_manager=model_manager,
+        vector_store_manager=vector_store_manager,
+    )
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
@@ -161,6 +170,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.state.reranker_provider = reranker_provider
         application.state.retrieval_pipeline = retrieval_pipeline
         application.state.context_compression_manager = context_compression_manager
+        application.state.diagnostics_service = diagnostics_service
         try:
             yield
         finally:
@@ -196,6 +206,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.reranker_provider = reranker_provider
     application.state.retrieval_pipeline = retrieval_pipeline
     application.state.context_compression_manager = context_compression_manager
+    application.state.diagnostics_service = diagnostics_service
 
     application.add_middleware(
         CORSMiddleware,
@@ -215,6 +226,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(conversations_router)
     application.include_router(jobs_router)
     application.include_router(documents_router)
+    application.include_router(diagnostics_router)
     application.include_router(vectorstores_router)
     application.include_router(chat_router)
     application.include_router(repos_router)

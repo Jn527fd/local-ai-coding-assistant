@@ -264,6 +264,52 @@ export const runtimeOnlineHandlers = [
   http.get(`${API_BASE_URL}/components/capabilities`, () =>
     HttpResponse.json(componentCapabilities()),
   ),
+  http.get(`${API_BASE_URL}/diagnostics/status`, () =>
+    HttpResponse.json({
+      runtime: {
+        appVersion: "0.1.0",
+        environment: "test",
+        persistentLoginConfigured: false,
+        vectorStoreBackend: "json",
+      },
+      models: {
+        ollamaConnected: true,
+        activeModel: "qwen3:4b",
+        installedModelCount: 1,
+        phase: "idle",
+      },
+      documents: {
+        documentCount: 2,
+        conversationCount: 1,
+        chunkCount: 6,
+        warningCount: 0,
+      },
+      retrieval: {
+        selectedBackend: "json",
+        fallbackUsed: false,
+        ragTopK: 5,
+        ragCandidateK: 20,
+      },
+      jobs: {
+        recentJobCount: 1,
+        stateCounts: { succeeded: 1 },
+        typeCounts: { document_index: 1 },
+        latestFailures: [],
+      },
+    }),
+  ),
+  http.get(`${API_BASE_URL}/diagnostics/support-bundle`, () =>
+    HttpResponse.json({
+      bundleVersion: 1,
+      redaction: {
+        mode: "metadata-only",
+        contentIncluded: false,
+        secretsIncluded: false,
+        privatePathsIncluded: false,
+      },
+      diagnostics: {},
+    }),
+  ),
   http.get(`${API_BASE_URL}/conversations`, () =>
     HttpResponse.json({
       persistence: "backend",

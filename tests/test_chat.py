@@ -8,10 +8,12 @@ from fastapi.testclient import TestClient
 
 from app.ai.components import Chunk, ComponentUnavailableError
 from app.ai.execution_context import AISettingsResolver
+from app.ai.ocr import OCRResult
 from app.ai.rerankers import RerankResult
 from app.ai.vectorstores import JsonVectorStore, VectorStoreError
 from app.routers.chat import get_ollama_service
 from app.services.component_registry import CAPABILITY_KEYS
+from app.services.document_service import DocumentService
 from app.services.ollama_service import InstalledOllamaModel
 
 
@@ -132,6 +134,18 @@ class FakeRerankerProvider:
             )
         scored.sort(key=lambda item: item.rerank_score or 0.0, reverse=True)
         return RerankResult(sources=scored, warnings=[])
+
+
+class FakePDFOCREngine:
+    engine_id = "ocrmypdf"
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.calls: list[Path] = []
+
+    def extract_pdf_text(self, file_path: Path, settings: dict[str, object]) -> OCRResult:
+        self.calls.append(file_path)
+        return OCRResult(text=self.text, warnings=[], metadata={})
 
 
 class FakeStreamingLLMProvider:
@@ -372,14 +386,30 @@ def vector_index_path(
     )
 
 
-def pdf_bytes(text: str) -> bytes:
+def pdf_bytes(text: str | list[str]) -> bytes:
+    import fitz
+
+    document = fitz.open()
+    try:
+        page_texts = text if isinstance(text, list) else [text]
+        for page_text in page_texts:
+            page = document.new_page()
+            if page_text:
+                page.insert_text((72, 72), page_text)
+        return bytes(document.write())
+    finally:
+        document.close()
+
+
+def image_like_pdf_bytes(embedded_text: str = "Name") -> bytes:
     import fitz
 
     document = fitz.open()
     try:
         page = document.new_page()
-        if text:
-            page.insert_text((72, 72), text)
+        page.draw_rect(fitz.Rect(72, 90, 460, 250), fill=(0.9, 0.9, 0.9))
+        if embedded_text:
+            page.insert_text((72, 72), embedded_text)
         return bytes(document.write())
     finally:
         document.close()
@@ -400,7 +430,10 @@ def pdf_chat_settings() -> dict[str, str]:
 def chat_capabilities_with_pdf() -> dict[str, list[dict[str, object]]]:
     capabilities = chat_capabilities()
     capabilities["pdfParsers"] = [capability("pdfplumber", "pdfParser")]
-    capabilities["ocrEngines"] = [capability("none", "ocrEngine")]
+    capabilities["ocrEngines"] = [
+        capability("none", "ocrEngine"),
+        capability("ocrmypdf", "ocrEngine"),
+    ]
     return capabilities
 
 
@@ -1294,6 +1327,269 @@ def test_document_followup_reuses_indexed_pdf_context_without_reattaching(
     assert "Junior Software Engineer AI-Native Development Program" in payload["answer"]
     assert "attach" not in payload["answer"].lower()
     assert "Retrieval mode: semantic_rag" in fake_ollama.calls[0][1]
+
+
+def test_broad_attached_short_pdf_includes_all_chunks(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService()
+    fake_embedder = configure_chat_rag_tests(
+        app,
+        tmp_path,
+        capabilities=chat_capabilities_with_pdf(),
+    )
+    app.state.document_service.chunk_size = 120
+    settings = pdf_chat_settings()
+    first_page = (
+        "Page one says Certificate A covers Claude 101 fundamentals and "
+        "practical prompting."
+    )
+    second_page = (
+        "Page two says Certificate B covers AI Fluency Framework and "
+        "Foundations."
+    )
+    document_id = upload_process_index_pdf(
+        client,
+        auth_headers,
+        "conversation-a",
+        "certificates.pdf",
+        pdf_bytes([first_page, second_page]),
+        settings,
+    )
+    embed_calls_after_indexing = list(fake_embedder.calls)
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        response = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "conversationId": "conversation-a",
+                "message": "What does this document contain?",
+                "attachmentDocumentIds": [document_id],
+                "ragOptions": {"enabled": True, "includeSources": True},
+                "conversationSettings": settings,
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert len(payload["sources"]) >= 2
+    prompt = fake_ollama.calls[0][1]
+    assert first_page in prompt
+    assert second_page in prompt
+    assert fake_embedder.calls == embed_calls_after_indexing
+
+
+def test_document_context_does_not_show_truncated_marker_to_model(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService()
+    configure_chat_rag_tests(app, tmp_path)
+    document_id = "9" * 32
+    seed_processed_document_metadata(
+        app,
+        "conversation-a",
+        document_id,
+        filename="large-certificate.txt",
+    )
+    seed_vector_index(
+        app,
+        "conversation-a",
+        document_id=document_id,
+        chunk_texts=[
+            "certificate details " + ("clean excerpt text " * 600),
+        ],
+        chunk_metadata=[{"documentName": "large-certificate.txt"}],
+    )
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        response = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "conversationId": "conversation-a",
+                "message": "What certificate details are in this document?",
+                "attachmentDocumentIds": [document_id],
+                "ragOptions": {"enabled": True, "includeSources": True},
+                "conversationSettings": {
+                    "embedderModel": "embed-a",
+                    "ragPipeline": "basic",
+                    "vectorDatabase": "chroma",
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200, response.text
+    prompt = fake_ollama.calls[0][1]
+    document_context = prompt.split("<document_context>", 1)[1].split(
+        "</document_context>",
+        1,
+    )[0]
+    assert "truncated" not in document_context.lower()
+
+
+def test_document_context_refusal_about_full_text_is_repaired(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService(
+        chat_response="I would need access to the full text to answer."
+    )
+    configure_chat_rag_tests(app, tmp_path)
+    document_id = "c" * 32
+    seed_processed_document_metadata(
+        app,
+        "conversation-a",
+        document_id,
+        filename="certificate.txt",
+    )
+    seed_vector_index(
+        app,
+        "conversation-a",
+        document_id=document_id,
+        chunk_texts=["certificate says Claude 101 completion"],
+        chunk_metadata=[{"documentName": "certificate.txt"}],
+    )
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        response = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "conversationId": "conversation-a",
+                "message": "What certificate is mentioned?",
+                "attachmentDocumentIds": [document_id],
+                "ragOptions": {"enabled": True, "includeSources": True},
+                "conversationSettings": {
+                    "embedderModel": "embed-a",
+                    "ragPipeline": "basic",
+                    "vectorDatabase": "chroma",
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200, response.text
+    answer = response.json()["answer"]
+    assert "Claude 101 completion" in answer
+    assert "full text" not in answer.lower()
+
+
+def test_image_based_pdf_without_ocr_reports_limited_embedded_text(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService(chat_response="The PDF includes the name Jesus.")
+    configure_chat_rag_tests(app, tmp_path, capabilities=chat_capabilities_with_pdf())
+    settings = pdf_chat_settings()
+    document_id = upload_process_index_pdf(
+        client,
+        auth_headers,
+        "conversation-a",
+        "certificates.pdf",
+        image_like_pdf_bytes("Jesus"),
+        settings,
+    )
+    metadata = app.state.document_service.get_document("conversation-a", document_id)
+    diagnostics = metadata["extractionDiagnostics"]
+    assert diagnostics["ocrNeeded"] is True
+    assert diagnostics["likelyImageBased"] is True
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        response = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "conversationId": "conversation-a",
+                "message": "What is in this document?",
+                "attachmentDocumentIds": [document_id],
+                "ragOptions": {"enabled": True, "includeSources": True},
+                "conversationSettings": settings,
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200, response.text
+    assert response.json()["answer"].startswith(
+        "I found the uploaded PDF, but most of its content appears to be "
+        "image-based and OCR is not available"
+    )
+
+
+def test_ocr_text_from_low_text_pdf_is_indexed_and_answerable(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService(
+        chat_response="I would need access to the full text to answer."
+    )
+    fake_ocr = FakePDFOCREngine(
+        "Claude 101\nAI Fluency: Framework & Foundations"
+    )
+    configure_chat_rag_tests(app, tmp_path, capabilities=chat_capabilities_with_pdf())
+    app.state.document_service = DocumentService(
+        upload_directory=tmp_path / "uploads",
+        max_upload_bytes=1024 * 1024,
+        chunk_size=2000,
+        ocr_engines={"ocrmypdf": fake_ocr},
+    )
+    settings = {
+        **pdf_chat_settings(),
+        "ocrEngine": "ocrmypdf",
+    }
+    document_id = upload_process_index_pdf(
+        client,
+        auth_headers,
+        "conversation-a",
+        "certificates.pdf",
+        image_like_pdf_bytes("Jesus"),
+        settings,
+    )
+    assert fake_ocr.calls
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        response = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "conversationId": "conversation-a",
+                "message": "What certificates are in this file?",
+                "attachmentDocumentIds": [document_id],
+                "ragOptions": {"enabled": True, "includeSources": True},
+                "conversationSettings": settings,
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert "Claude 101" in payload["answer"]
+    assert "AI Fluency: Framework & Foundations" in payload["answer"]
+    assert "Claude 101" in payload["sources"][0]["textPreview"]
 
 
 def test_empty_pdf_without_ocr_reports_clear_processing_failure(

@@ -8,6 +8,7 @@ import hashlib
 import io
 import importlib
 import json
+import logging
 from pathlib import Path
 import re
 import uuid
@@ -24,6 +25,8 @@ from app.ai.ocr import (
 from app.ai.execution_context import AIExecutionContext
 from app.schemas.chat import ConversationSettings
 
+logger = logging.getLogger(__name__)
+
 ALLOWED_DOCUMENT_EXTENSIONS = {
     ".txt",
     ".md",
@@ -38,6 +41,7 @@ CONVERSATION_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,100}$")
 DOCX_CONTENT_TYPE = (
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 )
+LOW_TEXT_PDF_PAGE_CHARS = 40
 
 
 class DocumentServiceError(Exception):
@@ -440,9 +444,9 @@ class DocumentService:
             )
 
         if parser == "pymupdf":
-            text = self._extract_with_pymupdf(file_path)
+            page_texts = self._extract_with_pymupdf_pages(file_path)
         elif parser == "pdfplumber":
-            text = self._extract_with_pdfplumber(file_path)
+            page_texts = self._extract_with_pdfplumber_pages(file_path)
         elif parser == "docling":
             raise DocumentValidationError(
                 "Docling is discoverable but no PDF extraction adapter is "
@@ -453,10 +457,69 @@ class DocumentService:
                 f"PDF parser '{parser}' is not supported by the document service."
             )
 
-        if len(text.strip()) < 20 and execution_context.resolved_ocr_engine != "none":
+        page_diagnostics: list[dict[str, Any]] = []
+        low_text_pages = 0
+        for index, page_text in enumerate(page_texts, start=1):
+            char_count = len(page_text.strip())
+            likely_image_based = char_count < LOW_TEXT_PDF_PAGE_CHARS
+            if likely_image_based:
+                low_text_pages += 1
+            page_diagnostics.append(
+                {
+                    "pageNumber": index,
+                    "extractedCharCount": char_count,
+                    "ocrAttempted": False,
+                    "ocrCharCount": 0,
+                    "likelyImageBased": likely_image_based,
+                }
+            )
+            logger.info(
+                (
+                    "PDF page extraction document=%s page=%d "
+                    "extracted_chars=%d ocr_attempted=%s ocr_chars=%d "
+                    "likely_image_based=%s"
+                ),
+                file_path.name,
+                index,
+                char_count,
+                False,
+                0,
+                likely_image_based,
+            )
+
+        text = "\n".join(page_texts)
+        image_based = bool(page_diagnostics) and low_text_pages > 0
+        if image_based and execution_context.resolved_ocr_engine == "none":
+            warnings.append(
+                (
+                    "PDF appears image-based or has low embedded text on "
+                    f"{low_text_pages} page(s); OCR is not available, so only "
+                    "limited embedded text was extracted."
+                )
+            )
+
+        if image_based and execution_context.resolved_ocr_engine != "none":
             try:
                 ocr_text, ocr_warnings = self._run_ocr(file_path, execution_context)
                 warnings.extend(ocr_warnings)
+                ocr_char_count = len(ocr_text.strip())
+                for page in page_diagnostics:
+                    if page["likelyImageBased"]:
+                        page["ocrAttempted"] = True
+                        page["ocrCharCount"] = ocr_char_count
+                        logger.info(
+                            (
+                                "PDF page extraction document=%s page=%d "
+                                "extracted_chars=%d ocr_attempted=%s "
+                                "ocr_chars=%d likely_image_based=%s"
+                            ),
+                            file_path.name,
+                            page["pageNumber"],
+                            page["extractedCharCount"],
+                            True,
+                            ocr_char_count,
+                            page["likelyImageBased"],
+                        )
                 if ocr_text.strip():
                     text = ocr_text
             except (OCREngineError, DocumentServiceError) as exc:
@@ -464,7 +527,15 @@ class DocumentService:
 
         if not text.strip():
             raise DocumentValidationError("No text could be extracted from the PDF.")
-        return text, warnings, self._text_diagnostics(text, "pdf")
+        diagnostics = self._text_diagnostics(text, "pdf")
+        diagnostics["pages"] = page_diagnostics
+        diagnostics["pageCount"] = len(page_diagnostics)
+        diagnostics["lowTextPageCount"] = low_text_pages
+        diagnostics["likelyImageBased"] = image_based
+        diagnostics["ocrNeeded"] = (
+            image_based and execution_context.resolved_ocr_engine == "none"
+        )
+        return text, warnings, diagnostics
 
     def _extract_docx_text(self, file_path: Path) -> tuple[str, list[str], dict[str, Any]]:
         try:
@@ -540,6 +611,9 @@ class DocumentService:
         return text, warnings, diagnostics
 
     def _extract_with_pymupdf(self, file_path: Path) -> str:
+        return "\n".join(self._extract_with_pymupdf_pages(file_path))
+
+    def _extract_with_pymupdf_pages(self, file_path: Path) -> list[str]:
         try:
             fitz = importlib.import_module("fitz")
         except ImportError as exc:
@@ -548,7 +622,7 @@ class DocumentService:
         try:
             document = fitz.open(file_path)
             try:
-                return "\n".join(page.get_text() for page in document)
+                return [page.get_text() for page in document]
             finally:
                 document.close()
         except Exception as exc:
@@ -557,6 +631,9 @@ class DocumentService:
             ) from exc
 
     def _extract_with_pdfplumber(self, file_path: Path) -> str:
+        return "\n".join(self._extract_with_pdfplumber_pages(file_path))
+
+    def _extract_with_pdfplumber_pages(self, file_path: Path) -> list[str]:
         try:
             pdfplumber = importlib.import_module("pdfplumber")
         except ImportError as exc:
@@ -564,10 +641,10 @@ class DocumentService:
 
         try:
             with pdfplumber.open(file_path) as document:
-                return "\n".join(
+                return [
                     page.extract_text() or ""
                     for page in document.pages
-                )
+                ]
         except Exception as exc:
             raise DocumentValidationError(
                 f"pdfplumber could not extract text: {exc}"

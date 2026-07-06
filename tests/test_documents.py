@@ -556,8 +556,8 @@ def test_low_text_pdf_uses_selected_ocr_engine(
     )
     monkeypatch.setattr(
         app.state.document_service,
-        "_extract_with_pdfplumber",
-        lambda _path: "tiny",
+        "_extract_with_pdfplumber_pages",
+        lambda _path: ["tiny"],
     )
     metadata = upload_document(
         client,
@@ -600,8 +600,8 @@ def test_missing_ocr_engine_warns_without_breaking_selectable_pdf_text(
     configure_documents(app, tmp_path, capabilities, ocr_engines={})
     monkeypatch.setattr(
         app.state.document_service,
-        "_extract_with_pdfplumber",
-        lambda _path: "short text",
+        "_extract_with_pdfplumber_pages",
+        lambda _path: ["short text"],
     )
     metadata = upload_document(
         client,
@@ -642,8 +642,8 @@ def test_selected_ocr_engine_is_skipped_when_pdf_text_is_sufficient(
     )
     monkeypatch.setattr(
         app.state.document_service,
-        "_extract_with_pdfplumber",
-        lambda _path: "This PDF already has enough selectable text.",
+        "_extract_with_pdfplumber_pages",
+        lambda _path: ["This PDF already has enough selectable text."],
     )
     metadata = upload_document(
         client,

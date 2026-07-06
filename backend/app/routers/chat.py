@@ -4,7 +4,7 @@ import binascii
 from collections.abc import AsyncIterator
 import json
 import logging
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
@@ -57,6 +57,12 @@ RAG_RETRIEVAL_PIPELINES = {"hybrid", "reranked", "graph", "agentic"}
 DISABLED_RERANKERS = {"", "none"}
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 SEMANTIC_RAG_MIN_SCORE = 0.15
+SMALL_DOCUMENT_CONTEXT_MAX_CHARS = 6_000
+IMAGE_BASED_PDF_LIMITED_TEXT_MESSAGE = (
+    "I found the uploaded PDF, but most of its content appears to be "
+    "image-based and OCR is not available, so I can only read limited "
+    "embedded text."
+)
 DOCUMENT_ACCESS_REFUSAL_MARKERS = (
     "cannot access the file",
     "can't access the file",
@@ -80,6 +86,16 @@ DOCUMENT_ACCESS_REFUSAL_MARKERS = (
     "upload the document",
     "re-upload the document",
     "reupload the document",
+    "need access to the full text",
+    "need the full text",
+    "would need access to the full text",
+    "document is incomplete",
+    "chunks were truncated",
+    "chunk was truncated",
+    "text for chunks",
+    "text for chunk",
+    "were truncated",
+    "was truncated",
 )
 
 router = APIRouter(
@@ -134,6 +150,7 @@ class PreparedChatExecution:
     compression_stats: dict[str, object]
     retrieved_sources: list[RetrievedSource]
     include_sources: bool
+    limited_document_text_warning: str = ""
 
     def generation_settings(self) -> dict[str, object]:
         return {
@@ -174,6 +191,12 @@ def build_retrieved_context_block(
             "document's actual contents, and cite or reference source names "
             "and pages when available. Do not ask the user to re-upload or "
             "attach the file while document_context is present."
+        ),
+        (
+            "Document excerpts may be partial. Answer the user's question using "
+            "the provided excerpts. Do not complain that chunks are partial or "
+            "shortened. Only say information is missing if the excerpts truly "
+            "do not contain the answer."
         ),
         f"Retrieval mode: {retrieval_mode or 'semantic_rag'}",
     ]
@@ -231,9 +254,9 @@ def build_retrieved_context_block(
         if remaining <= 40:
             break
 
-        text = source.text.strip()
+        text = clean_model_excerpt_text(source.text)
         if len(text) > remaining:
-            text = f"{text[: max(0, remaining - 14)].rstrip()} [truncated]"
+            text = clean_model_excerpt_text(text[:remaining])
 
         lines.extend(entry_header)
         lines.append(text)
@@ -241,6 +264,13 @@ def build_retrieved_context_block(
 
     lines.append("</document_context>")
     return "\n".join(lines)
+
+
+def clean_model_excerpt_text(text: str) -> str:
+    cleaned = text.strip()
+    while cleaned.endswith("[truncated]"):
+        cleaned = cleaned[: -len("[truncated]")].rstrip()
+    return cleaned
 
 
 def looks_like_document_access_refusal(answer: str) -> bool:
@@ -256,10 +286,11 @@ def build_document_context_fallback_answer(
     excerpts: list[str] = []
     for source in sources[:max_sources]:
         text = " ".join(source.text.split())
+        text = clean_model_excerpt_text(text)
         if not text:
             continue
         if len(text) > max_excerpt_chars:
-            text = f"{text[: max(0, max_excerpt_chars - 14)].rstrip()} [truncated]"
+            text = clean_model_excerpt_text(text[:max_excerpt_chars])
         page = (
             f", page {source.page_number}"
             if source.page_number is not None
@@ -289,6 +320,35 @@ def repair_document_access_refusal(
         "Replacing document access refusal with retrieved context excerpt answer."
     )
     return build_document_context_fallback_answer(retrieved_sources)
+
+
+def image_based_pdf_limited_text_warning(
+    documents: list[dict[str, object]],
+) -> str:
+    for document in documents:
+        diagnostics = document.get("extractionDiagnostics")
+        if not isinstance(diagnostics, dict):
+            continue
+        extension = str(document.get("extension") or "").lower()
+        ocr_engine = str(document.get("resolvedOcrEngine") or "none").lower()
+        if (
+            extension == ".pdf"
+            and ocr_engine == "none"
+            and (
+                diagnostics.get("ocrNeeded") is True
+                or diagnostics.get("likelyImageBased") is True
+            )
+        ):
+            return IMAGE_BASED_PDF_LIMITED_TEXT_MESSAGE
+    return ""
+
+
+def prepend_limited_document_warning(answer: str, warning: str) -> str:
+    if not warning:
+        return answer
+    if warning.lower() in answer.lower():
+        return answer
+    return f"{warning}\n\n{answer}" if answer else warning
 
 
 def log_document_context_debug(
@@ -778,6 +838,30 @@ def likely_document_retrieval_query(message: str) -> bool:
     return any(marker in normalized for marker in retrieval_markers)
 
 
+def broad_document_overview_query(message: str) -> bool:
+    normalized = normalize_for_matching(message)
+    overview_markers = [
+        "what is in this document",
+        "what's in this document",
+        "what is in the document",
+        "what does this document contain",
+        "what does the document contain",
+        "what does this contain",
+        "what is in this file",
+        "what's in this file",
+        "what does this file contain",
+        "what is in this pdf",
+        "what's in this pdf",
+        "summarize this pdf",
+        "summarize this document",
+        "summarize this file",
+        "what certificates are in this file",
+        "what certificates are in this document",
+        "what certificates are in this pdf",
+    ]
+    return any(marker in normalized for marker in overview_markers)
+
+
 def has_configured_document_retrieval(execution_context: object) -> bool:
     reranker_component = execution_context.components["reranker"]
     reranker_requested = (
@@ -934,6 +1018,142 @@ def merge_retrieval_results(
     )
 
 
+def coerce_positive_int(value: object) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def source_preview(text: str, max_chars: int = 280) -> str:
+    normalized = " ".join(text.split())
+    if len(normalized) <= max_chars:
+        return normalized
+    return f"{normalized[: max_chars - 14].rstrip()} [truncated]"
+
+
+def source_from_stored_chunk(
+    raw_chunk: dict[str, Any],
+    document: dict[str, object],
+    source_number: int,
+) -> RetrievedSource | None:
+    text = str(raw_chunk.get("text") or "").strip()
+    if not text:
+        return None
+    metadata = (
+        raw_chunk.get("metadata")
+        if isinstance(raw_chunk.get("metadata"), dict)
+        else {}
+    )
+    document_id = str(
+        raw_chunk.get("documentId")
+        or document.get("documentId")
+        or ""
+    )
+    document_name = str(document.get("originalFilename") or "Document")
+    chunk_index = int(raw_chunk.get("index") or raw_chunk.get("chunkIndex") or 0)
+    chunk_id = str(raw_chunk.get("chunkId") or f"{document_id}:{chunk_index}")
+    page_number = coerce_positive_int(
+        raw_chunk.get("pageNumber")
+        or raw_chunk.get("page")
+        or metadata.get("pageNumber")
+        or metadata.get("page")
+        or metadata.get("page_number")
+    )
+    return RetrievedSource(
+        source_number=source_number,
+        document_id=document_id,
+        document_name=document_name,
+        chunk_id=chunk_id,
+        chunk_index=chunk_index,
+        score=1.0,
+        vector_score=1.0,
+        text=text,
+        text_preview=source_preview(text),
+        page_number=page_number,
+        final_rank=source_number,
+        collection_id=None,
+    )
+
+
+async def retrieve_all_attached_document_chunks(
+    request: Request,
+    conversation_id: str | None,
+    document_ids: list[str],
+    max_chars: int = SMALL_DOCUMENT_CONTEXT_MAX_CHARS,
+) -> RetrievalResult | None:
+    if not conversation_id or not document_ids:
+        return None
+
+    document_service: DocumentService = request.app.state.document_service
+    sources: list[RetrievedSource] = []
+    warnings: list[str] = []
+    total_chars = 0
+    for document_id in document_ids:
+        try:
+            document = await run_in_threadpool(
+                document_service.get_document,
+                conversation_id,
+                document_id,
+            )
+            chunks_payload = await run_in_threadpool(
+                document_service.get_chunks,
+                conversation_id,
+                document_id,
+            )
+        except (DocumentValidationError, DocumentNotFoundError, DocumentStorageError) as exc:
+            warnings.append(str(exc))
+            continue
+
+        raw_chunks = chunks_payload.get("chunks")
+        if not isinstance(raw_chunks, list):
+            continue
+        for raw_chunk in raw_chunks:
+            if not isinstance(raw_chunk, dict):
+                continue
+            source = source_from_stored_chunk(
+                raw_chunk,
+                document,
+                len(sources) + 1,
+            )
+            if source is None:
+                continue
+            total_chars += len(source.text)
+            if total_chars > max_chars:
+                logger.info(
+                    (
+                        "Full attachment context skipped because stored chunks "
+                        "exceed context budget conversation_id=%s "
+                        "document_ids=%s total_chars=%d max_chars=%d"
+                    ),
+                    conversation_id,
+                    document_ids,
+                    total_chars,
+                    max_chars,
+                )
+                return None
+            sources.append(source)
+
+    if not sources:
+        return None
+    logger.info(
+        (
+            "Using full attached document context conversation_id=%s "
+            "document_ids=%s chunks=%d total_chars=%d"
+        ),
+        conversation_id,
+        document_ids,
+        len(sources),
+        total_chars,
+    )
+    return RetrievalResult(
+        rag_used=True,
+        warnings=warnings,
+        sources=sources,
+    )
+
+
 async def retrieve_document_context(
     chat_request: ChatRequest,
     request: Request,
@@ -957,6 +1177,31 @@ async def retrieve_document_context(
         chat_request.message
     )
     if attachment_ids:
+        if broad_document_overview_query(chat_request.message):
+            full_attachment_result = await retrieve_all_attached_document_chunks(
+                request=request,
+                conversation_id=chat_request.conversationId,
+                document_ids=attachment_ids,
+            )
+            if full_attachment_result and full_attachment_result.sources:
+                logger.info(
+                    (
+                        "Document context selector mode=current_attachment "
+                        "reason=full_small_document_context conversation_id=%s "
+                        "attachment_ids=%s retrieved_chunks=%d"
+                    ),
+                    chat_request.conversationId,
+                    attachment_ids,
+                    len(full_attachment_result.sources),
+                )
+                return DocumentContextSelection(
+                    mode="current_attachment",
+                    selected_document_ids=attachment_ids,
+                    retrieval_result=full_attachment_result,
+                    confidence=1.0,
+                    reason="full_small_document_context",
+                )
+
         attachment_result = await retrieval_pipeline.retrieve(
             query=chat_request.message,
             conversation_id=chat_request.conversationId,
@@ -1396,6 +1641,9 @@ async def prepare_chat_execution(
         execution_context,
     )
     attached_documents = await resolve_attached_documents(chat_request, request)
+    limited_document_text_warning = image_based_pdf_limited_text_warning(
+        attached_documents
+    )
     if attached_documents:
         logger.info(
             "Chat request received attachment_ids=%s",
@@ -1558,6 +1806,7 @@ async def prepare_chat_execution(
         compression_stats=compression_result.stats.response_payload(),
         retrieved_sources=retrieved_sources,
         include_sources=include_sources,
+        limited_document_text_warning=limited_document_text_warning,
     )
 
 
@@ -1601,6 +1850,9 @@ async def chat(
         execution_context,
     )
     attached_documents = await resolve_attached_documents(chat_request, request)
+    limited_document_text_warning = image_based_pdf_limited_text_warning(
+        attached_documents
+    )
     if attached_documents:
         logger.info(
             "Chat request received attachment_ids=%s",
@@ -1785,6 +2037,10 @@ async def chat(
             detail=str(exc),
         ) from exc
     answer = repair_document_access_refusal(answer, retrieved_sources)
+    answer = prepend_limited_document_warning(
+        answer,
+        limited_document_text_warning,
+    )
 
     include_sources = (
         chat_request.ragOptions.includeSources
@@ -1907,14 +2163,19 @@ async def chat_stream(
             yield _sse_event("error", _stream_error_payload(exc))
             return
 
+        final_answer = repair_document_access_refusal(
+            "".join(answer_parts).strip(),
+            prepared.retrieved_sources,
+        )
+        final_answer = prepend_limited_document_warning(
+            final_answer,
+            prepared.limited_document_text_warning,
+        )
         yield _sse_event(
             "done",
             {
                 **_chat_metadata_payload(prepared),
-                "answer": repair_document_access_refusal(
-                    "".join(answer_parts).strip(),
-                    prepared.retrieved_sources,
-                ),
+                "answer": final_answer,
             },
         )
 

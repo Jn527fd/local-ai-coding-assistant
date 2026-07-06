@@ -807,37 +807,8 @@ function AssistantMessage({
   );
 }
 
-function AssistantLoadingMessage() {
-  return (
-    <article className="conversation-message conversation-message--assistant conversation-message--loading">
-      <div className="assistant-response-card">
-        <header className="assistant-response-card__header">
-          <div>
-            <span className="message-avatar message-avatar--assistant">Assistant</span>
-            <span className="reading-context">Thinking...</span>
-          </div>
-        </header>
-        <div className="assistant-message__body">
-          <div className="thinking-state" aria-label="Assistant is responding">
-            <div className="thinking-orbit" aria-hidden="true">
-              <span />
-              <span />
-              <span />
-            </div>
-            <div>
-              <strong>Preparing response</strong>
-              <small>Asking the local model and preparing the first token.</small>
-            </div>
-          </div>
-        </div>
-      </div>
-    </article>
-  );
-}
-
 function MessageList({
   activeChat,
-  isSending,
   onDeleteMessage,
   onOpenSourceDetails,
 }) {
@@ -863,7 +834,6 @@ function MessageList({
           />
         ),
       )}
-      {isSending && <AssistantLoadingMessage />}
     </div>
   );
 }
@@ -933,13 +903,10 @@ function Conversation({
         ) : (
           <MessageList
             activeChat={activeChat}
-            isSending={isSending}
             onDeleteMessage={onDeleteMessage}
             onOpenSourceDetails={onOpenSourceDetails}
           />
         )}
-
-        {!hasMessages && isSending && <AssistantLoadingMessage />}
       </div>
       {showJumpToBottom && (
         <Button

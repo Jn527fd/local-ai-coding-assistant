@@ -52,7 +52,8 @@ test.describe("local AI coding assistant", () => {
     await page.getByLabel("Ask about your codebase").fill("Where is FastAPI created?");
     await page.keyboard.press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
 
-    await expect(page.getByLabel("Assistant is responding")).toBeVisible();
+    await expect(page.getByText("Streaming locally")).toBeVisible();
+    await expect(page.getByText("Preparing response")).toHaveCount(0);
     await expect(page.getByText(/Fake Ollama response/i)).toBeVisible();
   });
 

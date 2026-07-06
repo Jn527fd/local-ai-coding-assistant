@@ -2681,72 +2681,6 @@ kbd {
   color: var(--muted);
 }
 
-.reading-context {
-  color: var(--accent);
-  font-family: var(--font-mono);
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-.thinking-state {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  width: min(520px, 100%);
-  padding: 10px 0 2px;
-  color: var(--muted);
-}
-
-.thinking-state strong,
-.thinking-state small {
-  display: block;
-}
-
-.thinking-state strong {
-  color: var(--color-text-soft);
-  font-size: 0.86rem;
-}
-
-.thinking-state small {
-  margin-top: 2px;
-  color: var(--muted-2);
-  font-size: 0.76rem;
-  line-height: 1.5;
-}
-
-.thinking-orbit {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  flex: 0 0 auto;
-  border-radius: var(--radius-full);
-  background: var(--color-primary-softer);
-}
-
-.thinking-orbit span {
-  position: absolute;
-  width: 6px;
-  height: 6px;
-  border-radius: var(--radius-full);
-  background: var(--accent);
-  animation: thinking-dot 1.15s var(--ease-emphasized) infinite;
-}
-
-.thinking-orbit span:nth-child(1) {
-  margin-left: -18px;
-}
-
-.thinking-orbit span:nth-child(2) {
-  animation-delay: 120ms;
-}
-
-.thinking-orbit span:nth-child(3) {
-  animation-delay: 240ms;
-  margin-left: 18px;
-}
-
 .assistant-token-warmup {
   display: inline-flex;
   align-items: center;
@@ -2794,10 +2728,6 @@ kbd {
   background: linear-gradient(90deg, var(--color-skeleton), var(--color-skeleton-strong), var(--color-skeleton));
   background-size: 200% 100%;
   animation: skeleton 1.1s var(--ease-out) infinite;
-}
-
-.conversation-message--loading .assistant-response-card {
-  border-color: var(--border-primary);
 }
 
 .streaming-lines span:nth-child(2) {
@@ -5833,7 +5763,6 @@ select {
   }
 
   .conversation-message,
-  .thinking-orbit span,
   .assistant-token-warmup span,
   .assistant-stream-cursor {
     animation: none !important;
@@ -7835,14 +7764,6 @@ textarea:disabled,
 .assistant-expand-button {
   justify-self: start;
   margin-top: 2px;
-}
-
-.conversation-message--loading .assistant-response-card {
-  border: 0;
-}
-
-.thinking-state {
-  padding-top: 2px;
 }
 
 .message-action-menu {

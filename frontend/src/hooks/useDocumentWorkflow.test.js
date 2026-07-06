@@ -84,6 +84,15 @@ describe("useDocumentWorkflow", () => {
         },
       },
     });
+    startIndexDocumentJob.mockResolvedValueOnce({ job: { id: "job-index" } });
+    getJob.mockResolvedValueOnce({
+      job: {
+        id: "job-index",
+        state: "succeeded",
+        progress: 100,
+        result: { indexedChunks: 2 },
+      },
+    });
     const { result } = renderDocumentWorkflow({
       activeChat: { id: "chat-a", settings: {}, messages: [] },
     });
@@ -98,6 +107,12 @@ describe("useDocumentWorkflow", () => {
     expect(uploaded).toBe(true);
     expect(uploadDocument).toHaveBeenCalled();
     expect(startProcessDocumentJob).toHaveBeenCalledWith(
+      "test-key",
+      "doc-a",
+      "chat-a",
+      expect.any(Object),
+    );
+    expect(startIndexDocumentJob).toHaveBeenCalledWith(
       "test-key",
       "doc-a",
       "chat-a",

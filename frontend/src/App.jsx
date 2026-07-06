@@ -106,24 +106,14 @@ function App() {
   }, []);
 
   const {
-    activeDocumentIndexes,
     activeDocuments,
     clearDocumentSearchState,
     documentBusy,
     documentError,
     documentJobProgress,
-    documentSearchBusy,
-    documentSearchError,
-    documentSearchQuery,
-    documentSearchResults,
-    documentSearchWarnings,
-    handleIndexDocument,
-    handleSearchDocuments,
     handleUploadDocument,
-    indexingDocumentId,
     resetAllDocuments,
     setDocumentError,
-    setDocumentSearchQuery,
   } = useDocumentWorkflow({
     activeChat,
     apiKey,
@@ -668,22 +658,12 @@ function App() {
       activeChat={activeChat}
       composerRef={composerRef}
       documentError={documentError}
-      documentIndexes={activeDocumentIndexes}
       documentJobProgress={documentJobProgress}
       documents={activeDocuments}
-      documentSearchBusy={documentSearchBusy}
-      documentSearchError={documentSearchError}
-      documentSearchQuery={documentSearchQuery}
-      documentSearchResults={documentSearchResults}
-      documentSearchWarnings={documentSearchWarnings}
-      indexingDocumentId={indexingDocumentId}
       isUploadingDocument={documentBusy}
       isSending={sendingChatId === activeChatId}
       message={draftMessage}
-      onIndexDocument={handleIndexDocument}
       onMessageChange={setDraftMessage}
-      onSearchDocuments={handleSearchDocuments}
-      onSearchQueryChange={setDocumentSearchQuery}
       onSendMessage={handleSendMessage}
       onUploadDocument={handleUploadDocument}
     />

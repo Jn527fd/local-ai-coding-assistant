@@ -159,6 +159,82 @@ export function useDocumentWorkflow({
     [apiKey],
   );
 
+  const indexProcessedDocument = useCallback(
+    async (
+      document,
+      {
+        conversationId = activeChat?.id || "",
+        conversationSettings = null,
+        successMessage = "",
+      } = {},
+    ) => {
+      if (!apiKey) {
+        const message = "Save and verify your API key before indexing documents.";
+        setDocumentError(message);
+        setDocumentSearchError(message);
+        return false;
+      }
+
+      if (!conversationId || !document?.documentId) {
+        return false;
+      }
+
+      if (document.status !== "processed") {
+        const message = "Process the document before indexing it.";
+        setDocumentError(message);
+        setDocumentSearchError(message);
+        return false;
+      }
+
+      const settings =
+        conversationSettings ||
+        normalizeConversationSettings(
+          activeChat?.settings,
+          defaultConversationSettings,
+        );
+      setIndexingDocumentId(document.documentId);
+      setDocumentError("");
+      setDocumentSearchError("");
+
+      try {
+        const queued = await startIndexDocumentJob(
+          apiKey,
+          document.documentId,
+          conversationId,
+          settings,
+        );
+        const indexJob = await waitForJob(queued.job.id, "Indexing document");
+        if (indexJob.state !== "succeeded") {
+          throw new Error(
+            indexJob.error || indexJob.message || "Document indexing failed.",
+          );
+        }
+        await refreshDocumentIndexes(conversationId);
+        showToast(
+          successMessage || `${document.originalFilename || "Document"} indexed.`,
+          "success",
+        );
+        return true;
+      } catch (error) {
+        setDocumentError(error.message);
+        setDocumentSearchError(error.message);
+        showToast("Document indexing failed.", "error");
+        return false;
+      } finally {
+        setIndexingDocumentId("");
+        setDocumentJobProgress(null);
+      }
+    },
+    [
+      activeChat,
+      apiKey,
+      defaultConversationSettings,
+      refreshDocumentIndexes,
+      showToast,
+      waitForJob,
+    ],
+  );
+
   const handleUploadDocument = useCallback(
     async (file) => {
       if (!apiKey) {
@@ -211,20 +287,33 @@ export function useDocumentWorkflow({
           );
         }
         const processed = processJob.result || {};
-        const processedDocument = processed.document || uploaded;
+        const processedDocument = {
+          ...uploaded,
+          ...(processed.document || {}),
+          status: processed.document?.status || processed.status || uploaded.status,
+        };
+        const isProcessed =
+          processed.status === "processed" ||
+          processedDocument.status === "processed";
         rememberDocument(conversationId, processedDocument);
-        await refreshDocuments(conversationId);
+        const refreshedDocuments = await refreshDocuments(conversationId);
+        const documentForIndex =
+          refreshedDocuments.find(
+            (item) => item.documentId === processedDocument.documentId,
+          ) || processedDocument;
+        rememberDocument(conversationId, documentForIndex);
 
-        if (processed.status === "processed") {
-          showToast(
-            `${processedDocument.originalFilename || file.name} processed (${processed.chunkCount || 0} chunks).`,
-            "success",
-          );
-        } else {
+        if (!isProcessed) {
           setDocumentError(processed.error || "Document processing failed.");
           showToast("Document uploaded, but processing failed.", "error");
+          return false;
         }
-        return processed.status === "processed";
+
+        return indexProcessedDocument(documentForIndex, {
+          conversationId,
+          conversationSettings,
+          successMessage: `${documentForIndex.originalFilename || file.name} is ready.`,
+        });
       } catch (error) {
         setDocumentError(error.message);
         showToast("Document upload failed.", "error");
@@ -238,6 +327,7 @@ export function useDocumentWorkflow({
       activeChat,
       apiKey,
       defaultConversationSettings,
+      indexProcessedDocument,
       refreshDocuments,
       rememberDocument,
       showToast,
@@ -247,17 +337,7 @@ export function useDocumentWorkflow({
 
   const handleIndexDocument = useCallback(
     async (document) => {
-      if (!apiKey) {
-        setDocumentSearchError("Save and verify your API key before indexing documents.");
-        return false;
-      }
-
       if (!activeChat || !document?.documentId) {
-        return false;
-      }
-
-      if (document.status !== "processed") {
-        setDocumentSearchError("Process the document before indexing it.");
         return false;
       }
 
@@ -265,45 +345,15 @@ export function useDocumentWorkflow({
         activeChat.settings,
         defaultConversationSettings,
       );
-      setIndexingDocumentId(document.documentId);
-      setDocumentSearchError("");
-
-      try {
-        const queued = await startIndexDocumentJob(
-          apiKey,
-          document.documentId,
-          activeChat.id,
-          conversationSettings,
-        );
-        const indexJob = await waitForJob(queued.job.id, "Indexing document");
-        if (indexJob.state !== "succeeded") {
-          throw new Error(
-            indexJob.error || indexJob.message || "Document indexing failed.",
-          );
-        }
-        const result = indexJob.result || {};
-        await refreshDocumentIndexes(activeChat.id);
-        showToast(
-          `${document.originalFilename || "Document"} indexed (${result.indexedChunks || 0} chunks).`,
-          "success",
-        );
-        return true;
-      } catch (error) {
-        setDocumentSearchError(error.message);
-        showToast("Document indexing failed.", "error");
-        return false;
-      } finally {
-        setIndexingDocumentId("");
-        setDocumentJobProgress(null);
-      }
+      return indexProcessedDocument(document, {
+        conversationId: activeChat.id,
+        conversationSettings,
+      });
     },
     [
       activeChat,
-      apiKey,
       defaultConversationSettings,
-      refreshDocumentIndexes,
-      showToast,
-      waitForJob,
+      indexProcessedDocument,
     ],
   );
 

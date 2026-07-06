@@ -195,6 +195,33 @@ describe("Workspace / Conversation / Composer", () => {
     );
   });
 
+  it("shows attached documents without manual indexing or search controls", () => {
+    render(
+      <Composer
+        activeChat={baseChat}
+        composerRef={React.createRef()}
+        documents={[
+          {
+            documentId: "doc-1",
+            originalFilename: "certificates.pdf",
+            status: "processed",
+            chunkCount: 1,
+          },
+        ]}
+        isSending={false}
+        message=""
+        onMessageChange={vi.fn()}
+        onSendMessage={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("certificates.pdf")).toBeInTheDocument();
+    expect(screen.queryByText(/1 chunks/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /reindex certificates\.pdf/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /index certificates\.pdf/i })).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/search indexed documents/i)).not.toBeInTheDocument();
+  });
+
   it("renders the no-repository onboarding state and composer controls", () => {
     render(
       <WorkspaceHarness />,

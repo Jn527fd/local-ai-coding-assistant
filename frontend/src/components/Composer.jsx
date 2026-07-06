@@ -98,22 +98,12 @@ function Composer({
   activeChat,
   composerRef,
   documentError = "",
-  documentIndexes = [],
   documentJobProgress = null,
-  documentSearchBusy = false,
-  documentSearchError = "",
-  documentSearchQuery = "",
-  documentSearchResults = [],
-  documentSearchWarnings = [],
   documents = [],
-  indexingDocumentId = "",
   isUploadingDocument = false,
   isSending,
   message,
-  onIndexDocument,
   onMessageChange,
-  onSearchDocuments,
-  onSearchQueryChange,
   onSendMessage,
   onUploadDocument,
 }) {
@@ -137,16 +127,6 @@ function Composer({
     return SLASH_COMMANDS.filter((item) => item.command.startsWith(slashQuery));
   }, [slashQuery]);
 
-  const indexedDocumentIds = useMemo(() => {
-    const ids = new Set();
-    documentIndexes.forEach((index) => {
-      if (!Array.isArray(index?.documentIds)) {
-        return;
-      }
-      index.documentIds.forEach((documentId) => ids.add(documentId));
-    });
-    return ids;
-  }, [documentIndexes]);
   const composerStatus = useMemo(() => {
     if (isSending) {
       return "Sending message. Assistant response is streaming.";
@@ -157,25 +137,13 @@ function Composer({
     if (isUploadingDocument) {
       return "Processing document.";
     }
-    if (documentSearchBusy) {
-      return "Searching indexed documents.";
-    }
     if (documentError) {
       return `Document error: ${documentError}`;
-    }
-    if (documentSearchError) {
-      return `Document search error: ${documentSearchError}`;
-    }
-    if (documentSearchWarnings.length > 0) {
-      return `Document search warning: ${documentSearchWarnings[0]}`;
     }
     return "";
   }, [
     documentError,
     documentJobProgress,
-    documentSearchBusy,
-    documentSearchError,
-    documentSearchWarnings,
     isSending,
     isUploadingDocument,
   ]);
@@ -295,7 +263,7 @@ function Composer({
 
   return (
     <form
-      aria-busy={isSending || isUploadingDocument || documentSearchBusy}
+      aria-busy={isSending || isUploadingDocument}
       aria-label="Chat composer"
       className={`composer smart-composer ${focused ? "smart-composer--focused" : ""}`}
       onSubmit={handleSubmit}
@@ -479,103 +447,8 @@ function Composer({
                 title={document.originalFilename || "Document"}
               >
                 <strong>{document.originalFilename || "Document"}</strong>
-                <small>
-                  {document.status === "processed"
-                    ? `${document.chunkCount || 0} chunks`
-                    : document.status || "uploaded"}
-                </small>
-                {document.status === "processed" && onIndexDocument && (
-                  <Button
-                    aria-label={`${
-                      indexedDocumentIds.has(document.documentId)
-                        ? "Reindex"
-                        : "Index"
-                    } ${document.originalFilename || "Document"}`}
-                    className="document-chip__action"
-                    disabled={indexingDocumentId === document.documentId}
-                    onClick={() => onIndexDocument(document)}
-                    type="button"
-                    variant="plain"
-                  >
-                    {indexingDocumentId === document.documentId
-                      ? "Indexing"
-                      : indexedDocumentIds.has(document.documentId)
-                        ? "Reindex"
-                        : "Index"}
-                  </Button>
-                )}
               </span>
             ))}
-          </div>
-        )}
-
-        {(documentIndexes.length > 0 ||
-          documentSearchResults.length > 0 ||
-          documentSearchError ||
-          documentSearchWarnings.length > 0) && (
-          <div
-            aria-label="Indexed document search"
-            className="document-search-panel"
-            role="region"
-          >
-            <div className="document-search-controls">
-              <input
-                aria-label="Search indexed documents"
-                className="document-search-input"
-                disabled={!activeChat || documentSearchBusy}
-                onChange={(event) => onSearchQueryChange?.(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    onSearchDocuments?.();
-                  }
-                }}
-                placeholder="Search indexed documents"
-                type="search"
-                value={documentSearchQuery}
-              />
-              <Button
-                disabled={!activeChat || documentSearchBusy || !documentSearchQuery.trim()}
-                onClick={() => onSearchDocuments?.()}
-                type="button"
-                variant="secondary"
-              >
-                {documentSearchBusy ? "Searching..." : "Search"}
-              </Button>
-            </div>
-
-            {documentSearchError && (
-              <p
-                className="document-search-message document-search-message--error"
-                role="alert"
-              >
-                {documentSearchError}
-              </p>
-            )}
-            {documentSearchWarnings.map((warning) => (
-              <p className="document-search-message" key={warning} role="status">
-                {warning}
-              </p>
-            ))}
-            {documentSearchResults.length > 0 && (
-              <div className="document-search-results">
-                {documentSearchResults.map((result) => (
-                  <article
-                    className="document-search-result"
-                    key={`${result.collectionId}:${result.chunkId}`}
-                  >
-                    <div>
-                      <strong>{result.documentName || "Document"}</strong>
-                      <span>
-                        score {Number(result.score || 0).toFixed(3)} · chunk{" "}
-                        {result.chunkIndex ?? 0}
-                      </span>
-                    </div>
-                    <p>{result.text}</p>
-                  </article>
-                ))}
-              </div>
-            )}
           </div>
         )}
       </div>

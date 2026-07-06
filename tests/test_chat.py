@@ -302,6 +302,47 @@ def seed_vector_index(
     )
 
 
+def seed_processed_document_metadata(
+    app: FastAPI,
+    conversation_id: str,
+    document_id: str,
+    filename: str = "notes.txt",
+    status: str = "processed",
+    chunk_count: int = 2,
+    error: str | None = None,
+) -> None:
+    document_directory = (
+        app.state.document_service.upload_directory
+        / conversation_id
+        / document_id
+    )
+    document_directory.mkdir(parents=True, exist_ok=True)
+    metadata = {
+        "documentId": document_id,
+        "conversationId": conversation_id,
+        "originalFilename": filename,
+        "storedFilename": "original.txt",
+        "storedPath": f"{conversation_id}/{document_id}/original/original.txt",
+        "mimeType": "text/plain",
+        "size": 24,
+        "extension": ".txt",
+        "createdAt": "2026-07-05T00:00:00+00:00",
+        "processedAt": "2026-07-05T00:00:01+00:00",
+        "extractionWarnings": [],
+        "extractionDiagnostics": {
+            "charLength": 42,
+            "chunkCount": chunk_count,
+        },
+        "chunkCount": chunk_count,
+        "status": status,
+        "error": error,
+    }
+    (document_directory / "metadata.json").write_text(
+        json.dumps(metadata),
+        encoding="utf-8",
+    )
+
+
 def vector_index_path(
     app: FastAPI,
     conversation_id: str,
@@ -988,6 +1029,193 @@ def test_basic_rag_pipeline_does_not_retrieve_documents(
     assert response.json()["sources"] == []
     assert fake_embedder.calls == []
     assert "[Retrieved Context]" not in fake_ollama.calls[0][1]
+
+
+def test_attached_document_ids_force_retrieval_with_basic_pipeline(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService()
+    fake_embedder = configure_chat_rag_tests(app, tmp_path)
+    document_id = "a" * 32
+    seed_processed_document_metadata(
+        app,
+        "conversation-a",
+        document_id,
+        filename="certificates.pdf",
+    )
+    seed_vector_index(
+        app,
+        "conversation-a",
+        document_id=document_id,
+        chunk_texts=[
+            "certificate for local AI training completion",
+            "resume details not relevant",
+        ],
+        chunk_metadata=[
+            {"documentName": "certificates.pdf"},
+            {"documentName": "certificates.pdf"},
+        ],
+    )
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        response = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "conversationId": "conversation-a",
+                "message": "What is this document?",
+                "ragOptions": {
+                    "enabled": True,
+                    "documentIds": [document_id],
+                    "includeSources": True,
+                },
+                "conversationSettings": {
+                    "embedderModel": "embed-a",
+                    "ragPipeline": "basic",
+                    "vectorDatabase": "chroma",
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ragUsed"] is True
+    assert payload["sources"][0]["documentId"] == document_id
+    assert payload["sources"][0]["documentName"] == "certificates.pdf"
+    assert "certificate" in payload["sources"][0]["textPreview"]
+    prompt = fake_ollama.calls[0][1]
+    assert "[Retrieved Context]" in prompt
+    assert "Document: certificates.pdf" in prompt
+    assert "certificate for local AI training completion" in prompt
+    assert fake_embedder.calls == [(["What is this document?"], "embed-a")]
+
+
+def test_attached_missing_document_is_rejected_before_generation(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService()
+    configure_chat_rag_tests(app, tmp_path)
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        response = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "conversationId": "conversation-a",
+                "message": "What is this document?",
+                "ragOptions": {
+                    "enabled": True,
+                    "documentIds": ["b" * 32],
+                },
+                "conversationSettings": {
+                    "embedderModel": "embed-a",
+                    "ragPipeline": "basic",
+                    "vectorDatabase": "chroma",
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+    assert "Attached document was not found" in response.json()["detail"]
+    assert fake_ollama.calls == []
+
+
+def test_attached_processed_document_without_index_is_rejected_before_generation(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService()
+    configure_chat_rag_tests(app, tmp_path)
+    document_id = "c" * 32
+    seed_processed_document_metadata(app, "conversation-a", document_id)
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        response = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "conversationId": "conversation-a",
+                "message": "What is this document?",
+                "ragOptions": {
+                    "enabled": True,
+                    "documentIds": [document_id],
+                },
+                "conversationSettings": {
+                    "embedderModel": "embed-a",
+                    "ragPipeline": "basic",
+                    "vectorDatabase": "chroma",
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 409
+    assert "Attached document content could not be retrieved" in response.json()["detail"]
+    assert fake_ollama.calls == []
+
+
+def test_attached_failed_document_is_rejected_before_generation(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService()
+    configure_chat_rag_tests(app, tmp_path)
+    document_id = "d" * 32
+    seed_processed_document_metadata(
+        app,
+        "conversation-a",
+        document_id,
+        filename="scan.pdf",
+        status="failed",
+        chunk_count=0,
+        error="No text could be extracted from the PDF.",
+    )
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        response = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "conversationId": "conversation-a",
+                "message": "What is this document?",
+                "ragOptions": {
+                    "enabled": True,
+                    "documentIds": [document_id],
+                },
+                "conversationSettings": {
+                    "embedderModel": "embed-a",
+                    "ragPipeline": "basic",
+                    "vectorDatabase": "chroma",
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert "scan.pdf" in detail
+    assert "No text could be extracted" in detail
+    assert fake_ollama.calls == []
 
 
 def test_hybrid_rag_retrieves_chunks_and_inserts_them_into_prompt(

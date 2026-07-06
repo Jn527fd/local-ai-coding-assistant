@@ -8,6 +8,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
+from starlette.concurrency import run_in_threadpool
 
 from app.ai.components import (
     ComponentUnavailableError,
@@ -32,6 +33,12 @@ from app.schemas.chat import ChatRequest, ChatResponse
 from app.services.component_registry import ComponentRegistry
 from app.services.model_manager import (
     ModelManager,
+)
+from app.services.document_service import (
+    DocumentNotFoundError,
+    DocumentService,
+    DocumentStorageError,
+    DocumentValidationError,
 )
 from app.services.ollama_service import (
     OllamaResponseError,
@@ -410,6 +417,10 @@ def should_attempt_retrieval(
 
     if chat_request.ragOptions and chat_request.ragOptions.enabled is False:
         return False
+    if requested_document_ids(chat_request):
+        return True
+    if chat_request.ragOptions and chat_request.ragOptions.enabled is True:
+        return True
     reranker_component = execution_context.components["reranker"]
     reranker_requested = (
         reranker_component.requested_id or ""
@@ -417,6 +428,163 @@ def should_attempt_retrieval(
     return (
         execution_context.resolved_rag_pipeline in RAG_RETRIEVAL_PIPELINES
         or reranker_requested
+    )
+
+
+def requested_document_ids(chat_request: ChatRequest) -> list[str]:
+    """Return unique explicit document IDs requested for this chat."""
+
+    if not chat_request.ragOptions:
+        return []
+
+    document_ids: list[str] = []
+    seen: set[str] = set()
+    for document_id in chat_request.ragOptions.documentIds:
+        normalized = document_id.strip()
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            document_ids.append(normalized)
+    return document_ids
+
+
+async def resolve_attached_documents(
+    chat_request: ChatRequest,
+    request: Request,
+) -> list[dict[str, object]]:
+    """Validate explicit document IDs before building a model prompt."""
+
+    document_ids = requested_document_ids(chat_request)
+    if not document_ids:
+        return []
+
+    if not chat_request.conversationId:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Attached documents require a conversationId.",
+        )
+
+    document_service: DocumentService = request.app.state.document_service
+    documents: list[dict[str, object]] = []
+    for document_id in document_ids:
+        try:
+            document = await run_in_threadpool(
+                document_service.get_document,
+                chat_request.conversationId,
+                document_id,
+            )
+        except DocumentNotFoundError as exc:
+            logger.info(
+                "Chat attachment rejected document_id=%s conversation_id=%s reason=not_found",
+                document_id,
+                chat_request.conversationId,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Attached document was not found for this conversation.",
+            ) from exc
+        except DocumentValidationError as exc:
+            logger.info(
+                "Chat attachment rejected document_id=%s conversation_id=%s reason=invalid",
+                document_id,
+                chat_request.conversationId,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+        except DocumentStorageError as exc:
+            logger.warning(
+                "Chat attachment storage failure document_id=%s conversation_id=%s: %s",
+                document_id,
+                chat_request.conversationId,
+                exc,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=str(exc),
+            ) from exc
+
+        status_value = str(document.get("status") or "uploaded")
+        chunk_count = int(document.get("chunkCount") or 0)
+        char_length = int(
+            (
+                document.get("extractionDiagnostics")
+                if isinstance(document.get("extractionDiagnostics"), dict)
+                else {}
+            ).get("charLength")
+            or 0
+        )
+        logger.info(
+            (
+                "Resolved chat attachment document_id=%s conversation_id=%s "
+                "status=%s extracted_chars=%d chunks=%d"
+            ),
+            document_id,
+            chat_request.conversationId,
+            status_value,
+            char_length,
+            chunk_count,
+        )
+
+        if status_value == "failed":
+            filename = str(document.get("originalFilename") or "Document")
+            error = str(document.get("error") or "Document processing failed.")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Attached document '{filename}' could not be processed: "
+                    f"{error}"
+                ),
+            )
+        if status_value != "processed":
+            filename = str(document.get("originalFilename") or "Document")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Attached document '{filename}' is still {status_value}. "
+                    "Wait for processing to finish before sending it."
+                ),
+            )
+        if chunk_count <= 0:
+            filename = str(document.get("originalFilename") or "Document")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Attached document '{filename}' has no extracted chunks "
+                    "available for chat."
+                ),
+            )
+        documents.append(document)
+
+    return documents
+
+
+def ensure_attached_context_was_retrieved(
+    chat_request: ChatRequest,
+    retrieved_sources: list[RetrievedSource],
+    rag_warnings: list[str],
+) -> None:
+    document_ids = requested_document_ids(chat_request)
+    if not document_ids or retrieved_sources:
+        return
+
+    warning_suffix = f" {' '.join(rag_warnings)}" if rag_warnings else ""
+    logger.info(
+        (
+            "Attached document retrieval produced no chunks "
+            "conversation_id=%s document_ids=%s warnings=%s"
+        ),
+        chat_request.conversationId,
+        document_ids,
+        rag_warnings,
+    )
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=(
+            "Attached document content could not be retrieved for this message. "
+            "Make sure the document finished indexing before sending it."
+            f"{warning_suffix}"
+        ).strip(),
     )
 
 
@@ -532,6 +700,12 @@ async def prepare_chat_execution(
         chat_request,
         execution_context,
     )
+    attached_documents = await resolve_attached_documents(chat_request, request)
+    if attached_documents:
+        logger.info(
+            "Chat request received attachment_ids=%s",
+            [document.get("documentId") for document in attached_documents],
+        )
 
     if chat_request.model is not None and chat_request.model != generation_model:
         raise HTTPException(
@@ -575,6 +749,11 @@ async def prepare_chat_execution(
     retrieved_sources = rank_sources(
         rag_result.sources if rag_result else [],
         top_k=top_k,
+    )
+    ensure_attached_context_was_retrieved(
+        chat_request,
+        retrieved_sources,
+        rag_warnings,
     )
 
     if rerank_warnings:
@@ -623,6 +802,11 @@ async def prepare_chat_execution(
         update={"history": compression_result.history}
     )
     retrieved_sources = compression_result.retrieved_sources
+    ensure_attached_context_was_retrieved(
+        chat_request,
+        retrieved_sources,
+        rag_warnings,
+    )
     prompt = build_chat_prompt(
         prompt_request,
         max_chars=settings.chat_context_max_chars,
@@ -704,6 +888,12 @@ async def chat(
         chat_request,
         execution_context,
     )
+    attached_documents = await resolve_attached_documents(chat_request, request)
+    if attached_documents:
+        logger.info(
+            "Chat request received attachment_ids=%s",
+            [document.get("documentId") for document in attached_documents],
+        )
 
     if chat_request.model is not None:
         if chat_request.model != generation_model:
@@ -751,6 +941,11 @@ async def chat(
     retrieved_sources = rank_sources(
         rag_result.sources if rag_result else [],
         top_k=top_k,
+    )
+    ensure_attached_context_was_retrieved(
+        chat_request,
+        retrieved_sources,
+        rag_warnings,
     )
 
     if rerank_warnings:
@@ -802,6 +997,11 @@ async def chat(
         update={"history": compression_result.history}
     )
     retrieved_sources = compression_result.retrieved_sources
+    ensure_attached_context_was_retrieved(
+        chat_request,
+        retrieved_sources,
+        rag_warnings,
+    )
     prompt = build_chat_prompt(
         prompt_request,
         max_chars=settings.chat_context_max_chars,

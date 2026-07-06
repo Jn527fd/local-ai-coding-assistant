@@ -3,6 +3,24 @@ import { useCallback, useState } from "react";
 import { sendChatStream } from "../api.js";
 import { normalizeConversationSettings, titleFromMessage } from "../chatState.js";
 
+function documentAttachmentFailureAnswer(error) {
+  const message = String(error?.message || "");
+  const normalized = message.toLowerCase();
+  if (!message || error?.status !== 409) {
+    return "";
+  }
+  if (
+    normalized.includes("no text could be extracted") ||
+    normalized.includes("has no extracted chunks")
+  ) {
+    return "I found the uploaded PDF, but I could not extract readable text from it.";
+  }
+  if (normalized.includes("still processing") || normalized.includes("still uploaded")) {
+    return message;
+  }
+  return "";
+}
+
 export function useChatSender({
   activeChat,
   apiKey,
@@ -194,6 +212,37 @@ export function useChatSender({
         );
         return true;
       } catch (requestError) {
+        const documentFailureAnswer =
+          documentAttachmentFailureAnswer(requestError);
+        if (documentFailureAnswer) {
+          setChatError("");
+          setChats((current) =>
+            current.map((chat) =>
+              chat.id === chatId
+                ? {
+                    ...chat,
+                    messages: chat.messages.map((item) =>
+                      item.id === assistantMessageId
+                        ? {
+                            ...item,
+                            content: documentFailureAnswer,
+                            streaming: false,
+                            model:
+                              modelStatus?.active_model ||
+                              "Local model",
+                            ragUsed: false,
+                            ragWarnings: [requestError.message],
+                            sources: [],
+                          }
+                        : item,
+                    ),
+                    updatedAt: new Date().toISOString(),
+                  }
+                : chat,
+            ),
+          );
+          return true;
+        }
         setChatError(requestError.message);
         setChats((current) =>
           current.map((chat) =>

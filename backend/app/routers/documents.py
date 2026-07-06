@@ -1,5 +1,6 @@
 from typing import Annotated, Any
 import json
+import logging
 
 from fastapi import (
     APIRouter,
@@ -50,6 +51,8 @@ router = APIRouter(
     tags=["documents"],
     dependencies=[Depends(require_api_key)],
 )
+
+logger = logging.getLogger(__name__)
 
 
 def get_document_service(request: Request) -> DocumentService:
@@ -240,6 +243,17 @@ async def run_process_document(
         "warnings": result.metadata.get("extractionWarnings", []),
         "error": result.metadata.get("error"),
     }
+    logger.info(
+        (
+            "Processed uploaded document conversation_id=%s document_id=%s "
+            "status=%s extracted_chars=%d chunks=%d"
+        ),
+        process_request.conversationId,
+        document_id,
+        payload["status"],
+        payload["charLength"],
+        payload["chunkCount"],
+    )
     if job_context is not None:
         await job_context.progress(100, "Document processing completed.")
     return payload
@@ -394,6 +408,16 @@ async def run_index_document(
             else None
         ),
     }
+    logger.info(
+        (
+            "Indexed uploaded document conversation_id=%s document_id=%s "
+            "indexed_chunks=%d collection_id=%s"
+        ),
+        index_request.conversationId,
+        document_id,
+        payload["indexedChunks"],
+        collection_id,
+    )
     if job_context is not None:
         await job_context.progress(100, "Document indexing completed.")
     return payload
@@ -429,6 +453,16 @@ async def upload_document(
     except (DocumentValidationError, DocumentNotFoundError, DocumentStorageError) as exc:
         raise_document_http_error(exc)
 
+    logger.info(
+        (
+            "Uploaded document conversation_id=%s document_id=%s "
+            "filename=%s size_bytes=%s"
+        ),
+        conversationId,
+        result.metadata.get("documentId"),
+        result.metadata.get("originalFilename"),
+        result.metadata.get("size"),
+    )
     return result.metadata
 
 

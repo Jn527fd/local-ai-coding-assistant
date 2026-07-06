@@ -156,6 +156,50 @@ describe("useChatSender", () => {
     ]);
   });
 
+  it("keeps a clear assistant message for unreadable uploaded PDFs", async () => {
+    const activeChat = {
+      id: "chat-a",
+      title: "Untitled",
+      settings: {},
+      messages: [],
+    };
+    const error = new Error(
+      "Attached document 'scan.pdf' could not be processed: No text could be extracted from the PDF.",
+    );
+    error.status = 409;
+    sendChatStream.mockRejectedValueOnce(error);
+    const { result, getChats } = renderChatSender({ activeChat });
+
+    let sent;
+    await act(async () => {
+      sent = await result.current.handleSendMessage(
+        "What is in this document?",
+        [],
+        [
+          {
+            documentId: "doc-1",
+            originalFilename: "scan.pdf",
+            status: "processed",
+          },
+        ],
+      );
+    });
+
+    expect(sent).toBe(true);
+    expect(result.current.chatError).toBe("");
+    const messages = getChats()[0].messages;
+    expect(messages).toHaveLength(2);
+    expect(messages[1]).toMatchObject({
+      role: "assistant",
+      content:
+        "I found the uploaded PDF, but I could not extract readable text from it.",
+      streaming: false,
+      ragUsed: false,
+      sources: [],
+    });
+    expect(messages[1].ragWarnings[0]).toContain("No text could be extracted");
+  });
+
   it("requires an API key before sending", async () => {
     const { result } = renderChatSender({
       apiKey: "",

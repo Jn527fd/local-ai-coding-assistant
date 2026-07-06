@@ -34,6 +34,7 @@ class RetrievedSource:
     vector_score: float
     text: str
     text_preview: str
+    page_number: int | None = None
     rerank_score: float | None = None
     final_rank: int = 0
     collection_id: str | None = None
@@ -50,6 +51,7 @@ class RetrievedSource:
             "rerankScore": self.rerank_score,
             "finalRank": self.final_rank or self.source_number,
             "textPreview": self.text_preview,
+            "pageNumber": self.page_number,
             "collectionId": self.collection_id,
         }
 
@@ -222,6 +224,11 @@ class DocumentRetrievalPipeline:
                     vector_score=float(result.score),
                     text=text,
                     text_preview=self._preview(text),
+                    page_number=self._coerce_optional_int(
+                        metadata.get("pageNumber")
+                        or metadata.get("page")
+                        or metadata.get("page_number")
+                    ),
                     final_rank=source_number,
                     collection_id=str(result.collection.get("collectionId") or ""),
                 )
@@ -274,3 +281,11 @@ class DocumentRetrievalPipeline:
             return int(value)
         except (TypeError, ValueError):
             return 0
+
+    @staticmethod
+    def _coerce_optional_int(value: object) -> int | None:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if parsed > 0 else None

@@ -22,11 +22,13 @@ class FakeOllamaService:
         self,
         installed_models: list[InstalledOllamaModel] | None = None,
         summary_response: str = "Condensed memory summary.",
+        chat_response: str = "Mocked local model response",
         fail_summary: bool = False,
     ) -> None:
         self.calls: list[tuple[str, str, list[str]]] = []
         self.installed_models = installed_models or []
         self.summary_response = summary_response
+        self.chat_response = chat_response
         self.fail_summary = fail_summary
 
     async def generate(
@@ -40,7 +42,7 @@ class FakeOllamaService:
             if self.fail_summary:
                 raise ComponentUnavailableError("summary failed")
             return self.summary_response
-        return "Mocked local model response"
+        return self.chat_response
 
     async def list_installed_models(self) -> list[InstalledOllamaModel]:
         return list(self.installed_models)
@@ -86,6 +88,7 @@ class FakeEmbedderProvider:
                 or "certification" in normalized
                 else 0.0
             ),
+            1.0 if "program" in normalized else 0.0,
         ]
 
 
@@ -367,6 +370,83 @@ def vector_index_path(
         / collection_id
         / "index.json"
     )
+
+
+def pdf_bytes(text: str) -> bytes:
+    import fitz
+
+    document = fitz.open()
+    try:
+        page = document.new_page()
+        if text:
+            page.insert_text((72, 72), text)
+        return bytes(document.write())
+    finally:
+        document.close()
+
+
+def pdf_chat_settings() -> dict[str, str]:
+    return {
+        "embedderModel": "embed-a",
+        "pdfParser": "pdfplumber",
+        "ocrEngine": "none",
+        "chunker": "recursive",
+        "vectorDatabase": "chroma",
+        "ragPipeline": "basic",
+        "contextCompressor": "none",
+    }
+
+
+def chat_capabilities_with_pdf() -> dict[str, list[dict[str, object]]]:
+    capabilities = chat_capabilities()
+    capabilities["pdfParsers"] = [capability("pdfplumber", "pdfParser")]
+    capabilities["ocrEngines"] = [capability("none", "ocrEngine")]
+    return capabilities
+
+
+def upload_process_index_pdf(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    conversation_id: str,
+    filename: str,
+    content: bytes,
+    settings: dict[str, str],
+) -> str:
+    upload_response = client.post(
+        "/documents/upload",
+        headers=auth_headers,
+        data={
+            "conversationId": conversation_id,
+            "conversationSettings": json.dumps(settings),
+        },
+        files={"file": (filename, content, "application/pdf")},
+    )
+    assert upload_response.status_code == 200, upload_response.text
+    document_id = upload_response.json()["documentId"]
+
+    process_response = client.post(
+        f"/documents/{document_id}/process",
+        headers=auth_headers,
+        json={
+            "conversationId": conversation_id,
+            "conversationSettings": settings,
+        },
+    )
+    assert process_response.status_code == 200, process_response.text
+    if process_response.json()["status"] != "processed":
+        return document_id
+
+    index_response = client.post(
+        f"/documents/{document_id}/index",
+        headers=auth_headers,
+        json={
+            "conversationId": conversation_id,
+            "conversationSettings": settings,
+        },
+    )
+    assert index_response.status_code == 200, index_response.text
+    assert index_response.json()["indexedChunks"] >= 1
+    return document_id
 
 
 def test_chat_returns_mocked_ollama_answer(
@@ -1035,7 +1115,7 @@ def test_basic_rag_pipeline_does_not_retrieve_documents(
     assert response.json()["ragUsed"] is False
     assert response.json()["sources"] == []
     assert fake_embedder.calls == []
-    assert "[Retrieved Context]" not in fake_ollama.calls[0][1]
+    assert "<document_context>" not in fake_ollama.calls[0][1]
 
 
 def test_attached_document_ids_force_retrieval_with_basic_pipeline(
@@ -1097,10 +1177,200 @@ def test_attached_document_ids_force_retrieval_with_basic_pipeline(
     assert payload["sources"][0]["documentName"] == "certificates.pdf"
     assert "certificate" in payload["sources"][0]["textPreview"]
     prompt = fake_ollama.calls[0][1]
-    assert "[Retrieved Context]" in prompt
-    assert "Document: certificates.pdf" in prompt
+    assert "<document_context>" in prompt
+    assert "Source 1: certificates.pdf" in prompt
     assert "certificate for local AI training completion" in prompt
     assert fake_embedder.calls == [(["What is this document?"], "embed-a")]
+
+
+def test_uploaded_pdf_question_answers_from_extracted_document_context(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    bad_model_answer = (
+        "To view the contents of Certificates.pdf, please ensure it's attached "
+        "to your current message or a conversation document."
+    )
+    fake_ollama = FakeOllamaService(chat_response=bad_model_answer)
+    configure_chat_rag_tests(app, tmp_path, capabilities=chat_capabilities_with_pdf())
+    settings = pdf_chat_settings()
+    certificate_text = (
+        "This certificate is for Junior Software Engineer AI-Native "
+        "Development Program."
+    )
+    document_id = upload_process_index_pdf(
+        client,
+        auth_headers,
+        "conversation-a",
+        "Certificates.pdf",
+        pdf_bytes(certificate_text),
+        settings,
+    )
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        response = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "conversationId": "conversation-a",
+                "message": "What is in this document?",
+                "attachmentDocumentIds": [document_id],
+                "ragOptions": {"enabled": True, "includeSources": True},
+                "conversationSettings": settings,
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["ragUsed"] is True
+    assert payload["sources"]
+    assert payload["sources"][0]["documentId"] == document_id
+    assert certificate_text in payload["answer"]
+    assert "please ensure" not in payload["answer"].lower()
+    prompt = fake_ollama.calls[0][1]
+    assert "<document_context>" in prompt
+    assert "</document_context>" in prompt
+    assert certificate_text in prompt
+    assert "Do not claim you cannot access the file" in prompt
+
+
+def test_document_followup_reuses_indexed_pdf_context_without_reattaching(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService(
+        chat_response="I cannot access the document unless you attach it."
+    )
+    configure_chat_rag_tests(app, tmp_path, capabilities=chat_capabilities_with_pdf())
+    settings = pdf_chat_settings()
+    certificate_text = (
+        "This certificate is for Junior Software Engineer AI-Native "
+        "Development Program."
+    )
+    document_id = upload_process_index_pdf(
+        client,
+        auth_headers,
+        "conversation-a",
+        "Certificates.pdf",
+        pdf_bytes(certificate_text),
+        settings,
+    )
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        response = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "conversationId": "conversation-a",
+                "message": "What program is mentioned?",
+                "history": [
+                    {
+                        "role": "user",
+                        "content": "What is in this document?",
+                    },
+                    {
+                        "role": "assistant",
+                        "content": "It is a certificate.",
+                    },
+                ],
+                "conversationSettings": settings,
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["ragUsed"] is True
+    assert payload["sources"][0]["documentId"] == document_id
+    assert "Junior Software Engineer AI-Native Development Program" in payload["answer"]
+    assert "attach" not in payload["answer"].lower()
+    assert "Retrieval mode: semantic_rag" in fake_ollama.calls[0][1]
+
+
+def test_empty_pdf_without_ocr_reports_clear_processing_failure(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService()
+    configure_chat_rag_tests(app, tmp_path, capabilities=chat_capabilities_with_pdf())
+    settings = pdf_chat_settings()
+    document_id = upload_process_index_pdf(
+        client,
+        auth_headers,
+        "conversation-a",
+        "scan.pdf",
+        pdf_bytes(""),
+        settings,
+    )
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        response = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "conversationId": "conversation-a",
+                "message": "What is in this document?",
+                "attachmentDocumentIds": [document_id],
+                "ragOptions": {"enabled": True, "includeSources": True},
+                "conversationSettings": settings,
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert "scan.pdf" in detail
+    assert "No text could be extracted" in detail
+    assert fake_ollama.calls == []
+
+
+def test_document_question_without_uploaded_document_asks_for_attachment(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService(
+        chat_response="Please upload or attach the document so I can read it."
+    )
+    configure_chat_rag_tests(app, tmp_path)
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        response = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "conversationId": "conversation-a",
+                "message": "What is in this document?",
+                "conversationSettings": {
+                    "embedderModel": "embed-a",
+                    "ragPipeline": "basic",
+                    "vectorDatabase": "chroma",
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["sources"] == []
+    assert payload["answer"] == "Please upload or attach the document so I can read it."
+    assert "<document_context>" not in fake_ollama.calls[0][1]
 
 
 def test_second_attachment_in_same_conversation_excludes_first_document_context(
@@ -1478,7 +1748,7 @@ def test_unrelated_message_does_not_inject_document_context(
 
     assert response.status_code == 200
     assert response.json()["sources"] == []
-    assert "[Retrieved Context]" not in fake_ollama.calls[0][1]
+    assert "<document_context>" not in fake_ollama.calls[0][1]
     assert fake_embedder.calls == []
 
 
@@ -1649,11 +1919,11 @@ def test_hybrid_rag_retrieves_chunks_and_inserts_them_into_prompt(
     assert "banana bread" in payload["sources"][0]["textPreview"]
 
     prompt = fake_ollama.calls[0][1]
-    assert "[Retrieved Context]" in prompt
+    assert "<document_context>" in prompt
     assert "Source 1" in prompt
-    assert "Document: notes.txt" in prompt
+    assert "Source 1: notes.txt" in prompt
     assert "banana bread" in prompt
-    assert "[Source N]" in prompt
+    assert "Do not claim you cannot access the file" in prompt
     assert fake_embedder.calls == [
         (["What document talks about banana?"], "embed-a")
     ]
@@ -1753,8 +2023,11 @@ def test_rag_skips_empty_retrieved_chunks_and_keeps_source_numbers_stable(
     assert payload["sources"][0]["finalRank"] == 1
     assert payload["sources"][0]["chunkId"] == "chunk-banana"
     assert "Skipped retrieved chunk" in payload["ragWarnings"][0]
-    assert "Source 1" in fake_ollama.calls[0][1]
-    assert "Source 2" not in fake_ollama.calls[0][1]
+    prompt = fake_ollama.calls[0][1]
+    assert "<document_context>" in prompt
+    assert "Source 1" in prompt
+    assert "banana bread" in prompt
+    assert "Source 2" not in prompt
 
 
 def test_reranked_pipeline_attempts_reranking_and_uses_reranked_order(
@@ -2012,7 +2285,7 @@ def test_hybrid_rag_without_index_falls_back_to_normal_chat(
     assert response.status_code == 200
     assert response.json()["ragUsed"] is False
     assert response.json()["sources"] == []
-    assert "[Retrieved Context]" not in fake_ollama.calls[0][1]
+    assert "<document_context>" not in fake_ollama.calls[0][1]
     assert fake_ollama.calls[0][1] == "No indexed documents yet."
 
 
@@ -2053,7 +2326,7 @@ def test_hybrid_rag_without_valid_embedder_warns_and_falls_back(
     assert "valid embedderModel" in response.json()["ragWarnings"][0]
     assert response.json()["sources"] == []
     assert fake_embedder.calls == []
-    assert "[Retrieved Context]" not in fake_ollama.calls[0][1]
+    assert "<document_context>" not in fake_ollama.calls[0][1]
 
 
 def test_hybrid_rag_embedder_mismatch_warns_and_falls_back(
@@ -2093,7 +2366,7 @@ def test_hybrid_rag_embedder_mismatch_warns_and_falls_back(
     assert "does not match indexed embedder" in response.json()["ragWarnings"][0]
     assert response.json()["sources"] == []
     assert fake_embedder.calls == []
-    assert "[Retrieved Context]" not in fake_ollama.calls[0][1]
+    assert "<document_context>" not in fake_ollama.calls[0][1]
 
 
 def test_hybrid_rag_vector_failure_warns_and_falls_back(
@@ -2129,4 +2402,4 @@ def test_hybrid_rag_vector_failure_warns_and_falls_back(
     assert "vector indexes could not be read" in response.json()["ragWarnings"][0]
     assert response.json()["sources"] == []
     assert fake_embedder.calls == []
-    assert "[Retrieved Context]" not in fake_ollama.calls[0][1]
+    assert "<document_context>" not in fake_ollama.calls[0][1]

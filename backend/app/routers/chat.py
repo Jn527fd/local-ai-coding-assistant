@@ -57,6 +57,30 @@ RAG_RETRIEVAL_PIPELINES = {"hybrid", "reranked", "graph", "agentic"}
 DISABLED_RERANKERS = {"", "none"}
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 SEMANTIC_RAG_MIN_SCORE = 0.15
+DOCUMENT_ACCESS_REFUSAL_MARKERS = (
+    "cannot access the file",
+    "can't access the file",
+    "cannot access this file",
+    "can't access this file",
+    "cannot access the document",
+    "can't access the document",
+    "do not have access to the file",
+    "don't have access to the file",
+    "do not have access to the document",
+    "don't have access to the document",
+    "unable to access the file",
+    "unable to access the document",
+    "cannot view the contents",
+    "can't view the contents",
+    "please ensure it's attached",
+    "please ensure it is attached",
+    "attached to your current message",
+    "attach the document",
+    "attach the file",
+    "upload the document",
+    "re-upload the document",
+    "reupload the document",
+)
 
 router = APIRouter(
     prefix="/chat",
@@ -138,7 +162,19 @@ def build_retrieved_context_block(
 
     attachment_ids = set(attachment_document_ids or [])
     lines = [
-        "[Retrieved Context]",
+        "<document_context>",
+        (
+            "The following excerpts were retrieved from files attached to this "
+            "conversation. Use them to answer the user's question. If the "
+            "excerpts are insufficient, say what is missing. Do not claim you "
+            "cannot access the file when excerpts are present."
+        ),
+        (
+            "Runtime instruction: answer using document_context, mention the "
+            "document's actual contents, and cite or reference source names "
+            "and pages when available. Do not ask the user to re-upload or "
+            "attach the file while document_context is present."
+        ),
         f"Retrieval mode: {retrieval_mode or 'semantic_rag'}",
     ]
     if attachment_ids:
@@ -175,11 +211,16 @@ def build_retrieved_context_block(
             if source.document_id in attachment_ids
             else "historical conversation document"
         )
+        page_label = (
+            str(source.page_number)
+            if source.page_number is not None
+            else "unknown"
+        )
         entry_header = [
             "",
-            f"Source {source.source_number}",
-            f"Document: {source.document_name}",
+            f"Source {source.source_number}: {source.document_name}",
             f"Document ID: {source.document_id}",
+            f"Page: {page_label}",
             f"Scope: {scope}",
             f"Chunk: {source.chunk_index} ({source.chunk_id})",
             f"Score: {source.score:.3f}",
@@ -198,7 +239,94 @@ def build_retrieved_context_block(
         lines.append(text)
         used_chars += header_cost + len(text) + 1
 
+    lines.append("</document_context>")
     return "\n".join(lines)
+
+
+def looks_like_document_access_refusal(answer: str) -> bool:
+    normalized = " ".join(answer.lower().split())
+    return any(marker in normalized for marker in DOCUMENT_ACCESS_REFUSAL_MARKERS)
+
+
+def build_document_context_fallback_answer(
+    sources: list[RetrievedSource],
+    max_sources: int = 3,
+    max_excerpt_chars: int = 700,
+) -> str:
+    excerpts: list[str] = []
+    for source in sources[:max_sources]:
+        text = " ".join(source.text.split())
+        if not text:
+            continue
+        if len(text) > max_excerpt_chars:
+            text = f"{text[: max(0, max_excerpt_chars - 14)].rstrip()} [truncated]"
+        page = (
+            f", page {source.page_number}"
+            if source.page_number is not None
+            else ""
+        )
+        excerpts.append(f"- {source.document_name}{page}: {text}")
+
+    if not excerpts:
+        return (
+            "I found document context for this conversation, but the retrieved "
+            "chunks did not contain readable text."
+        )
+    return (
+        "I found readable text in the uploaded document context. Relevant "
+        "excerpt(s):\n"
+        + "\n".join(excerpts)
+    )
+
+
+def repair_document_access_refusal(
+    answer: str,
+    retrieved_sources: list[RetrievedSource],
+) -> str:
+    if not retrieved_sources or not looks_like_document_access_refusal(answer):
+        return answer
+    logger.info(
+        "Replacing document access refusal with retrieved context excerpt answer."
+    )
+    return build_document_context_fallback_answer(retrieved_sources)
+
+
+def log_document_context_debug(
+    conversation_id: str | None,
+    query: str,
+    selection: DocumentContextSelection,
+    retrieved_sources: list[RetrievedSource],
+    document_context_included: bool,
+) -> None:
+    if not logger.isEnabledFor(logging.DEBUG):
+        return
+    logger.debug(
+        (
+            "Document context debug conversation_id=%s mode=%s reason=%s "
+            "active_document_ids=%s retrieval_query=%r chunks_retrieved=%d "
+            "document_context_included=%s"
+        ),
+        conversation_id,
+        selection.mode,
+        selection.reason,
+        selection.selected_document_ids,
+        query,
+        len(retrieved_sources),
+        document_context_included,
+    )
+    for source in retrieved_sources:
+        preview = " ".join(source.text.split())[:200]
+        logger.debug(
+            (
+                "Retrieved document chunk document_id=%s filename=%s "
+                "chunk_id=%s page=%s preview=%r"
+            ),
+            source.document_id,
+            source.document_name,
+            source.chunk_id,
+            source.page_number,
+            preview,
+        )
 
 
 def build_memory_block(memory_summary: str | None, max_chars: int) -> str:
@@ -631,6 +759,10 @@ def likely_document_retrieval_query(message: str) -> bool:
         "what document",
         "document talks",
         "document mentions",
+        "what program is mentioned",
+        "which program is mentioned",
+        "what is mentioned",
+        "what does it mention",
         "what did my",
         "what certifications",
         "certifications do i have",
@@ -1383,6 +1515,13 @@ async def prepare_chat_execution(
         broader_retrieval_used=context_selection.broader_retrieval_used,
         retrieval_mode=context_selection.mode,
     )
+    log_document_context_debug(
+        conversation_id=chat_request.conversationId,
+        query=chat_request.message,
+        selection=context_selection,
+        retrieved_sources=retrieved_sources,
+        document_context_included=bool(retrieved_sources),
+    )
     logger.info(
         (
             "Prepared chat model=%s prompt_chars=%d history_messages=%d/%d "
@@ -1585,6 +1724,13 @@ async def chat(
         broader_retrieval_used=context_selection.broader_retrieval_used,
         retrieval_mode=context_selection.mode,
     )
+    log_document_context_debug(
+        conversation_id=chat_request.conversationId,
+        query=chat_request.message,
+        selection=context_selection,
+        retrieved_sources=retrieved_sources,
+        document_context_included=bool(retrieved_sources),
+    )
     logger.info(
         (
             "Sending chat to Ollama model=%s prompt_chars=%d "
@@ -1638,6 +1784,7 @@ async def chat(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
         ) from exc
+    answer = repair_document_access_refusal(answer, retrieved_sources)
 
     include_sources = (
         chat_request.ragOptions.includeSources
@@ -1764,7 +1911,10 @@ async def chat_stream(
             "done",
             {
                 **_chat_metadata_payload(prepared),
-                "answer": "".join(answer_parts).strip(),
+                "answer": repair_document_access_refusal(
+                    "".join(answer_parts).strip(),
+                    prepared.retrieved_sources,
+                ),
             },
         )
 

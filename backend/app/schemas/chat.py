@@ -90,6 +90,7 @@ class ChatSource(BaseModel):
     rerankScore: float | None = None
     finalRank: int
     textPreview: str
+    pageNumber: int | None = None
     collectionId: str | None = None
 
 

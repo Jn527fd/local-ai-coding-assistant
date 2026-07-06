@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 class ChatHistoryMessage(BaseModel):
@@ -52,12 +52,20 @@ class ChatImageAttachment(BaseModel):
 class ChatRequest(BaseModel):
     """Input accepted by the chat endpoint."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     conversationId: str | None = Field(default=None, max_length=100)
     model: str | None = Field(default=None, min_length=1, max_length=100)
     message: str = Field(min_length=1, max_length=10_000)
     conversationSettings: ConversationSettings | None = None
+    attachment_document_ids: list[str] = Field(
+        default_factory=list,
+        max_length=50,
+        validation_alias=AliasChoices(
+            "attachment_document_ids",
+            "attachmentDocumentIds",
+        ),
+    )
     ragOptions: RagOptions | None = None
     history: list[ChatHistoryMessage] = Field(
         default_factory=list,

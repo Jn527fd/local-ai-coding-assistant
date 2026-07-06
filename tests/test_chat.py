@@ -79,6 +79,13 @@ class FakeEmbedderProvider:
             1.0 if "apple" in normalized else 0.0,
             1.0 if "banana" in normalized else 0.0,
             1.0 if "carrot" in normalized else 0.0,
+            1.0 if "react" in normalized else 0.0,
+            (
+                1.0
+                if "certificate" in normalized
+                or "certification" in normalized
+                else 0.0
+            ),
         ]
 
 
@@ -1068,9 +1075,9 @@ def test_attached_document_ids_force_retrieval_with_basic_pipeline(
             json={
                 "conversationId": "conversation-a",
                 "message": "What is this document?",
+                "attachmentDocumentIds": [document_id],
                 "ragOptions": {
                     "enabled": True,
-                    "documentIds": [document_id],
                     "includeSources": True,
                 },
                 "conversationSettings": {
@@ -1094,6 +1101,385 @@ def test_attached_document_ids_force_retrieval_with_basic_pipeline(
     assert "Document: certificates.pdf" in prompt
     assert "certificate for local AI training completion" in prompt
     assert fake_embedder.calls == [(["What is this document?"], "embed-a")]
+
+
+def test_second_attachment_in_same_conversation_excludes_first_document_context(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService()
+    configure_chat_rag_tests(app, tmp_path)
+    resume_id = "e" * 32
+    certificate_id = "f" * 32
+    seed_processed_document_metadata(
+        app,
+        "conversation-a",
+        resume_id,
+        filename="resume.pdf",
+    )
+    seed_processed_document_metadata(
+        app,
+        "conversation-a",
+        certificate_id,
+        filename="certificate.pdf",
+    )
+    seed_vector_index(
+        app,
+        "conversation-a",
+        document_id=resume_id,
+        chunk_texts=["resume says Senior Python Engineer"],
+        chunk_metadata=[{"documentName": "resume.pdf"}],
+    )
+    seed_vector_index(
+        app,
+        "conversation-a",
+        document_id=certificate_id,
+        chunk_texts=["certificate says Cloud Security Completion"],
+        chunk_metadata=[{"documentName": "certificate.pdf"}],
+    )
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        response = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "conversationId": "conversation-a",
+                "message": "What is this?",
+                "attachmentDocumentIds": [certificate_id],
+                "ragOptions": {"enabled": True, "includeSources": True},
+                "conversationSettings": {
+                    "embedderModel": "embed-a",
+                    "ragPipeline": "basic",
+                    "vectorDatabase": "chroma",
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [source["documentId"] for source in payload["sources"]] == [
+        certificate_id
+    ]
+    prompt = fake_ollama.calls[0][1]
+    assert "certificate.pdf" in prompt
+    assert "Cloud Security Completion" in prompt
+    assert "resume.pdf" not in prompt
+    assert "Senior Python Engineer" not in prompt
+
+
+def test_compare_attachment_to_previous_document_includes_current_then_historical(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService()
+    configure_chat_rag_tests(app, tmp_path)
+    resume_id = "1" * 32
+    certificate_id = "2" * 32
+    seed_processed_document_metadata(
+        app,
+        "conversation-a",
+        resume_id,
+        filename="resume.pdf",
+    )
+    seed_processed_document_metadata(
+        app,
+        "conversation-a",
+        certificate_id,
+        filename="certificate.pdf",
+    )
+    seed_vector_index(
+        app,
+        "conversation-a",
+        document_id=resume_id,
+        chunk_texts=["resume says Senior Python Engineer"],
+        chunk_metadata=[{"documentName": "resume.pdf"}],
+    )
+    seed_vector_index(
+        app,
+        "conversation-a",
+        document_id=certificate_id,
+        chunk_texts=["certificate says Cloud Security Completion"],
+        chunk_metadata=[{"documentName": "certificate.pdf"}],
+    )
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        response = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "conversationId": "conversation-a",
+                "message": "Compare this PDF to the previous one.",
+                "attachmentDocumentIds": [certificate_id],
+                "ragOptions": {"enabled": True, "includeSources": True},
+                "conversationSettings": {
+                    "embedderModel": "embed-a",
+                    "ragPipeline": "basic",
+                    "vectorDatabase": "chroma",
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["sources"][0]["documentId"] == certificate_id
+    assert any(source["documentId"] == resume_id for source in payload["sources"])
+    prompt = fake_ollama.calls[0][1]
+    assert prompt.index("certificate.pdf") < prompt.index("resume.pdf")
+    assert "Scope: current message attachment" in prompt
+    assert "Scope: historical conversation document" in prompt
+
+
+def test_conversation_reference_retrieves_previous_resume_without_attachment(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService()
+    configure_chat_rag_tests(app, tmp_path)
+    resume_id = "3" * 32
+    seed_processed_document_metadata(
+        app,
+        "conversation-a",
+        resume_id,
+        filename="resume.pdf",
+    )
+    seed_vector_index(
+        app,
+        "conversation-a",
+        document_id=resume_id,
+        chunk_texts=["resume says React and TypeScript frontend experience"],
+        chunk_metadata=[{"documentName": "resume.pdf"}],
+    )
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        response = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "conversationId": "conversation-a",
+                "message": "What did my resume say about React?",
+                "conversationSettings": {
+                    "embedderModel": "embed-a",
+                    "ragPipeline": "basic",
+                    "vectorDatabase": "chroma",
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["sources"][0]["documentId"] == resume_id
+    assert payload["sources"][0]["documentName"] == "resume.pdf"
+    prompt = fake_ollama.calls[0][1]
+    assert "Retrieval mode: conversation_reference" in prompt
+    assert "resume says React and TypeScript frontend experience" in prompt
+
+
+def test_conversation_reference_retrieves_previous_certificate_without_attachment(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService()
+    configure_chat_rag_tests(app, tmp_path)
+    certificate_id = "4" * 32
+    seed_processed_document_metadata(
+        app,
+        "conversation-a",
+        certificate_id,
+        filename="certificate.pdf",
+    )
+    seed_vector_index(
+        app,
+        "conversation-a",
+        document_id=certificate_id,
+        chunk_texts=["certificate expiration date is July 2028"],
+        chunk_metadata=[{"documentName": "certificate.pdf"}],
+    )
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        response = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "conversationId": "conversation-a",
+                "message": "When does the certificate expire?",
+                "conversationSettings": {
+                    "embedderModel": "embed-a",
+                    "ragPipeline": "basic",
+                    "vectorDatabase": "chroma",
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["sources"][0]["documentId"] == certificate_id
+    assert "certificate expiration date" in payload["sources"][0]["textPreview"]
+    assert "Retrieval mode: conversation_reference" in fake_ollama.calls[0][1]
+
+
+def test_ambiguous_previous_pdf_reference_asks_for_clarification(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService()
+    configure_chat_rag_tests(app, tmp_path)
+    seed_processed_document_metadata(
+        app,
+        "conversation-a",
+        "5" * 32,
+        filename="resume.pdf",
+    )
+    seed_processed_document_metadata(
+        app,
+        "conversation-a",
+        "6" * 32,
+        filename="certificate.pdf",
+    )
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        response = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "conversationId": "conversation-a",
+                "message": "What did the PDF say?",
+                "conversationSettings": {
+                    "embedderModel": "embed-a",
+                    "ragPipeline": "basic",
+                    "vectorDatabase": "chroma",
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert "Which PDF" in detail
+    assert "resume.pdf" in detail
+    assert "certificate.pdf" in detail
+    assert fake_ollama.calls == []
+
+
+def test_semantic_rag_retrieves_relevant_document_without_attachment(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService()
+    fake_embedder = configure_chat_rag_tests(app, tmp_path)
+    document_id = "7" * 32
+    seed_processed_document_metadata(
+        app,
+        "conversation-a",
+        document_id,
+        filename="profile-notes.txt",
+    )
+    seed_vector_index(
+        app,
+        "conversation-a",
+        document_id=document_id,
+        chunk_texts=["React frontend experience from uploaded profile notes"],
+        chunk_metadata=[{"documentName": "profile-notes.txt"}],
+    )
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        response = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "conversationId": "conversation-a",
+                "message": "What did my experience mention about React?",
+                "conversationSettings": {
+                    "embedderModel": "embed-a",
+                    "ragPipeline": "basic",
+                    "vectorDatabase": "chroma",
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["sources"][0]["documentId"] == document_id
+    assert "React frontend experience" in payload["sources"][0]["textPreview"]
+    assert "Retrieval mode: semantic_rag" in fake_ollama.calls[0][1]
+    assert fake_embedder.calls == [
+        (["What did my experience mention about React?"], "embed-a")
+    ]
+
+
+def test_unrelated_message_does_not_inject_document_context(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService()
+    fake_embedder = configure_chat_rag_tests(app, tmp_path)
+    document_id = "8" * 32
+    seed_processed_document_metadata(
+        app,
+        "conversation-a",
+        document_id,
+        filename="resume.pdf",
+    )
+    seed_vector_index(
+        app,
+        "conversation-a",
+        document_id=document_id,
+        chunk_texts=["React frontend experience from resume"],
+        chunk_metadata=[{"documentName": "resume.pdf"}],
+    )
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        response = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "conversationId": "conversation-a",
+                "message": "Write me a poem.",
+                "conversationSettings": {
+                    "embedderModel": "embed-a",
+                    "ragPipeline": "basic",
+                    "vectorDatabase": "chroma",
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["sources"] == []
+    assert "[Retrieved Context]" not in fake_ollama.calls[0][1]
+    assert fake_embedder.calls == []
 
 
 def test_attached_missing_document_is_rejected_before_generation(

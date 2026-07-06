@@ -22,7 +22,11 @@ from app.ai.compressors import (
     build_compression_options,
 )
 from app.ai.execution_context import AISettingsResolver
-from app.ai.pipelines import DocumentRetrievalPipeline, RetrievedSource
+from app.ai.pipelines import (
+    DocumentRetrievalPipeline,
+    RetrievalResult,
+    RetrievedSource,
+)
 from app.ai.embedders import OllamaEmbedderProvider
 from app.ai.providers import OllamaLLMProvider
 from app.ai.rerankers import OllamaRerankerProvider
@@ -52,6 +56,7 @@ logger = logging.getLogger(__name__)
 RAG_RETRIEVAL_PIPELINES = {"hybrid", "reranked", "graph", "agentic"}
 DISABLED_RERANKERS = {"", "none"}
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
+SEMANTIC_RAG_MIN_SCORE = 0.15
 
 router = APIRouter(
     prefix="/chat",
@@ -73,6 +78,17 @@ class RerankPlan:
     should_rerank: bool
     model: str | None = None
     warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class DocumentContextSelection:
+    mode: str
+    selected_document_ids: list[str]
+    retrieval_result: RetrievalResult | None = None
+    confidence: float = 0.0
+    reason: str = ""
+    broader_retrieval_used: bool = False
+    debug_metadata: dict[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -111,27 +127,60 @@ class PreparedChatExecution:
 def build_retrieved_context_block(
     sources: list[RetrievedSource],
     max_chars: int,
+    attachment_document_ids: list[str] | None = None,
+    broader_retrieval_used: bool = False,
+    retrieval_mode: str = "",
 ) -> str:
     """Format retrieved chunks for prompt injection within a size limit."""
 
     if not sources or max_chars <= 0:
         return ""
 
+    attachment_ids = set(attachment_document_ids or [])
     lines = [
         "[Retrieved Context]",
-        (
-            "Use these document excerpts only when relevant. Cite supporting "
-            "facts with [Source N]. If the excerpts do not contain the answer, "
-            "say so and answer from the conversation normally."
-        ),
+        f"Retrieval mode: {retrieval_mode or 'semantic_rag'}",
     ]
+    if attachment_ids:
+        lines.append(
+            (
+                "The user attached document(s) to the current message. For "
+                "references like 'this document', 'this PDF', or 'the attached "
+                "file', answer from the current message attachments first. Do "
+                "not use older conversation documents unless the user explicitly "
+                "asks to compare or reference previous uploads."
+            )
+        )
+    else:
+        lines.append(
+            (
+                "Use these document excerpts only when relevant. Cite supporting "
+                "facts with [Source N]. If the excerpts do not contain the answer, "
+                "say so and answer from the conversation normally."
+            )
+        )
+    if broader_retrieval_used:
+        lines.append(
+            (
+                "This request appears to ask about previous or multiple uploaded "
+                "documents, so historical document excerpts may be included after "
+                "the current attachment context."
+            )
+        )
     used_chars = sum(len(line) + 1 for line in lines)
 
     for source in sources:
+        scope = (
+            "current message attachment"
+            if source.document_id in attachment_ids
+            else "historical conversation document"
+        )
         entry_header = [
             "",
             f"Source {source.source_number}",
             f"Document: {source.document_name}",
+            f"Document ID: {source.document_id}",
+            f"Scope: {scope}",
             f"Chunk: {source.chunk_index} ({source.chunk_id})",
             f"Score: {source.score:.3f}",
             "Text:",
@@ -229,6 +278,9 @@ def build_chat_prompt(
     max_chars: int,
     retrieved_sources: list[RetrievedSource] | None = None,
     memory_summary: str | None = None,
+    attachment_document_ids: list[str] | None = None,
+    broader_retrieval_used: bool = False,
+    retrieval_mode: str = "",
 ) -> ChatPrompt:
     """Build the final chat prompt, optionally prefixed with document context."""
 
@@ -241,6 +293,9 @@ def build_chat_prompt(
         build_retrieved_context_block(
             sources=sources,
             max_chars=context_limit,
+            attachment_document_ids=attachment_document_ids,
+            broader_retrieval_used=broader_retrieval_used,
+            retrieval_mode=retrieval_mode,
         )
         if sources
         else ""
@@ -419,6 +474,8 @@ def should_attempt_retrieval(
         return False
     if requested_document_ids(chat_request):
         return True
+    if likely_document_retrieval_query(chat_request.message):
+        return True
     if chat_request.ragOptions and chat_request.ragOptions.enabled is True:
         return True
     reranker_component = execution_context.components["reranker"]
@@ -434,17 +491,523 @@ def should_attempt_retrieval(
 def requested_document_ids(chat_request: ChatRequest) -> list[str]:
     """Return unique explicit document IDs requested for this chat."""
 
+    document_ids = current_attachment_document_ids(chat_request)
+    if document_ids:
+        return document_ids
+
     if not chat_request.ragOptions:
         return []
 
+    return _unique_document_ids(chat_request.ragOptions.documentIds)
+
+
+def current_attachment_document_ids(chat_request: ChatRequest) -> list[str]:
+    """Return document IDs attached to the current user message."""
+
+    document_ids = _unique_document_ids(chat_request.attachment_document_ids)
+    if document_ids:
+        return document_ids
+    if chat_request.ragOptions:
+        return _unique_document_ids(chat_request.ragOptions.documentIds)
+    return []
+
+
+def _unique_document_ids(raw_document_ids: list[str]) -> list[str]:
     document_ids: list[str] = []
     seen: set[str] = set()
-    for document_id in chat_request.ragOptions.documentIds:
+    for document_id in raw_document_ids:
         normalized = document_id.strip()
         if normalized and normalized not in seen:
             seen.add(normalized)
             document_ids.append(normalized)
     return document_ids
+
+
+def requests_broader_document_context(message: str) -> bool:
+    """Detect when the user is asking beyond the current attachment."""
+
+    normalized = " ".join(message.lower().split())
+    broader_markers = [
+        "compare",
+        "previous",
+        "earlier",
+        "before",
+        "both documents",
+        "all documents",
+        "all my documents",
+        "all uploaded",
+        "uploaded earlier",
+        "previous upload",
+        "search all",
+        "find this topic",
+    ]
+    return any(marker in normalized for marker in broader_markers)
+
+
+def normalize_for_matching(value: object) -> str:
+    return " ".join(str(value or "").lower().replace("_", " ").split())
+
+
+def document_filename_terms(document: dict[str, object]) -> set[str]:
+    filename = normalize_for_matching(document.get("originalFilename"))
+    stem = filename.rsplit(".", maxsplit=1)[0]
+    terms = {
+        term
+        for term in stem.replace("-", " ").replace(".", " ").split()
+        if len(term) >= 3
+    }
+    return terms
+
+
+def is_pdf_document(document: dict[str, object]) -> bool:
+    filename = normalize_for_matching(document.get("originalFilename"))
+    mime_type = normalize_for_matching(document.get("mimeType"))
+    extension = normalize_for_matching(document.get("extension"))
+    return filename.endswith(".pdf") or mime_type == "application/pdf" or extension == ".pdf"
+
+
+def is_processed_document(document: dict[str, object]) -> bool:
+    return (
+        str(document.get("status") or "") == "processed"
+        and int(document.get("chunkCount") or 0) > 0
+        and bool(document.get("documentId"))
+    )
+
+
+def document_reference_kind(message: str) -> str:
+    normalized = normalize_for_matching(message)
+    if any(term in normalized for term in ["resume", "cv"]):
+        return "resume"
+    if any(
+        term in normalized
+        for term in ["certificate", "certification", "certifications"]
+    ):
+        return "certificate"
+    if "invoice" in normalized:
+        return "invoice"
+    generic_reference_markers = [
+        "this pdf",
+        "that pdf",
+        "the pdf",
+        "this document",
+        "that document",
+        "the document",
+        "this attachment",
+        "that attachment",
+        "the attachment",
+        "attached file",
+        "the attached file",
+        "this file",
+        "that file",
+        "the file",
+    ]
+    if any(marker in normalized for marker in generic_reference_markers):
+        return "document"
+    if any(
+        marker in normalized
+        for marker in [
+            "uploaded earlier",
+            "uploaded before",
+            "one i uploaded",
+            "that document",
+            "that file",
+            "what did it say",
+            "what was in it",
+        ]
+    ):
+        return "vague"
+    return ""
+
+
+def likely_document_retrieval_query(message: str) -> bool:
+    normalized = normalize_for_matching(message)
+    if document_reference_kind(normalized):
+        return True
+    retrieval_markers = [
+        "docs",
+        "documents",
+        "use docs",
+        "use documents",
+        "what document",
+        "document talks",
+        "document mentions",
+        "what did my",
+        "what certifications",
+        "certifications do i have",
+        "expiration date",
+        "expire",
+        "experience",
+        "react",
+        "uploaded",
+        "in my documents",
+        "in the docs",
+        "remind me what was in",
+    ]
+    return any(marker in normalized for marker in retrieval_markers)
+
+
+def has_configured_document_retrieval(execution_context: object) -> bool:
+    reranker_component = execution_context.components["reranker"]
+    reranker_requested = (
+        reranker_component.requested_id or ""
+    ).strip() not in DISABLED_RERANKERS
+    return (
+        execution_context.resolved_rag_pipeline in RAG_RETRIEVAL_PIPELINES
+        or reranker_requested
+    )
+
+
+def match_referenced_documents(
+    message: str,
+    documents: list[dict[str, object]],
+) -> tuple[list[str], bool, str]:
+    kind = document_reference_kind(message)
+    if not kind:
+        return [], False, ""
+
+    processed_documents = [document for document in documents if is_processed_document(document)]
+    if not processed_documents:
+        return [], False, kind
+
+    normalized = normalize_for_matching(message)
+    matches: list[dict[str, object]] = []
+    if kind == "resume":
+        matches = [
+            document
+            for document in processed_documents
+            if "resume" in document_filename_terms(document)
+            or "cv" in document_filename_terms(document)
+        ]
+    elif kind == "certificate":
+        matches = [
+            document
+            for document in processed_documents
+            if any(
+                term in document_filename_terms(document)
+                for term in ["certificate", "certification", "certifications"]
+            )
+        ]
+    elif kind == "invoice":
+        matches = [
+            document
+            for document in processed_documents
+            if "invoice" in document_filename_terms(document)
+        ]
+    elif kind == "document":
+        if "pdf" in normalized:
+            matches = [document for document in processed_documents if is_pdf_document(document)]
+        else:
+            matches = processed_documents
+    elif kind == "vague":
+        matches = processed_documents[:1]
+
+    if not matches:
+        return [], False, kind
+    if len(matches) > 1 and kind != "vague":
+        return [
+            str(document.get("documentId"))
+            for document in matches
+            if document.get("documentId")
+        ], True, kind
+    return [
+        str(document.get("documentId"))
+        for document in matches[:1]
+        if document.get("documentId")
+    ], False, kind
+
+
+def filter_relevant_sources(
+    result: RetrievalResult,
+    min_score: float,
+) -> RetrievalResult:
+    relevant_sources = [
+        source
+        for source in result.sources
+        if float(source.score) >= min_score
+    ]
+    warnings = list(result.warnings)
+    if result.sources and not relevant_sources:
+        warnings.append(
+            "Document retrieval was skipped because no retrieved chunks met the relevance threshold."
+        )
+    return RetrievalResult(
+        rag_used=bool(relevant_sources),
+        warnings=warnings,
+        sources=relevant_sources,
+    )
+
+
+async def list_conversation_documents(
+    request: Request,
+    conversation_id: str | None,
+) -> list[dict[str, object]]:
+    if not conversation_id:
+        return []
+    document_service: DocumentService = request.app.state.document_service
+    try:
+        documents = await run_in_threadpool(
+            document_service.list_documents,
+            conversation_id,
+        )
+    except (DocumentValidationError, DocumentStorageError) as exc:
+        logger.warning(
+            "Could not list conversation documents conversation_id=%s: %s",
+            conversation_id,
+            exc,
+        )
+        return []
+    return documents
+
+
+def clarification_detail(
+    kind: str,
+    document_ids: list[str],
+    documents: list[dict[str, object]],
+) -> str:
+    names_by_id = {
+        str(document.get("documentId")): str(document.get("originalFilename") or "Document")
+        for document in documents
+    }
+    names = [
+        names_by_id.get(document_id, document_id)
+        for document_id in document_ids
+    ]
+    label = "PDF" if kind == "document" else kind or "document"
+    return (
+        f"Which {label} do you mean? I found multiple matching uploads: "
+        f"{', '.join(names)}."
+    )
+
+
+def merge_retrieval_results(
+    attachment_result: RetrievalResult,
+    historical_result: RetrievalResult | None,
+    attachment_document_ids: list[str],
+) -> RetrievalResult:
+    if historical_result is None:
+        return attachment_result
+
+    attachment_ids = set(attachment_document_ids)
+    seen_chunks = {source.chunk_id for source in attachment_result.sources}
+    historical_sources = [
+        source
+        for source in historical_result.sources
+        if source.chunk_id not in seen_chunks
+        and source.document_id not in attachment_ids
+    ]
+    return RetrievalResult(
+        rag_used=bool(attachment_result.sources or historical_sources),
+        warnings=[*attachment_result.warnings, *historical_result.warnings],
+        sources=[*attachment_result.sources, *historical_sources],
+    )
+
+
+async def retrieve_document_context(
+    chat_request: ChatRequest,
+    request: Request,
+    execution_context: object,
+    retrieval_pipeline: DocumentRetrievalPipeline,
+    top_k: int,
+    candidate_k: int,
+) -> DocumentContextSelection:
+    if not should_attempt_retrieval(chat_request, execution_context):
+        logger.info(
+            "Document context selector mode=none reason=retrieval_not_requested"
+        )
+        return DocumentContextSelection(
+            mode="none",
+            selected_document_ids=[],
+            reason="retrieval_not_requested",
+        )
+
+    attachment_ids = current_attachment_document_ids(chat_request)
+    broader_requested = bool(attachment_ids) and requests_broader_document_context(
+        chat_request.message
+    )
+    if attachment_ids:
+        attachment_result = await retrieval_pipeline.retrieve(
+            query=chat_request.message,
+            conversation_id=chat_request.conversationId,
+            execution_context=execution_context,
+            top_k=candidate_k,
+            document_ids=attachment_ids,
+        )
+        if not broader_requested:
+            logger.info(
+                (
+                    "Document context selector mode=current_attachment "
+                    "conversation_id=%s attachment_ids=%s retrieved_chunks=%d"
+                ),
+                chat_request.conversationId,
+                attachment_ids,
+                len(attachment_result.sources),
+            )
+            return DocumentContextSelection(
+                mode="current_attachment",
+                selected_document_ids=attachment_ids,
+                retrieval_result=attachment_result,
+                confidence=1.0,
+                reason="current_message_attachments",
+            )
+
+        historical_result = await retrieval_pipeline.retrieve(
+            query=chat_request.message,
+            conversation_id=chat_request.conversationId,
+            execution_context=execution_context,
+            top_k=max(candidate_k, top_k),
+            document_ids=None,
+        )
+        merged = merge_retrieval_results(
+            attachment_result,
+            historical_result,
+            attachment_ids,
+        )
+        logger.info(
+            (
+                "Document context selector mode=cross_document "
+                "conversation_id=%s attachment_ids=%s retrieved_chunks=%d"
+            ),
+            chat_request.conversationId,
+            attachment_ids,
+            len(merged.sources),
+        )
+        return DocumentContextSelection(
+            mode="cross_document",
+            selected_document_ids=[
+                *attachment_ids,
+                *[
+                    source.document_id
+                    for source in historical_result.sources
+                    if source.document_id not in attachment_ids
+                ],
+            ],
+            retrieval_result=merged,
+            confidence=0.95,
+            reason="current_attachment_with_cross_document_request",
+            broader_retrieval_used=True,
+        )
+
+    documents = await list_conversation_documents(
+        request,
+        chat_request.conversationId,
+    )
+    matched_document_ids, ambiguous, reference_kind = match_referenced_documents(
+        chat_request.message,
+        documents,
+    )
+    if ambiguous:
+        detail = clarification_detail(reference_kind, matched_document_ids, documents)
+        logger.info(
+            (
+                "Document context selector mode=needs_clarification "
+                "conversation_id=%s kind=%s matches=%s"
+            ),
+            chat_request.conversationId,
+            reference_kind,
+            matched_document_ids,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=detail,
+        )
+    if matched_document_ids:
+        result = await retrieval_pipeline.retrieve(
+            query=chat_request.message,
+            conversation_id=chat_request.conversationId,
+            execution_context=execution_context,
+            top_k=candidate_k,
+            document_ids=matched_document_ids,
+        )
+        logger.info(
+            (
+                "Document context selector mode=conversation_reference "
+                "conversation_id=%s reference_kind=%s selected_ids=%s retrieved_chunks=%d"
+            ),
+            chat_request.conversationId,
+            reference_kind,
+            matched_document_ids,
+            len(result.sources),
+        )
+        if not result.sources:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Referenced document context could not be retrieved. "
+                    "Make sure the document finished indexing before asking about it."
+                ),
+            )
+        return DocumentContextSelection(
+            mode="conversation_reference",
+            selected_document_ids=matched_document_ids,
+            retrieval_result=result,
+            confidence=0.85,
+            reason=f"matched_{reference_kind}_reference",
+        )
+
+    if not likely_document_retrieval_query(chat_request.message):
+        logger.info(
+            (
+                "Document context selector mode=none reason=gating_skipped "
+                "conversation_id=%s message=%s"
+            ),
+            chat_request.conversationId,
+            chat_request.message,
+        )
+        return DocumentContextSelection(
+            mode="none",
+            selected_document_ids=[],
+            reason="gating_skipped",
+        )
+
+    result = await retrieval_pipeline.retrieve(
+        query=chat_request.message,
+        conversation_id=chat_request.conversationId,
+        execution_context=execution_context,
+        top_k=candidate_k,
+        document_ids=chat_request.ragOptions.documentIds
+        if chat_request.ragOptions
+        else None,
+    )
+    configured_retrieval = (
+        has_configured_document_retrieval(execution_context)
+        or bool(chat_request.ragOptions and chat_request.ragOptions.enabled is True)
+    )
+    relevant_result = (
+        result
+        if configured_retrieval
+        else filter_relevant_sources(result, SEMANTIC_RAG_MIN_SCORE)
+    )
+    logger.info(
+        (
+            "Document context selector mode=semantic_rag conversation_id=%s "
+            "retrieved_chunks=%d relevant_chunks=%d threshold=%.2f "
+            "configured_retrieval=%s"
+        ),
+        chat_request.conversationId,
+        len(result.sources),
+        len(relevant_result.sources),
+        SEMANTIC_RAG_MIN_SCORE,
+        configured_retrieval,
+    )
+    if not relevant_result.sources:
+        return DocumentContextSelection(
+            mode="none",
+            selected_document_ids=[],
+            retrieval_result=relevant_result,
+            confidence=0.0,
+            reason="semantic_rag_below_threshold",
+        )
+    selected_ids = []
+    for source in relevant_result.sources:
+        if source.document_id not in selected_ids:
+            selected_ids.append(source.document_id)
+    return DocumentContextSelection(
+        mode="semantic_rag",
+        selected_document_ids=selected_ids,
+        retrieval_result=relevant_result,
+        confidence=max(float(source.score) for source in relevant_result.sources),
+        reason="semantic_document_query",
+    )
 
 
 async def resolve_attached_documents(
@@ -718,7 +1281,10 @@ async def prepare_chat_execution(
         )
 
     settings: Settings = request.app.state.settings
-    rag_result = None
+    context_selection = DocumentContextSelection(
+        mode="none",
+        selected_document_ids=[],
+    )
     rag_options = chat_request.ragOptions
     requested_top_k = rag_options.topK if rag_options else settings.rag_top_k
     top_k = max(1, min(requested_top_k, settings.rag_max_top_k))
@@ -733,14 +1299,15 @@ async def prepare_chat_execution(
             min(requested_candidate_k, settings.reranker_max_candidates),
         )
 
-    if should_attempt_retrieval(chat_request, execution_context):
-        rag_result = await retrieval_pipeline.retrieve(
-            query=chat_request.message,
-            conversation_id=chat_request.conversationId,
-            execution_context=execution_context,
-            top_k=candidate_k,
-            document_ids=rag_options.documentIds if rag_options else None,
-        )
+    context_selection = await retrieve_document_context(
+        chat_request=chat_request,
+        request=request,
+        execution_context=execution_context,
+        retrieval_pipeline=retrieval_pipeline,
+        top_k=top_k,
+        candidate_k=candidate_k,
+    )
+    rag_result = context_selection.retrieval_result
 
     rag_warnings = list(rag_result.warnings if rag_result else [])
     rerank_warnings = list(rerank_plan.warnings)
@@ -812,17 +1379,23 @@ async def prepare_chat_execution(
         max_chars=settings.chat_context_max_chars,
         retrieved_sources=retrieved_sources,
         memory_summary=compression_result.memory_summary,
+        attachment_document_ids=current_attachment_document_ids(chat_request),
+        broader_retrieval_used=context_selection.broader_retrieval_used,
+        retrieval_mode=context_selection.mode,
     )
     logger.info(
         (
             "Prepared chat model=%s prompt_chars=%d history_messages=%d/%d "
-            "retrieved_sources=%d reranking_used=%s compression_used=%s"
+            "retrieved_sources=%d context_mode=%s selected_document_ids=%s "
+            "reranking_used=%s compression_used=%s"
         ),
         generation_model,
         len(prompt.text),
         prompt.included_history_messages,
         len(chat_request.history),
         prompt.retrieved_source_count,
+        context_selection.mode,
+        context_selection.selected_document_ids,
         reranking_used,
         compression_result.compression_used,
     )
@@ -907,7 +1480,10 @@ async def chat(
             )
 
     settings: Settings = request.app.state.settings
-    rag_result = None
+    context_selection = DocumentContextSelection(
+        mode="none",
+        selected_document_ids=[],
+    )
     rag_options = chat_request.ragOptions
     requested_top_k = rag_options.topK if rag_options else settings.rag_top_k
     top_k = max(1, min(requested_top_k, settings.rag_max_top_k))
@@ -922,17 +1498,15 @@ async def chat(
             min(requested_candidate_k, settings.reranker_max_candidates),
         )
 
-    if should_attempt_retrieval(
-        chat_request,
-        execution_context,
-    ):
-        rag_result = await retrieval_pipeline.retrieve(
-            query=chat_request.message,
-            conversation_id=chat_request.conversationId,
-            execution_context=execution_context,
-            top_k=candidate_k,
-            document_ids=rag_options.documentIds if rag_options else None,
-        )
+    context_selection = await retrieve_document_context(
+        chat_request=chat_request,
+        request=request,
+        execution_context=execution_context,
+        retrieval_pipeline=retrieval_pipeline,
+        top_k=top_k,
+        candidate_k=candidate_k,
+    )
+    rag_result = context_selection.retrieval_result
 
     rag_warnings = list(rag_result.warnings if rag_result else [])
     rerank_warnings = list(rerank_plan.warnings)
@@ -1007,11 +1581,15 @@ async def chat(
         max_chars=settings.chat_context_max_chars,
         retrieved_sources=retrieved_sources,
         memory_summary=compression_result.memory_summary,
+        attachment_document_ids=current_attachment_document_ids(chat_request),
+        broader_retrieval_used=context_selection.broader_retrieval_used,
+        retrieval_mode=context_selection.mode,
     )
     logger.info(
         (
             "Sending chat to Ollama model=%s prompt_chars=%d "
             "history_messages=%d/%d retrieved_sources=%d "
+            "context_mode=%s selected_document_ids=%s "
             "reranking_used=%s compression_used=%s"
         ),
         generation_model,
@@ -1019,6 +1597,8 @@ async def chat(
         prompt.included_history_messages,
         len(chat_request.history),
         prompt.retrieved_source_count,
+        context_selection.mode,
+        context_selection.selected_document_ids,
         reranking_used,
         compression_result.compression_used,
     )

@@ -186,6 +186,9 @@ function buildChatRequestBody(
   }
   if (ragOptions) {
     body.ragOptions = ragOptions;
+    if (Array.isArray(ragOptions.documentIds) && ragOptions.documentIds.length > 0) {
+      body.attachmentDocumentIds = ragOptions.documentIds;
+    }
   }
   if (images.length > 0) {
     body.images = images;

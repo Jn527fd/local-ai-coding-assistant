@@ -131,6 +131,7 @@ describe("api chat", () => {
         embedderModel: "nomic-embed-text:latest",
         ocrEngine: "none",
       },
+      attachmentDocumentIds: ["doc-1"],
       ragOptions: {
         enabled: true,
         topK: 3,

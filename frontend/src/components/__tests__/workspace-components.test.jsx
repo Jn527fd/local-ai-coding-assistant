@@ -264,6 +264,40 @@ describe("Workspace / Conversation / Composer", () => {
     expect(onSendMessage).toHaveBeenCalledWith("Add tests", []);
   });
 
+  it("keeps streamed assistant text in place when streaming completes", () => {
+    const streamedChat = {
+      ...baseChat,
+      messages: [
+        { role: "user", content: "Explain streaming." },
+        {
+          id: "assistant-streamed",
+          role: "assistant",
+          content: "The streamed answer stays visible.",
+          streaming: true,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    };
+    const completedChat = {
+      ...streamedChat,
+      messages: streamedChat.messages.map((message) =>
+        message.role === "assistant"
+          ? { ...message, streaming: false, generationTimeMs: 420 }
+          : message,
+      ),
+    };
+
+    const { rerender } = render(<WorkspaceHarness activeChat={streamedChat} isSending />);
+
+    expect(screen.getByText("Streaming locally")).toBeInTheDocument();
+    expect(screen.getByText("The streamed answer stays visible.")).toBeInTheDocument();
+
+    rerender(<WorkspaceHarness activeChat={completedChat} isSending={false} />);
+
+    expect(screen.queryByText("Streaming locally")).not.toBeInTheDocument();
+    expect(screen.getByText("The streamed answer stays visible.")).toBeInTheDocument();
+  });
+
   it("attaches images to the next composer submission", async () => {
     const user = userEvent.setup();
     const onSendMessage = vi.fn().mockResolvedValue(true);

@@ -669,9 +669,14 @@ function AssistantMessage({
   onDelete,
   onOpenSourceDetails,
 }) {
-  const shouldAnimate = isRecentAssistantMessage(message);
-  const { isStreaming, visibleContent } = useProgressiveText(message.content, shouldAnimate);
   const activelyStreaming = Boolean(message.streaming);
+  const streamedInThisMountRef = useRef(activelyStreaming);
+  if (activelyStreaming) {
+    streamedInThisMountRef.current = true;
+  }
+  const shouldAnimate =
+    isRecentAssistantMessage(message) && !streamedInThisMountRef.current;
+  const { isStreaming, visibleContent } = useProgressiveText(message.content, shouldAnimate);
   const fullContentBlocks = parseContentBlocks(message.content);
   const contentBlocks = parseContentBlocks(visibleContent);
   const sources = message.sources || [];

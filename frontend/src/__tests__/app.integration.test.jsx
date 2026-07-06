@@ -69,10 +69,14 @@ describe("main app integration", () => {
     );
     await user.keyboard("{Control>}{Enter}{/Control}");
 
-    expect(await screen.findByLabelText(/assistant is responding/i)).toBeInTheDocument();
+    expect(await screen.findByText("Streaming locally")).toBeInTheDocument();
     expect(
       await screen.findByText(/Fake streaming answer/, {}, { timeout: 6000 }),
     ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByText("Streaming locally")).not.toBeInTheDocument();
+    });
+    expect(screen.queryByText("Preparing response")).not.toBeInTheDocument();
     expect(screen.getByText(/used reranked document context/i)).toBeInTheDocument();
     expect(screen.getByText(/context compressed/i)).toBeInTheDocument();
     expect(screen.getByText(/stale index/i)).toBeInTheDocument();

@@ -106,7 +106,6 @@ function App() {
   }, []);
 
   const {
-    activeDocuments,
     clearDocumentSearchState,
     documentBusy,
     documentError,
@@ -659,7 +658,6 @@ function App() {
       composerRef={composerRef}
       documentError={documentError}
       documentJobProgress={documentJobProgress}
-      documents={activeDocuments}
       isUploadingDocument={documentBusy}
       isSending={sendingChatId === activeChatId}
       message={draftMessage}

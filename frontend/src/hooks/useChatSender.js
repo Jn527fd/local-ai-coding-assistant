@@ -20,7 +20,7 @@ export function useChatSender({
   }, []);
 
   const handleSendMessage = useCallback(
-    async (message, imageAttachments = []) => {
+    async (message, imageAttachments = [], documentAttachments = []) => {
       if (!apiKey) {
         setChatError("Save and verify your API key from Settings before chatting.");
         return false;
@@ -35,10 +35,30 @@ export function useChatSender({
       const history = activeChat.messages
         .slice(-30)
         .map(({ role, content }) => ({ role, content }));
+      const documentAttachmentMetadata = documentAttachments
+        .map(({ documentId, originalFilename, status, mimeType, size }) => ({
+          documentId,
+          originalFilename: originalFilename || "Document",
+          status: status || "processed",
+          mimeType: mimeType || "",
+          size: size || 0,
+        }))
+        .filter((document) => Boolean(document.documentId));
+      const ragOptions =
+        documentAttachmentMetadata.length > 0
+          ? {
+              enabled: true,
+              documentIds: documentAttachmentMetadata.map(
+                (document) => document.documentId,
+              ),
+              includeSources: true,
+            }
+          : null;
       const userMessage = {
         role: "user",
         content: message,
         imageAttachments: imageAttachments.map(({ data, ...metadata }) => metadata),
+        documentAttachments: documentAttachmentMetadata,
         createdAt: new Date().toISOString(),
       };
       const assistantMessageId =
@@ -89,7 +109,7 @@ export function useChatSender({
           history,
           conversationSettings,
           chatId,
-          null,
+          ragOptions,
           imageAttachments.map(({ name, mimeType, data }) => ({
             name,
             mimeType,

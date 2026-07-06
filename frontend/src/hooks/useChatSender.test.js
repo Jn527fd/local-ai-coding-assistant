@@ -76,6 +76,64 @@ describe("useChatSender", () => {
     });
   });
 
+  it("includes attached documents in the user message and RAG request options", async () => {
+    const activeChat = {
+      id: "chat-a",
+      title: "Untitled",
+      settings: {},
+      messages: [],
+    };
+    sendChatStream.mockResolvedValueOnce({
+      answer: "The certificate says hello.",
+      model: "llama",
+      ragUsed: true,
+      sources: [{ documentName: "certificates.pdf" }],
+    });
+    const { result, getChats } = renderChatSender({ activeChat });
+
+    let sent;
+    await act(async () => {
+      sent = await result.current.handleSendMessage(
+        "Use the certificate",
+        [],
+        [
+          {
+            documentId: "doc-1",
+            originalFilename: "certificates.pdf",
+            status: "processed",
+          },
+        ],
+      );
+    });
+
+    expect(sent).toBe(true);
+    expect(sendChatStream).toHaveBeenCalledWith(
+      "test-key",
+      "Use the certificate",
+      [],
+      expect.any(Object),
+      "chat-a",
+      {
+        enabled: true,
+        documentIds: ["doc-1"],
+        includeSources: true,
+      },
+      [],
+      expect.any(Object),
+    );
+    expect(getChats()[0].messages[0]).toMatchObject({
+      role: "user",
+      content: "Use the certificate",
+      documentAttachments: [
+        {
+          documentId: "doc-1",
+          originalFilename: "certificates.pdf",
+          status: "processed",
+        },
+      ],
+    });
+  });
+
   it("removes the optimistic assistant message when streaming fails", async () => {
     const activeChat = {
       id: "chat-a",

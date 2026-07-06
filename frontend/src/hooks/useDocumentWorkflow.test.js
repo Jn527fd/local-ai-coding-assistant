@@ -104,7 +104,11 @@ describe("useDocumentWorkflow", () => {
       );
     });
 
-    expect(uploaded).toBe(true);
+    expect(uploaded).toMatchObject({
+      documentId: "doc-a",
+      originalFilename: "notes.txt",
+      status: "processed",
+    });
     expect(uploadDocument).toHaveBeenCalled();
     expect(startProcessDocumentJob).toHaveBeenCalledWith(
       "test-key",

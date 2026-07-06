@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button, Textarea } from "./ui.jsx";
 
@@ -99,7 +99,6 @@ function Composer({
   composerRef,
   documentError = "",
   documentJobProgress = null,
-  documents = [],
   isUploadingDocument = false,
   isSending,
   message,
@@ -109,7 +108,11 @@ function Composer({
 }) {
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
+  const activeChatId = activeChat?.id || "";
+  const activeChatIdRef = useRef(activeChatId);
   const [focused, setFocused] = useState(false);
+  const [documentAttachments, setDocumentAttachments] = useState([]);
+  const [documentAttachmentError, setDocumentAttachmentError] = useState("");
   const [imageAttachments, setImageAttachments] = useState([]);
   const [imageError, setImageError] = useState("");
   const [slashOpen, setSlashOpen] = useState(false);
@@ -148,17 +151,30 @@ function Composer({
     isUploadingDocument,
   ]);
 
+  useEffect(() => {
+    activeChatIdRef.current = activeChatId;
+    setDocumentAttachments([]);
+    setDocumentAttachmentError("");
+    setImageAttachments([]);
+    setImageError("");
+    setSlashOpen(false);
+  }, [activeChatId]);
+
   async function handleSubmit(event) {
     event.preventDefault();
     const trimmed = message.trim();
-    if (!trimmed || isSending) {
+    if (!trimmed || isSending || isUploadingDocument) {
       return;
     }
 
     onMessageChange("");
     setSlashOpen(false);
 
-    const didSend = await onSendMessage(trimmed, imageAttachments);
+    const didSend = await onSendMessage(
+      trimmed,
+      imageAttachments,
+      documentAttachments,
+    );
 
     if (!didSend) {
       onMessageChange(trimmed);
@@ -166,12 +182,8 @@ function Composer({
     }
     setImageAttachments([]);
     setImageError("");
-
-    // const didSend = await onSendMessage(trimmed);
-    // if (didSend) {
-    //   onMessageChange("");
-    //   setSlashOpen(false);
-    // }
+    setDocumentAttachments([]);
+    setDocumentAttachmentError("");
   }
 
   function closeMenus() {
@@ -189,13 +201,76 @@ function Composer({
     applyPrompt(nextValue.trimStart());
   }
 
+  function normalizeDocumentAttachment(document, file) {
+    const documentId = document?.documentId || "";
+    if (!documentId) {
+      return null;
+    }
+
+    return {
+      documentId,
+      originalFilename: document.originalFilename || file?.name || "Document",
+      status: document.status || "processed",
+      mimeType: file?.type || document.mimeType || "",
+      size: file?.size ?? document.size ?? 0,
+    };
+  }
+
+  async function attachDocumentFile(file) {
+    if (!file || !onUploadDocument || !activeChat || isUploadingDocument || isSending) {
+      return;
+    }
+
+    const chatIdAtSelection = activeChatIdRef.current;
+    setDocumentAttachmentError("");
+
+    try {
+      const uploadedDocument = await onUploadDocument(file);
+      if (activeChatIdRef.current !== chatIdAtSelection) {
+        return;
+      }
+
+      const nextAttachment = normalizeDocumentAttachment(uploadedDocument, file);
+      if (!nextAttachment) {
+        setDocumentAttachmentError(`${file.name || "Document"} could not be attached.`);
+        return;
+      }
+
+      setDocumentAttachments((current) => {
+        if (current.some((item) => item.documentId === nextAttachment.documentId)) {
+          return current;
+        }
+        return [...current, nextAttachment];
+      });
+    } catch (error) {
+      if (activeChatIdRef.current === chatIdAtSelection) {
+        setDocumentAttachmentError(
+          error.message || `${file.name || "Document"} could not be attached.`,
+        );
+      }
+    }
+  }
+
   async function handleFileChange(event) {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (!file || !onUploadDocument) {
+    await attachDocumentFile(file);
+  }
+
+  function handleDragOver(event) {
+    if (Array.from(event.dataTransfer?.types || []).includes("Files")) {
+      event.preventDefault();
+    }
+  }
+
+  async function handleDrop(event) {
+    const file = event.dataTransfer?.files?.[0];
+    if (!file) {
       return;
     }
-    await onUploadDocument(file);
+
+    event.preventDefault();
+    await attachDocumentFile(file);
   }
 
   async function handleImageChange(event) {
@@ -266,6 +341,8 @@ function Composer({
       aria-busy={isSending || isUploadingDocument}
       aria-label="Chat composer"
       className={`composer smart-composer ${focused ? "smart-composer--focused" : ""}`}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
       onSubmit={handleSubmit}
     >
       <div aria-live="polite" className="sr-only" role="status">
@@ -278,7 +355,7 @@ function Composer({
         <button
           aria-label="Attach document"
           className="composer-attach-button"
-          disabled={!activeChat || isUploadingDocument}
+          disabled={!activeChat || isUploadingDocument || isSending}
           onClick={() => fileInputRef.current?.click()}
           title="Attach document"
           type="button"
@@ -289,7 +366,7 @@ function Composer({
           accept=".txt,.md,.pdf,.docx,.html,.htm,.csv,.tsv"
           aria-label="Document upload"
           className="composer-file-input"
-          disabled={!activeChat || isUploadingDocument}
+          disabled={!activeChat || isUploadingDocument || isSending}
           onChange={handleFileChange}
           ref={fileInputRef}
           type="file"
@@ -331,7 +408,7 @@ function Composer({
         <div className="composer-inline-controls" aria-label="Composer controls">
           <Button
             className="primary-button send-button"
-            disabled={!activeChat || isSending || !message.trim()}
+            disabled={!activeChat || isSending || isUploadingDocument || !message.trim()}
             type="submit"
             variant="primary"
           >
@@ -398,14 +475,15 @@ function Composer({
                   type="button"
                   variant="plain"
                 >
-                  Remove
+                  x
                 </Button>
               </span>
             ))}
           </div>
         )}
 
-        {(documents.length > 0 ||
+        {(documentAttachments.length > 0 ||
+          documentAttachmentError ||
           documentError ||
           isUploadingDocument ||
           documentJobProgress) && (
@@ -440,13 +518,31 @@ function Composer({
                 {documentError}
               </span>
             )}
-            {documents.map((document) => (
+            {documentAttachmentError && (
+              <span className="document-chip document-chip--error">
+                {documentAttachmentError}
+              </span>
+            )}
+            {documentAttachments.map((document) => (
               <span
-                className={`document-chip document-chip--${document.status || "uploaded"}`}
+                className="document-chip document-chip--processed"
                 key={document.documentId}
                 title={document.originalFilename || "Document"}
               >
                 <strong>{document.originalFilename || "Document"}</strong>
+                <Button
+                  aria-label={`Remove ${document.originalFilename || "Document"}`}
+                  className="document-chip__action"
+                  onClick={() =>
+                    setDocumentAttachments((current) =>
+                      current.filter((item) => item.documentId !== document.documentId),
+                    )
+                  }
+                  type="button"
+                  variant="plain"
+                >
+                  x
+                </Button>
               </span>
             ))}
           </div>

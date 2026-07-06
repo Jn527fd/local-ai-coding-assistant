@@ -97,6 +97,44 @@ function WorkspaceHarness({
   );
 }
 
+const uploadedDocument = {
+  documentId: "doc-1",
+  originalFilename: "certificates.pdf",
+  status: "processed",
+  mimeType: "application/pdf",
+  size: 128,
+};
+
+function ControlledComposer({
+  activeChat = baseChat,
+  documentError = "",
+  documentJobProgress = null,
+  initialMessage = "",
+  isSending = false,
+  isUploadingDocument = false,
+  onSendMessage = vi.fn().mockResolvedValue(true),
+  onUploadDocument = vi.fn().mockResolvedValue(uploadedDocument),
+  ...props
+} = {}) {
+  const [message, setMessage] = React.useState(initialMessage);
+
+  return (
+    <Composer
+      activeChat={activeChat}
+      composerRef={React.createRef()}
+      documentError={documentError}
+      documentJobProgress={documentJobProgress}
+      isSending={isSending}
+      isUploadingDocument={isUploadingDocument}
+      message={message}
+      onMessageChange={setMessage}
+      onSendMessage={onSendMessage}
+      onUploadDocument={onUploadDocument}
+      {...props}
+    />
+  );
+}
+
 describe("NavigationRail", () => {
   it("renders an icon rail and toggles the recents drawer", async () => {
     const user = userEvent.setup();
@@ -195,11 +233,9 @@ describe("Workspace / Conversation / Composer", () => {
     );
   });
 
-  it("shows attached documents without manual indexing or search controls", () => {
+  it("starts without document attachments even if stale documents are passed", () => {
     render(
-      <Composer
-        activeChat={baseChat}
-        composerRef={React.createRef()}
+      <ControlledComposer
         documents={[
           {
             documentId: "doc-1",
@@ -208,18 +244,147 @@ describe("Workspace / Conversation / Composer", () => {
             chunkCount: 1,
           },
         ]}
-        isSending={false}
-        message=""
-        onMessageChange={vi.fn()}
-        onSendMessage={vi.fn()}
       />,
     );
 
-    expect(screen.getByText("certificates.pdf")).toBeInTheDocument();
+    expect(screen.queryByText("certificates.pdf")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /remove certificates\.pdf/i })).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/search indexed documents/i)).not.toBeInTheDocument();
+  });
+
+  it("adds one document attachment pill after upload succeeds", async () => {
+    const user = userEvent.setup();
+    const onUploadDocument = vi.fn().mockResolvedValue(uploadedDocument);
+
+    render(<ControlledComposer onUploadDocument={onUploadDocument} />);
+
+    const file = new File(["pdf"], "certificates.pdf", {
+      type: "application/pdf",
+    });
+    await user.upload(screen.getByLabelText(/document upload/i), file);
+
+    expect(onUploadDocument).toHaveBeenCalledWith(file);
+    expect(await screen.findByText("certificates.pdf")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /remove certificates\.pdf/i })).toBeInTheDocument();
     expect(screen.queryByText(/1 chunks/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /reindex certificates\.pdf/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /index certificates\.pdf/i })).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/search indexed documents/i)).not.toBeInTheDocument();
+  });
+
+  it("removes document attachments from the visible pill and send payload", async () => {
+    const user = userEvent.setup();
+    const onSendMessage = vi.fn().mockResolvedValue(true);
+
+    render(<ControlledComposer onSendMessage={onSendMessage} />);
+
+    await user.upload(
+      screen.getByLabelText(/document upload/i),
+      new File(["pdf"], "certificates.pdf", { type: "application/pdf" }),
+    );
+    await user.click(await screen.findByRole("button", { name: /remove certificates\.pdf/i }));
+    await user.type(screen.getByRole("textbox", { name: /message assistant/i }), "Summarize it");
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
+
+    expect(screen.queryByRole("button", { name: /remove certificates\.pdf/i })).not.toBeInTheDocument();
+    expect(onSendMessage).toHaveBeenCalledWith("Summarize it", [], []);
+  });
+
+  it("sends document attachments and clears them after a successful send", async () => {
+    const user = userEvent.setup();
+    const onSendMessage = vi.fn().mockResolvedValue(true);
+
+    render(<ControlledComposer onSendMessage={onSendMessage} />);
+
+    await user.upload(
+      screen.getByLabelText(/document upload/i),
+      new File(["pdf"], "certificates.pdf", { type: "application/pdf" }),
+    );
+    expect(await screen.findByText("certificates.pdf")).toBeInTheDocument();
+
+    await user.type(screen.getByRole("textbox", { name: /message assistant/i }), "Use this PDF");
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
+
+    expect(onSendMessage).toHaveBeenCalledWith(
+      "Use this PDF",
+      [],
+      [
+        expect.objectContaining({
+          documentId: "doc-1",
+          originalFilename: "certificates.pdf",
+        }),
+      ],
+    );
+    await waitFor(() => {
+      expect(screen.queryByText("certificates.pdf")).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole("textbox", { name: /message assistant/i })).toHaveValue("");
+  });
+
+  it("does not leave a document pill when upload fails", async () => {
+    const user = userEvent.setup();
+    const onUploadDocument = vi.fn().mockResolvedValue(false);
+
+    render(<ControlledComposer onUploadDocument={onUploadDocument} />);
+
+    await user.upload(
+      screen.getByLabelText(/document upload/i),
+      new File(["pdf"], "certificates.pdf", { type: "application/pdf" }),
+    );
+
+    expect(await screen.findByText(/certificates\.pdf could not be attached/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /remove certificates\.pdf/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps failed sends editable without duplicating document payload state", async () => {
+    const user = userEvent.setup();
+    const onSendMessage = vi.fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+
+    render(<ControlledComposer onSendMessage={onSendMessage} />);
+
+    await user.upload(
+      screen.getByLabelText(/document upload/i),
+      new File(["pdf"], "certificates.pdf", { type: "application/pdf" }),
+    );
+    await user.type(screen.getByRole("textbox", { name: /message assistant/i }), "Try with file");
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
+
+    expect(onSendMessage).toHaveBeenCalledWith(
+      "Try with file",
+      [],
+      [expect.objectContaining({ documentId: "doc-1" })],
+    );
+    expect(screen.getByRole("textbox", { name: /message assistant/i })).toHaveValue("Try with file");
+    expect(screen.getByRole("button", { name: /remove certificates\.pdf/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /remove certificates\.pdf/i }));
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
+
+    expect(onSendMessage).toHaveBeenLastCalledWith("Try with file", [], []);
+  });
+
+  it("clears pending document attachments when switching conversations", async () => {
+    const user = userEvent.setup();
+    const onUploadDocument = vi.fn().mockResolvedValue(uploadedDocument);
+    const nextChat = { ...baseChat, id: "chat-2", title: "Next thread" };
+
+    const { rerender } = render(
+      <ControlledComposer activeChat={baseChat} onUploadDocument={onUploadDocument} />,
+    );
+
+    await user.upload(
+      screen.getByLabelText(/document upload/i),
+      new File(["pdf"], "certificates.pdf", { type: "application/pdf" }),
+    );
+    expect(await screen.findByText("certificates.pdf")).toBeInTheDocument();
+
+    rerender(
+      <ControlledComposer activeChat={nextChat} onUploadDocument={onUploadDocument} />,
+    );
+
+    expect(screen.queryByRole("button", { name: /remove certificates\.pdf/i })).not.toBeInTheDocument();
   });
 
   it("renders the no-repository onboarding state and composer controls", () => {
@@ -288,7 +453,7 @@ describe("Workspace / Conversation / Composer", () => {
     await user.keyboard("{Control>}{Enter}{/Control}");
 
     expect(onOpenSourceDetails).toHaveBeenCalledWith("backend/app/routers/chat.py");
-    expect(onSendMessage).toHaveBeenCalledWith("Add tests", []);
+    expect(onSendMessage).toHaveBeenCalledWith("Add tests", [], []);
   });
 
   it("keeps streamed assistant text in place when streaming completes", () => {
@@ -350,6 +515,7 @@ describe("Workspace / Conversation / Composer", () => {
           data: "aW1hZ2UtYnl0ZXM=",
         }),
       ],
+      [],
     );
   });
 

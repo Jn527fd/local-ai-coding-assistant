@@ -630,6 +630,9 @@ function UserMessage({ message, onDelete }) {
   const imageAttachments = Array.isArray(message.imageAttachments)
     ? message.imageAttachments
     : [];
+  const documentAttachments = Array.isArray(message.documentAttachments)
+    ? message.documentAttachments
+    : [];
 
   return (
     <article className="conversation-message conversation-message--user">
@@ -646,6 +649,15 @@ function UserMessage({ message, onDelete }) {
                 {imageAttachments.map((image) => (
                   <span key={`${image.name}-${image.size || 0}`}>
                     {image.name || "Image"}
+                  </span>
+                ))}
+              </div>
+            )}
+            {documentAttachments.length > 0 && (
+              <div className="user-message__attachments" aria-label="Document attachments">
+                {documentAttachments.map((document) => (
+                  <span key={document.documentId}>
+                    {document.originalFilename || "Document"}
                   </span>
                 ))}
               </div>
@@ -755,13 +767,6 @@ function AssistantMessage({
           </header>
 
           <div className={bodyClassName} aria-live={isStreaming || activelyStreaming ? "polite" : undefined}>
-            {(isStreaming || activelyStreaming) && !visibleContent && (
-              <div className="assistant-token-warmup" aria-label="Preparing response">
-                <span />
-                <span />
-                <span />
-              </div>
-            )}
             {contentBlocks.map((block, blockIndex) =>
               block.type === "code" ? (
                 <CodeBlock block={block} key={`${blockIndex}-code`} />

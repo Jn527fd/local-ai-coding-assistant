@@ -2681,30 +2681,6 @@ kbd {
   color: var(--muted);
 }
 
-.assistant-token-warmup {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 24px;
-}
-
-.assistant-token-warmup span {
-  width: 6px;
-  height: 6px;
-  border-radius: var(--radius-full);
-  background: var(--accent);
-  opacity: 0.45;
-  animation: thinking-dot 1s var(--ease-emphasized) infinite;
-}
-
-.assistant-token-warmup span:nth-child(2) {
-  animation-delay: 120ms;
-}
-
-.assistant-token-warmup span:nth-child(3) {
-  animation-delay: 240ms;
-}
-
 .assistant-stream-cursor {
   display: inline-block;
   width: 7px;
@@ -5763,7 +5739,6 @@ select {
   }
 
   .conversation-message,
-  .assistant-token-warmup span,
   .assistant-stream-cursor {
     animation: none !important;
   }
@@ -6175,8 +6150,7 @@ textarea:disabled,
 }
 
 .ui-skeleton,
-.conversation-card-skeleton,
-.assistant-token-warmup span {
+.conversation-card-skeleton {
   background-size: 220% 100%;
 }
 

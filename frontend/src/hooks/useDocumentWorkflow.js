@@ -309,11 +309,12 @@ export function useDocumentWorkflow({
           return false;
         }
 
-        return indexProcessedDocument(documentForIndex, {
+        const indexed = await indexProcessedDocument(documentForIndex, {
           conversationId,
           conversationSettings,
           successMessage: `${documentForIndex.originalFilename || file.name} is ready.`,
         });
+        return indexed ? documentForIndex : false;
       } catch (error) {
         setDocumentError(error.message);
         showToast("Document upload failed.", "error");

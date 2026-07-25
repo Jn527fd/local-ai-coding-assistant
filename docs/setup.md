@@ -4,7 +4,7 @@
 
 - Linux Mint
 - Python 3.10+ with `venv`
-- Node.js `20.19+` or `22.12+` with npm
+- Node.js `20.19+` or `22.12+` with pnpm 11.9.x
 - Docker Engine with the Compose plugin
 - Ollama
 - Git and curl
@@ -16,7 +16,7 @@ Verify:
 ```bash
 python3 --version
 node --version
-npm --version
+pnpm --version
 docker compose version
 ollama --version
 ```
@@ -117,6 +117,27 @@ Open:
 - OpenAPI docs: `http://localhost:8000/docs`
 
 Press `Ctrl+C` in the startup terminal to stop both development servers.
+
+## Frontend
+
+The production frontend now lives in `proposedFrontend/`. The old `frontend/`
+folder remains in the repository as an archived legacy implementation for
+comparison during the migration.
+
+Normal frontend commands use `proposedFrontend/`:
+
+```bash
+make install-frontend
+make run-frontend
+make test-frontend
+```
+
+Open:
+
+- Frontend: `http://localhost:5173`
+
+Production and Docker builds set `VITE_USE_MOCK_API=false` so the app connects
+to the backend. Set `VITE_USE_MOCK_API=true` only for frontend-only mock demos.
 
 ## Add and Verify the API Key
 
@@ -387,7 +408,7 @@ Real secrets and mutable local values are excluded:
 ```text
 .env
 backend/.env
-frontend/.env
+proposedFrontend/.env
 data/config/credentials.json
 data/config/app-settings.json
 data/conversations/
@@ -401,7 +422,7 @@ These safe templates are committed:
 ```text
 .env.example
 backend/.env.example
-frontend/.env.example
+proposedFrontend/.env.example
 credentials.example.json
 app-settings.example.json
 ```
@@ -462,8 +483,9 @@ cp backend/.env.example backend/.env
 ## Home-Network Access
 
 By default, the production frontend uses `FRONTEND_API_BASE_URL=auto`. That
-makes the browser call the backend on the same hostname or IP address used to
-open the frontend. For a Linux host at `192.168.1.50`, open:
+makes the browser use same-origin API calls, while the frontend Nginx container
+proxies backend routes such as `/auth/login`, `/chat`, `/documents`, and
+`/repos` to FastAPI. For a Linux host at `192.168.1.50`, open:
 
 ```text
 http://192.168.1.50:5173

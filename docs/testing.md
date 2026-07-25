@@ -13,12 +13,12 @@ artifacts out of future commits.
 
 ## Local Setup
 
-Install backend and frontend test dependencies from the committed app-specific
+Install backend and production frontend test dependencies from the committed app-specific
 dependency files:
 
 ```bash
 python -m pip install -r requirements-dev.txt
-npm --prefix frontend install
+pnpm --dir proposedFrontend install --frozen-lockfile
 ```
 
 Run the backend tests:
@@ -39,6 +39,13 @@ Run both:
 make test
 ```
 
+## Frontend Checks
+
+The production frontend lives in `proposedFrontend/`. `make test-frontend`
+runs linting, TypeScript, Vitest, and a production build against that app. The
+archived legacy frontend can still be checked explicitly with
+`make test-legacy-frontend`.
+
 ## Continuous Integration
 
 GitHub Actions runs the default hermetic checks on pushes to `main`,
@@ -46,8 +53,9 @@ GitHub Actions runs the default hermetic checks on pushes to `main`,
 
 - Backend dependency install from `requirements-dev.txt`
 - Backend `python -m pytest`
-- Frontend `npm ci`
-- Frontend lint guard
+- Frontend `pnpm install --frozen-lockfile`
+- Frontend lint
+- Frontend TypeScript
 - Frontend Vitest suite
 - Frontend production build
 
@@ -196,12 +204,12 @@ variables in the same style as the Ollama smoke tests.
 
 ## Frontend E2E
 
-Playwright is not part of the default `npm run test:ci` script. Run it
+Playwright is not part of the default frontend test target. Run it
 separately when browser coverage is needed:
 
 ```bash
-cd frontend
-npm run test:e2e
+cd proposedFrontend
+pnpm test:e2e
 ```
 
 The Playwright config starts the fake Ollama server, the FastAPI backend, and

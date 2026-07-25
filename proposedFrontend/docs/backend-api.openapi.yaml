@@ -1,0 +1,1158 @@
+openapi: 3.1.0
+info:
+  title: LocalChat backend handoff draft
+  version: 0.1.0
+  description: |
+    Proposed transport contract for replacing the LocalChat browser mocks.
+    This document describes an integration target; it is not a deployed API.
+servers:
+  - url: http://localhost:3000/api
+    description: Local backend
+security:
+  - bearerAuth: []
+tags:
+  - name: Authentication
+  - name: Conversations
+  - name: Messages
+  - name: Attachments
+  - name: Sources
+  - name: Models
+paths:
+  /auth/sign-in:
+    post:
+      tags: [Authentication]
+      summary: Create an authenticated session
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignInRequest"
+            example:
+              username: test
+              password: test
+      responses:
+        "200":
+          description: Authenticated session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSession"
+              example:
+                accessToken: access_01JEXAMPLE
+                expiresAt: "2026-07-19T16:00:00.000Z"
+                user:
+                  id: user_01JEXAMPLE
+                  username: test
+                  email: test@email.com
+                  displayName: Test User
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "429":
+          $ref: "#/components/responses/RateLimitedError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /auth/sign-out:
+    post:
+      tags: [Authentication]
+      summary: Invalidate the current session
+      responses:
+        "204":
+          description: Session invalidated
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /auth/session:
+    get:
+      tags: [Authentication]
+      summary: Restore the current session
+      description: Cookie-based implementations may omit bearer security for this operation.
+      responses:
+        "200":
+          description: Current authenticated session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSession"
+        "204":
+          description: No active session
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /auth/email-verifications:
+    post:
+      tags: [Authentication]
+      summary: Send an email verification code
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+            example:
+              email: test@email.com
+      responses:
+        "202":
+          description: Verification request accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [expiresAt, resendAfter]
+                properties:
+                  expiresAt:
+                    type: string
+                    format: date-time
+                  resendAfter:
+                    type: string
+                    format: date-time
+              example:
+                expiresAt: "2026-07-19T15:10:00.000Z"
+                resendAfter: "2026-07-19T15:01:00.000Z"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimitedError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /auth/email-verifications/verify:
+    post:
+      tags: [Authentication]
+      summary: Verify an email code
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyEmailCodeRequest"
+            example:
+              email: test@email.com
+              code: "12345"
+      responses:
+        "204":
+          description: Email verified
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimitedError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /auth/accounts:
+    post:
+      tags: [Authentication]
+      summary: Create an account after email verification
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAccountRequest"
+            example:
+              email: test@email.com
+              password: Strong!123
+      responses:
+        "201":
+          description: Account and session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSession"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /auth/oauth-redirects:
+    post:
+      tags: [Authentication]
+      summary: Create an OAuth or company-SSO authorization redirect
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider, returnTo]
+              properties:
+                provider:
+                  type: string
+                  enum: [google, company]
+                returnTo:
+                  type: string
+                  description: Relative application route validated by the backend.
+            example:
+              provider: google
+              returnTo: /chat
+      responses:
+        "200":
+          description: Authorization redirect
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [provider, url]
+                properties:
+                  provider:
+                    type: string
+                    enum: [google, company]
+                  url:
+                    type: string
+                    format: uri
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /conversations:
+    get:
+      tags: [Conversations]
+      summary: List saved conversations
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Conversation page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationPage"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    post:
+      tags: [Conversations]
+      summary: Create a conversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateConversationRequest"
+            example:
+              title: New conversation
+              systemPrompt: ""
+              modelConfiguration:
+                llmModel: llama3.2:3b
+                visionModel: llama3.2-vision:11b
+              sourceIds: []
+              temporary: false
+      responses:
+        "201":
+          description: Created conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /conversations/{conversationId}:
+    parameters:
+      - $ref: "#/components/parameters/ConversationId"
+    get:
+      tags: [Conversations]
+      summary: Get one conversation and its messages
+      responses:
+        "200":
+          description: Conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ForbiddenError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    delete:
+      tags: [Conversations]
+      summary: Delete a conversation
+      responses:
+        "204":
+          description: Conversation deleted
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ForbiddenError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /conversations/{conversationId}/title:
+    parameters:
+      - $ref: "#/components/parameters/ConversationId"
+    patch:
+      tags: [Conversations]
+      summary: Rename a conversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+            example:
+              title: Release planning
+      responses:
+        "200":
+          description: Updated conversation summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationSummary"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /conversations/{conversationId}/configuration:
+    parameters:
+      - $ref: "#/components/parameters/ConversationId"
+    patch:
+      tags: [Conversations]
+      summary: Update conversation-scoped configuration
+      description: Omitted properties remain unchanged. This operation never regenerates previous messages.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateConversationConfigurationRequest"
+            example:
+              systemPrompt: Respond with concise technical guidance.
+              modelConfiguration:
+                llmModel: llama3.2:3b
+              sourceIds: [source_01JEXAMPLE]
+              temporary: false
+      responses:
+        "200":
+          description: Updated conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ForbiddenError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /conversations/{conversationId}/messages:
+    parameters:
+      - $ref: "#/components/parameters/ConversationId"
+    post:
+      tags: [Messages]
+      summary: Send a message without streaming
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessageRequest"
+      responses:
+        "201":
+          description: Completed assistant message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatMessage"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /conversations/{conversationId}/messages/stream:
+    parameters:
+      - $ref: "#/components/parameters/ConversationId"
+    post:
+      tags: [Messages]
+      summary: Send a message and stream the assistant response
+      description: |
+        Returns ordered Server-Sent Events. The first event is `accepted`,
+        followed by zero or more `delta` events and one terminal `complete`
+        or `failed` event. Each SSE `data` value is JSON matching the named schema.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessageRequest"
+            example:
+              content: Summarize the selected sources.
+              attachmentIds: [attachment_01JEXAMPLE]
+      responses:
+        "200":
+          description: Message event stream
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              example: no-cache
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              example: |-
+                event: accepted
+                data: {"type":"accepted","userMessage":{"id":"message_user","conversationId":"conversation_01JEXAMPLE","role":"user","content":"Hello","status":"complete","createdAt":"2026-07-19T15:00:00.000Z","attachments":[]},"assistantMessage":{"id":"message_assistant","conversationId":"conversation_01JEXAMPLE","role":"assistant","content":"","status":"pending","createdAt":"2026-07-19T15:00:00.100Z","attachments":[]}}
+
+                event: delta
+                data: {"type":"delta","messageId":"message_assistant","delta":"Hello "}
+
+                event: complete
+                data: {"type":"complete","message":{"id":"message_assistant","conversationId":"conversation_01JEXAMPLE","role":"assistant","content":"Hello there.","status":"complete","createdAt":"2026-07-19T15:00:01.000Z","attachments":[]}}
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "429":
+          $ref: "#/components/responses/RateLimitedError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /conversations/{conversationId}/messages/{messageId}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/ConversationId"
+      - $ref: "#/components/parameters/MessageId"
+    post:
+      tags: [Messages]
+      summary: Cancel an in-progress assistant response
+      responses:
+        "204":
+          description: Cancellation accepted or response already terminal
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /conversations/{conversationId}/messages/{messageId}/retry:
+    parameters:
+      - $ref: "#/components/parameters/ConversationId"
+      - $ref: "#/components/parameters/MessageId"
+    post:
+      tags: [Messages]
+      summary: Retry a failed or stopped assistant response
+      responses:
+        "200":
+          description: Regenerated assistant message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatMessage"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /attachments:
+    post:
+      tags: [Attachments]
+      summary: Upload composer attachments before message submission
+      description: Proposed direct-multipart option. A presigned flow may replace this endpoint.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [files]
+              properties:
+                files:
+                  type: array
+                  maxItems: 5
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        "201":
+          description: Prepared attachments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChatAttachment"
+        "413":
+          $ref: "#/components/responses/PayloadTooLargeError"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaTypeError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /sources:
+    get:
+      tags: [Sources]
+      summary: List available source documents
+      responses:
+        "200":
+          description: Sources
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SourceDocument"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    post:
+      tags: [Sources]
+      summary: Upload and begin processing source documents
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [files]
+              properties:
+                files:
+                  type: array
+                  maxItems: 10
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        "202":
+          description: Sources accepted for processing
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SourceDocument"
+        "413":
+          $ref: "#/components/responses/PayloadTooLargeError"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaTypeError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /sources/{sourceId}:
+    parameters:
+      - $ref: "#/components/parameters/SourceId"
+    delete:
+      tags: [Sources]
+      summary: Delete a source and remove its conversation selections
+      responses:
+        "204":
+          description: Source deleted
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ForbiddenError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /sources/{sourceId}/summary:
+    parameters:
+      - $ref: "#/components/parameters/SourceId"
+    get:
+      tags: [Sources]
+      summary: Get a processed source summary
+      responses:
+        "200":
+          description: Summary paragraphs
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: string
+              example:
+                items:
+                  - Summarizes the planned product releases.
+                  - Identifies dependencies across platform and design teams.
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /sources/{sourceId}/retry:
+    parameters:
+      - $ref: "#/components/parameters/SourceId"
+    post:
+      tags: [Sources]
+      summary: Retry failed source processing
+      responses:
+        "202":
+          description: Source returned to processing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceDocument"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /models:
+    get:
+      tags: [Models]
+      summary: List models and pipeline components available to the current user
+      parameters:
+        - name: capability
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [llm, vision, embedder, pdfParser, vectorDatabase, ocrEngine, contextCompressor, reranker]
+      responses:
+        "200":
+          description: Available models
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AvailableModel"
+              example:
+                items:
+                  - id: llama3.2:3b
+                    label: Llama 3.2 3B
+                    capability: llm
+                    available: true
+                  - id: llama3.2-vision:11b
+                    label: Llama 3.2 Vision 11B
+                    capability: vision
+                    available: true
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ForbiddenError"
+        "500":
+          $ref: "#/components/responses/ServerError"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 50
+        default: 20
+    ConversationId:
+      name: conversationId
+      in: path
+      required: true
+      schema:
+        type: string
+    MessageId:
+      name: messageId
+      in: path
+      required: true
+      schema:
+        type: string
+    SourceId:
+      name: sourceId
+      in: path
+      required: true
+      schema:
+        type: string
+  schemas:
+    SignInRequest:
+      type: object
+      additionalProperties: false
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          minLength: 1
+        password:
+          type: string
+          minLength: 1
+    VerifyEmailCodeRequest:
+      type: object
+      additionalProperties: false
+      required: [email, code]
+      properties:
+        email:
+          type: string
+          format: email
+        code:
+          type: string
+          pattern: "^[0-9]{5}$"
+    CreateAccountRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+          format: password
+    AuthUser:
+      type: object
+      additionalProperties: false
+      required: [id, username, email, displayName]
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        displayName:
+          type: string
+    AuthSession:
+      type: object
+      additionalProperties: false
+      required: [accessToken, expiresAt, user]
+      properties:
+        accessToken:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        user:
+          $ref: "#/components/schemas/AuthUser"
+    ModelConfiguration:
+      type: object
+      additionalProperties: false
+      required: [llmModel, visionModel]
+      properties:
+        llmModel:
+          type: string
+        visionModel:
+          type: string
+        embedder:
+          type: string
+        pdfParser:
+          type: string
+        vectorDatabase:
+          type: string
+        ocrEngine:
+          type: string
+        contextCompressor:
+          type: string
+        reranker:
+          type: string
+    CreateConversationRequest:
+      type: object
+      additionalProperties: false
+      required: [systemPrompt, modelConfiguration, sourceIds, temporary]
+      properties:
+        title:
+          type: string
+          maxLength: 200
+        systemPrompt:
+          type: string
+          maxLength: 100000
+        modelConfiguration:
+          $ref: "#/components/schemas/ModelConfiguration"
+        sourceIds:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+        temporary:
+          type: boolean
+    UpdateConversationConfigurationRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        systemPrompt:
+          type: string
+          maxLength: 100000
+        modelConfiguration:
+          $ref: "#/components/schemas/PartialModelConfiguration"
+        sourceIds:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+        temporary:
+          type: boolean
+    ConversationSummary:
+      type: object
+      additionalProperties: false
+      required: [id, title, createdAt, updatedAt, temporary]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        temporary:
+          type: boolean
+    PartialModelConfiguration:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        llmModel:
+          type: string
+        visionModel:
+          type: string
+        embedder:
+          type: string
+        pdfParser:
+          type: string
+        vectorDatabase:
+          type: string
+        ocrEngine:
+          type: string
+        contextCompressor:
+          type: string
+        reranker:
+          type: string
+    Conversation:
+      type: object
+      additionalProperties: false
+      required: [id, title, createdAt, updatedAt, temporary, messages, systemPrompt, modelConfiguration, sourceIds]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        temporary:
+          type: boolean
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChatMessage"
+        systemPrompt:
+          type: string
+        modelConfiguration:
+          $ref: "#/components/schemas/ModelConfiguration"
+        sourceIds:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+    ConversationPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConversationSummary"
+        nextCursor:
+          type: [string, "null"]
+        total:
+          type: integer
+          minimum: 0
+    SendMessageRequest:
+      type: object
+      additionalProperties: false
+      required: [content, attachmentIds]
+      properties:
+        content:
+          type: string
+        attachmentIds:
+          type: array
+          maxItems: 5
+          uniqueItems: true
+          items:
+            type: string
+    ChatAttachment:
+      type: object
+      additionalProperties: false
+      required: [id, filename, mediaType, size, status]
+      properties:
+        id:
+          type: string
+        filename:
+          type: string
+        mediaType:
+          type: string
+        size:
+          type: integer
+          minimum: 1
+          maximum: 10485760
+        status:
+          type: string
+          enum: [uploading, ready, failed]
+        url:
+          type: string
+          format: uri
+        error:
+          type: string
+    ChatMessage:
+      type: object
+      additionalProperties: false
+      required: [id, conversationId, role, content, status, createdAt, attachments]
+      properties:
+        id:
+          type: string
+        conversationId:
+          type: string
+        role:
+          type: string
+          enum: [user, assistant, system]
+        content:
+          type: string
+        status:
+          type: string
+          enum: [pending, streaming, complete, stopped, failed]
+        createdAt:
+          type: string
+          format: date-time
+        attachments:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChatAttachment"
+        error:
+          type: string
+    SourceDocument:
+      type: object
+      additionalProperties: false
+      required: [id, filename, mediaType, size, createdAt, status]
+      properties:
+        id:
+          type: string
+        filename:
+          type: string
+        mediaType:
+          type: string
+        size:
+          type: integer
+          minimum: 1
+          maximum: 26214400
+        createdAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [uploading, processing, ready, failed]
+        summary:
+          type: array
+          items:
+            type: string
+        error:
+          type: string
+    AvailableModel:
+      type: object
+      additionalProperties: false
+      required: [id, label, capability, available]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        capability:
+          type: string
+          enum: [llm, vision, embedder, pdfParser, vectorDatabase, ocrEngine, contextCompressor, reranker]
+        available:
+          type: boolean
+        unavailableReason:
+          type: string
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [code, message, requestId]
+      properties:
+        code:
+          type: string
+          enum: [validation, unauthorized, forbidden, not_found, conflict, rate_limited, offline, timeout, server, unknown]
+        message:
+          type: string
+        requestId:
+          type: string
+        fieldErrors:
+          type: object
+          additionalProperties:
+            type: string
+  responses:
+    ValidationError:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            code: validation
+            message: The title is required.
+            requestId: req_validation_example
+            fieldErrors:
+              title: Enter a conversation title.
+    UnauthorizedError:
+      description: Authentication is missing, invalid, or expired
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            code: unauthorized
+            message: Sign in to continue.
+            requestId: req_auth_example
+    ForbiddenError:
+      description: The authenticated user is not allowed to perform the operation
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            code: forbidden
+            message: You do not have permission to access this conversation.
+            requestId: req_forbidden_example
+    NotFoundError:
+      description: Resource not found or not visible to the current user
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            code: not_found
+            message: The requested resource was not found.
+            requestId: req_not_found_example
+    ConflictError:
+      description: Request conflicts with the current resource state
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            code: conflict
+            message: The resource changed. Reload and try again.
+            requestId: req_conflict_example
+    RateLimitedError:
+      description: Too many requests
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          example: 30
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            code: rate_limited
+            message: Too many requests. Try again shortly.
+            requestId: req_rate_example
+    PayloadTooLargeError:
+      description: A file or request exceeds the configured size limit
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            code: validation
+            message: The uploaded file exceeds the size limit.
+            requestId: req_size_example
+    UnsupportedMediaTypeError:
+      description: An uploaded file type is not supported
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            code: validation
+            message: The uploaded file type is not supported.
+            requestId: req_media_example
+    ServerError:
+      description: Backend or dependency failure
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            code: server
+            message: The server could not complete the request.
+            requestId: req_server_example

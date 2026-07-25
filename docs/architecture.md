@@ -45,10 +45,12 @@ system, or multi-user persistence layer.
 
 ## Frontend
 
-The frontend is a React single-page application built by Vite.
+The production frontend is a React single-page application built by Vite from
+`proposedFrontend/`. The older `frontend/` implementation remains in the
+repository as an archived comparison target during the migration.
 
 ```text
-frontend/src/
+proposedFrontend/src/
 |-- App.jsx                 # Application shell and workflow orchestration
 |-- api.js                  # Fetch helpers and error handling
 |-- apiBase.js              # Runtime API base URL resolution
@@ -516,13 +518,15 @@ match the host user. The frontend uses a Node build stage followed by an
 Nginx runtime stage. Both services define health checks and use
 `restart: unless-stopped`.
 
-Linux host networking lets the backend reach Ollama on
-`127.0.0.1:11434` without exposing Ollama to the LAN. Repository mounts are
-read-only; generated data is written through the `data/` mount.
+The backend and frontend share the private Compose network. The backend reaches
+host Ollama through `host.docker.internal:11434` without publishing Ollama to
+the LAN. Repository mounts are read-only; generated data is written through the
+`data/` mount.
 
-`VITE_API_BASE_URL=auto` is compiled into the frontend by default. At runtime
-the browser resolves it to the same hostname or IP address used to open the
-frontend, with port `8000` for FastAPI.
+`VITE_API_BASE_URL=auto` is compiled into the Docker frontend by default. The
+frontend normalizes `auto` to same-origin API calls, and the Nginx runtime
+proxies backend routes to FastAPI through the private Compose service name
+`backend:8000`.
 
 ## Testing
 

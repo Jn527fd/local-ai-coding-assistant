@@ -1556,3 +1556,87 @@ live Ollama smoke.
 - [x] Remaining release blockers documented.
 - [x] No release tag was created.
 - [x] Phase 17/new feature work was not started.
+
+## Proposed Frontend Migration Phase 24 End-to-End Release Verification
+
+Date: 2026-07-25
+
+Scope:
+
+- Verify the promoted `proposedFrontend/` locally and in Docker.
+- Re-run backend, frontend, e2e, Compose, image build, Docker test, and optional
+  live Ollama smoke checks where available.
+- Do not start Phase 25 public-release polish.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `.venv\\Scripts\\python.exe -m pytest` | Passed | Full backend suite passed: 185 passed, 7 skipped. Optional OCRmyPDF, live Ollama, Ollama smoke, and local Chroma checks skipped. |
+| `.\\node_modules\\.bin\\oxfmt.cmd --check .` from `proposedFrontend/` | Failed, then passed | Initial formatting drift was corrected. Formatter-sensitive inline object test types were replaced with interfaces so final formatting, ESLint, and TypeScript checks all pass. |
+| `.\\node_modules\\.bin\\eslint.cmd .` from `proposedFrontend/` | Passed | Proposed frontend ESLint completed successfully. |
+| `.\\node_modules\\.bin\\tsc.cmd --noEmit` from `proposedFrontend/` | Passed | Proposed frontend TypeScript check completed successfully. |
+| `.\\node_modules\\.bin\\vitest.cmd run` from `proposedFrontend/` | Passed | Full proposed frontend suite passed: 21 files, 100 tests. |
+| `.\\node_modules\\.bin\\vite.cmd build` from `proposedFrontend/` | Passed | Proposed frontend production build succeeded. |
+| `.\\node_modules\\.bin\\playwright.cmd test --config playwright.config.ts` from `proposedFrontend/` | Passed | Chromium e2e suite passed: 6 tests. |
+| `docker compose config` | Passed | Default Compose config resolved. |
+| `docker compose -f docker-compose.prod.yml config` | Passed | Production Compose config resolved. |
+| `docker compose -f docker-compose.test.yml config` | Passed | Test Compose config resolved. |
+| `docker compose build frontend` | Passed | Promoted frontend Docker image built successfully. |
+| `docker compose -f docker-compose.test.yml build frontend-test` | Passed | Frontend test image built successfully. |
+| `docker compose -f docker-compose.test.yml run --rm backend-test` | Passed | Dockerized backend suite passed: 150 passed, 6 skipped. |
+| `docker compose -f docker-compose.test.yml run --rm frontend-test sh -c "pnpm lint --quiet && pnpm typecheck && pnpm exec vitest run --reporter=dot && pnpm build"` | Failed, then passed | Initial run exposed a Docker-only timeout in a long repository workflow test. After raising that test timeout to 15 seconds, the command passed with 21 files, 100 tests, plus production build. |
+| `.venv\\Scripts\\python.exe -m pytest tests\\test_ollama_smoke.py tests\\test_live_ollama.py -m ollama` | Passed with skips | Five optional live Ollama tests skipped cleanly because `RUN_OLLAMA_TESTS=1` was not set. |
+| `docker compose -f docker-compose.test.yml down --remove-orphans` | Passed | Temporary Docker test network was removed. |
+
+### Phase 24 Verification Checklist
+
+- [x] Backend full pytest passed.
+- [x] Proposed frontend format, lint, typecheck, tests, and build passed.
+- [x] Proposed frontend Playwright e2e passed.
+- [x] Compose config validation passed for default, production, and test files.
+- [x] Promoted frontend Docker images built.
+- [x] Dockerized backend and frontend test suites passed.
+- [x] Optional live Ollama smoke remains opt-in and skips cleanly by default.
+- [x] Phase 25 public-release polish was not started.
+
+## Proposed Frontend Migration Phase 25 Public Release Polish
+
+Date: 2026-07-25
+
+Scope:
+
+- Refresh release-facing documentation after the promoted frontend migration.
+- Update stale checklist/changelog entries from pending verification to
+  completed verification where Phase 24 proved them.
+- Add manual local smoke commands for running the promoted frontend.
+- Finish the 25-phase migration track without adding new product features.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `rg -n "frontend/|proposedFrontend|legacy frontend|old frontend|not implemented|coming soon|future" README.md docs CHANGELOG.md mitigationPlan.md` | Passed | Used to identify stale public-release wording. Remaining matches are historical migration records, accurate limitations, or intentional references to the archived legacy frontend. |
+| Documentation review | Passed | README, changelog, release checklist, backup/restore, dependency review, setup, testing, and deployment hardening docs were reviewed and updated where needed. |
+| `.venv\\Scripts\\python.exe -m pytest` | Passed | Full backend suite passed: 185 passed, 7 skipped. Optional OCRmyPDF, live Ollama, Ollama smoke, and local Chroma checks skipped. |
+| `.\\node_modules\\.bin\\oxfmt.cmd --check .` from `proposedFrontend/` | Passed | Promoted frontend format check passed. |
+| `.\\node_modules\\.bin\\eslint.cmd .` from `proposedFrontend/` | Passed | Promoted frontend ESLint completed successfully. |
+| `.\\node_modules\\.bin\\tsc.cmd --noEmit` from `proposedFrontend/` | Passed | Promoted frontend TypeScript check completed successfully. |
+| `.\\node_modules\\.bin\\vite.cmd build` from `proposedFrontend/` | Passed | Promoted frontend production build succeeded. |
+| `.\\node_modules\\.bin\\vitest.cmd run` from `proposedFrontend/` | Failed, then passed | First run hit the command timeout while jsdom was slow and showed profile tests mid-failure. Focused profile rerun passed: 6 tests. Full suite rerun with a longer timeout passed: 21 files, 100 tests. |
+| `git diff --check` | Passed | No whitespace errors; Git reported expected LF-to-CRLF working-copy warnings on Windows. |
+
+### Phase 25 Verification Checklist
+
+- [x] README public-release copy reviewed and updated.
+- [x] Changelog reflects completed promoted-frontend verification.
+- [x] Release checklist points at promoted frontend commands.
+- [x] Backup/restore docs include `proposedFrontend/.env`, `node_modules`, and
+  `dist` paths.
+- [x] Dependency-review docs include `proposedFrontend` pnpm and Docker files.
+- [x] Manual local smoke commands documented.
+- [x] Backend and promoted frontend local verification passed after docs
+  updates.
+- [x] `git diff --check` passed.
+- [x] No new feature work was started.
+- [x] The 25-phase proposed frontend migration plan is complete.

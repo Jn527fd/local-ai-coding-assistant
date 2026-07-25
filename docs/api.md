@@ -131,6 +131,9 @@ curl -b session.cookies -X PUT http://localhost:8000/account/api-key \
   -d '{"api_key":"your-private-api-key"}'
 ```
 
+For frontend compatibility, this endpoint also accepts camelCase
+`{"apiKey":"..."}`. Responses preserve the existing snake_case shape.
+
 The response never includes the secret:
 
 ```json
@@ -614,6 +617,10 @@ curl -X POST http://localhost:8000/repos/ask \
     "question": "Where are the add and multiply functions implemented?"
   }'
 ```
+
+For frontend compatibility, this endpoint also accepts camelCase
+`{"repoName":"sample-code-repository","question":"..."}`. Responses preserve
+the existing `repo_name` and source metadata conventions used by legacy clients.
 
 Response:
 

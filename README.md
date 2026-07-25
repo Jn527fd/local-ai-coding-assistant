@@ -216,7 +216,7 @@ Detailed design notes are available in
 
 | Area | Technology | Responsibility |
 | --- | --- | --- |
-| Frontend | React 18, Vite 8, CSS | Authentication, chat, account settings, documents, and source UI |
+| Frontend | React 19, Vite 8, TypeScript, CSS | Authentication, chat, account settings, documents, and source UI |
 | Backend | Python, FastAPI, Pydantic | APIs, validation, sessions, orchestration, and component discovery |
 | Local inference | Ollama | Model downloads, text generation, embeddings, and reranker prompts |
 | Metadata | SQLite + local JSON artifacts | Migration bookkeeping and local metadata catalogue |
@@ -285,7 +285,7 @@ The primary setup path targets Linux Mint or another modern Linux host with:
 
 - Python 3.10 or newer
 - Node.js 20.19+ or 22.12+
-- npm
+- pnpm 11.9.x
 - Ollama
 - Docker Engine and Docker Compose for container deployment
 - An NVIDIA GPU and working driver are recommended, but not required
@@ -382,9 +382,10 @@ Find the Linux host address:
 hostname -I
 ```
 
-By default, `FRONTEND_API_BASE_URL=auto` makes the browser call the backend on
-the same hostname or IP address you used to open the frontend. For a host
-address such as `192.168.1.50`, open:
+By default, `FRONTEND_API_BASE_URL=auto` makes the Docker frontend use
+same-origin API calls. Nginx proxies backend routes such as `/auth/login`,
+`/chat`, `/documents`, and `/repos` to FastAPI, so the browser only needs the
+frontend URL. For a host address such as `192.168.1.50`, open:
 
 ```text
 http://192.168.1.50:5173
@@ -537,7 +538,7 @@ Safe templates are committed for every local configuration file:
 | --- | --- | --- |
 | `.env.example` | `.env` | Docker build, LAN address, and repository mounts |
 | `backend/.env.example` | `backend/.env` | Backend, Ollama, and security settings |
-| `frontend/.env.example` | `frontend/.env` | Development API URL |
+| `proposedFrontend/.env.example` | `proposedFrontend/.env` | Development API URL and mock-mode switch |
 | `credentials.example.json` | `data/config/credentials.json` | Local users and password hashes |
 | `app-settings.example.json` | `data/config/app-settings.json` | Active API key and legacy model fallback |
 
@@ -580,7 +581,7 @@ Ollama, a GPU, downloaded models, host data, or network access.
 
 ```bash
 python -m pip install -r requirements-dev.txt
-npm --prefix frontend install
+pnpm --dir proposedFrontend install --frozen-lockfile
 
 make test-backend
 make test-frontend
@@ -629,14 +630,43 @@ reranker smoke model.
 Playwright tests remain separate from the default frontend CI script:
 
 ```bash
-cd frontend
-npm run test:e2e
+cd proposedFrontend
+pnpm test:e2e
 ```
 
 See [docs/testing.md](docs/testing.md) for the full testing workflow.
 Retrieval quality regression coverage uses a small fake-provider corpus in
 `tests/fixtures/retrieval_eval/`; it is deterministic and does not require
 Ollama.
+
+## Manual Local Smoke
+
+Use this path when you want to run the promoted frontend against the real local
+backend:
+
+```bash
+python -m pip install -r requirements-dev.txt
+pnpm --dir proposedFrontend install --frozen-lockfile
+
+copy backend\.env.example backend\.env
+python scripts\manage_credentials.py set YOUR_USERNAME
+
+make run-backend
+make run-frontend
+```
+
+Open `http://localhost:5173`, sign in, save or verify an API key in Settings,
+refresh local models/tools, send a short chat, upload a small text document,
+process/index it, and ask a RAG question that cites the document source.
+
+Docker users can run the promoted production frontend and backend with:
+
+```bash
+copy backend\.env.example backend\.env
+docker compose up --build
+```
+
+Then open `http://localhost:5173`.
 
 Before a public release or remote deployment, also review the
 [release checklist](docs/release-checklist.md),
@@ -673,10 +703,11 @@ local-ai-coding-assistant/
 |   |   `-- services/      # Documents, Ollama, settings, models, and repositories
 |   |-- Dockerfile
 |   `-- requirements*.txt
-|-- frontend/
-|   |-- src/components/    # Login, chat, account, status, and repo UI
+|-- proposedFrontend/
+|   |-- src/               # Production React/Vite frontend
 |   |-- Dockerfile
 |   `-- nginx.conf
+|-- frontend/              # Archived legacy frontend kept for comparison
 |-- tests/                 # Isolated backend tests
 |-- scripts/               # Linux setup, startup, and credential tools
 |-- docs/                  # Architecture, API, and setup guides
@@ -709,19 +740,12 @@ local-ai-coding-assistant/
 
 ## Roadmap
 
-The next release track is captured in [Roadmap v2](roadmap_v2.md). The highest
-priority items are:
-
-- Stabilize the public release candidate with repeatable local, Docker, and
-  manual smoke verification.
-- Move conversation history and settings from browser-only storage to an
-  exportable server-side store.
-- Add background jobs for long-running indexing, OCR, retrieval, and model
-  operations.
-- Continue expanding OCR coverage, vector-store adapters, and retrieval
-  quality evaluation.
-- Harden the trusted-network deployment model with stronger observability,
-  packaging, backup, and security controls.
+The completed stabilization and frontend-migration tracks are captured in
+[roadmap_v2.md](roadmap_v2.md) and [mitigationPlan.md](mitigationPlan.md).
+Future public-release work should focus on the highest-impact items in
+[feature_ideas_v2.md](feature_ideas_v2.md): stronger retrieval quality,
+broader OCR/document workflows, richer repository intelligence, more durable
+session/auth options, and production-grade observability.
 
 ## Documentation
 

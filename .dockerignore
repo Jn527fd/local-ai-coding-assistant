@@ -13,8 +13,12 @@ temp
 frontend/node_modules
 frontend/dist
 frontend/.vite
+proposedFrontend/node_modules
+proposedFrontend/dist
+proposedFrontend/.vite
 backend/.env
 frontend/.env
+proposedFrontend/.env
 .env
 .env.*
 !.env.example

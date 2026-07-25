@@ -100,21 +100,23 @@ Deferred or blocked before tagging:
 
 ## 6. Required Tests
 
-- [ ] Backend tests: `.venv\Scripts\python.exe -m pytest` or
+- [x] Backend tests: `.venv\Scripts\python.exe -m pytest` or
   `python -m pytest`.
-- [ ] Frontend lint: `node scripts/lint-check.mjs` from `frontend/`.
-- [ ] Frontend unit/integration tests: `node node_modules/vitest/vitest.mjs run`
-  or `npm run test:run`.
-- [ ] Frontend production build: `npm run build`.
-- [ ] Whitespace check: `git diff --check`.
+- [x] Frontend format: `pnpm format:check` from `proposedFrontend/`.
+- [x] Frontend lint: `pnpm lint` from `proposedFrontend/`.
+- [x] Frontend typecheck: `pnpm typecheck` from `proposedFrontend/`.
+- [x] Frontend unit/integration tests: `pnpm test` from `proposedFrontend/`.
+- [x] Frontend production build: `pnpm build` from `proposedFrontend/`.
+- [x] Frontend e2e tests: `pnpm test:e2e` from `proposedFrontend/`.
+- [x] Whitespace check: `git diff --check`.
 - [ ] Env validation script tests: `python -m pytest tests/test_deployment_scripts.py`.
 
 ## 7. Docker Verification
 
-- [ ] `docker compose -f docker-compose.test.yml run --rm backend-test`
-- [ ] `docker compose -f docker-compose.test.yml run --rm frontend-test`
-- [ ] `docker compose -f docker-compose.test.yml down --remove-orphans`
-- [ ] `docker compose -f docker-compose.prod.yml config`
+- [x] `docker compose -f docker-compose.test.yml run --rm backend-test`
+- [x] `docker compose -f docker-compose.test.yml run --rm frontend-test`
+- [x] `docker compose -f docker-compose.test.yml down --remove-orphans`
+- [x] `docker compose -f docker-compose.prod.yml config`
 - [ ] `docker compose up --build --detach`
 - [ ] `docker compose ps`
 - [ ] `make smoke-docker`

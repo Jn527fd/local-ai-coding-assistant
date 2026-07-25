@@ -1,0 +1,121 @@
+LocalChat frontend handover manifest
+====================================
+
+Target directory
+----------------
+Place the items listed below inside one directory named:
+
+frontend/
+
+Required application source
+---------------------------
+.figma/
+  Required because vite.config.ts imports .figma/make/site.json.
+docs/
+e2e/
+src/
+
+Required root files
+-------------------
+.env.example
+.gitignore
+AGENTS.md
+FRONTEND_HANDOFF_GUIDE.md
+README.md
+eslint.config.js
+handoverFiles.txt
+index.html
+package.json
+playwright.config.ts
+pnpm-lock.yaml
+pnpm-workspace.yaml
+run-local.sh
+tsconfig.json
+vite.config.ts
+vitest.config.ts
+
+Continuous integration
+----------------------
+.github/workflows/validate.yml
+
+Include this path as-is only when frontend/ will be its own Git repository.
+If frontend/ will be nested inside a larger backend repository, GitHub only
+loads workflows from the repository-root .github/workflows directory. In that
+case, move or merge this workflow into the repository root and configure its
+install/validation steps with:
+
+  working-directory: frontend
+
+Optional development-assistant metadata
+---------------------------------------
+.agents/
+CLAUDE.md
+
+These files are not required to build or run the application. Include them only
+if the receiving team uses the same development assistants and wants the local
+project guidance.
+
+Do not include generated or machine-local content
+-------------------------------------------------
+.git/
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
+.env.local
+*.log
+
+Do not include secrets. VITE_* values are shipped to the browser and must be
+treated as public configuration.
+
+Backend integration entry points
+--------------------------------
+src/services/contracts.ts
+  Typed UI-facing service interfaces.
+
+src/services/index.ts
+  Composition root where mock services should be replaced or selected.
+
+src/services/mock/
+  Browser-only demo implementations and fixtures. Keep these for frontend
+  development and tests after the real adapter is added.
+
+src/api/client.ts
+  Shared JSON transport client for a future HTTP adapter.
+
+src/domain/models.ts
+src/domain/dtos.ts
+  Frontend domain and transport types.
+
+docs/backend-api.openapi.yaml
+  Proposed API contract for backend review; it is not a deployed API.
+
+src/features/settings/settingsStorage.ts
+  Device-local settings boundary. It currently has no backend dependency.
+
+Profile deletion policy
+-----------------------
+Deleting a profile is intentionally not available. It is absent from the UI,
+ProfileService contract, mock adapter, tests, and proposed handoff behavior.
+Do not restore it merely to match an older test or historical phase report.
+
+Package verification
+--------------------
+From inside frontend/:
+
+  corepack enable
+  corepack prepare pnpm@11.9.0 --activate
+  pnpm install --frozen-lockfile
+  pnpm format:check
+  pnpm lint
+  pnpm typecheck
+  pnpm test
+  pnpm test:e2e
+  pnpm build
+
+For local development:
+
+  pnpm dev
+
+Default URL: http://localhost:8443

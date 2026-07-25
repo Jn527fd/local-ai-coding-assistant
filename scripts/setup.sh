@@ -5,12 +5,22 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
-for command_name in python3 npm; do
+for command_name in python3 node; do
     if ! command -v "$command_name" >/dev/null 2>&1; then
         echo "Required command not found: $command_name" >&2
         exit 1
     fi
 done
+
+if ! command -v pnpm >/dev/null 2>&1; then
+    if command -v corepack >/dev/null 2>&1; then
+        corepack enable
+        corepack prepare pnpm@11.9.0 --activate
+    else
+        echo "Required command not found: pnpm. Install pnpm 11.9.x or enable Node Corepack." >&2
+        exit 1
+    fi
+fi
 
 if [[ ! -d .venv ]]; then
     echo "Creating Python virtual environment..."
@@ -22,16 +32,16 @@ echo "Installing backend and test dependencies..."
 .venv/bin/python -m pip install -r backend/requirements-dev.txt
 
 echo "Installing frontend dependencies..."
-npm --prefix frontend install
+pnpm --dir proposedFrontend install --frozen-lockfile
 
 if [[ ! -f backend/.env ]]; then
     cp backend/.env.example backend/.env
     echo "Created backend/.env from its example."
 fi
 
-if [[ ! -f frontend/.env ]]; then
-    cp frontend/.env.example frontend/.env
-    echo "Created frontend/.env from its example."
+if [[ ! -f proposedFrontend/.env ]]; then
+    cp proposedFrontend/.env.example proposedFrontend/.env
+    echo "Created proposedFrontend/.env from its example."
 fi
 
 if [[ ! -f .env ]]; then

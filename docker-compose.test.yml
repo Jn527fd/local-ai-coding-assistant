@@ -14,9 +14,10 @@ services:
 
   frontend-test:
     build:
-      context: ./frontend
+      context: ./proposedFrontend
       dockerfile: Dockerfile.test
     environment:
       CI: "true"
       VITE_API_BASE_URL: http://127.0.0.1:8000
-    command: ["sh", "-c", "npm run lint && npm run test:run && npm run build"]
+      VITE_USE_MOCK_API: "true"
+    command: ["sh", "-c", "pnpm lint && pnpm typecheck && pnpm test && pnpm build"]

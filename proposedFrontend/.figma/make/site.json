@@ -1,0 +1,8 @@
+{
+  "title": "LocalChat",
+  "description": "A local chatbot interface.",
+  "language": "en",
+  "robots": {
+    "index": false
+  }
+}

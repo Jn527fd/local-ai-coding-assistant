@@ -43,6 +43,9 @@ automation is added.
   frontend diagnostics panel.
 - Production deployment template, environment validation tooling, and a
   backup-before-upgrade helper for safer self-hosted container replacement.
+- Promoted the proposed React/Vite frontend to the production frontend build
+  target for Makefile, Docker Compose, Docker test images, and CI while keeping
+  the legacy frontend archived for comparison.
 
 ### Release Candidate Checklist
 
@@ -55,10 +58,10 @@ automation is added.
 - [x] Support and hotfix guidance added in `docs/support.md`.
 - [x] Local backend, frontend lint/build, script tests, compile checks, and
   docs/security/deployment audit completed for RC QA.
-- [ ] Frontend Vitest and Docker verification pending on a non-sandboxed
-  machine.
-- [ ] Manual browser smoke, optional live Ollama smoke, and target-machine env
-  validation pending.
+- [x] Promoted frontend Vitest, Playwright e2e, Docker backend tests, Docker
+  frontend tests, Docker builds, and Compose config verification completed.
+- [ ] Manual browser smoke, optional live Ollama smoke with real local models,
+  and target-machine env validation pending.
 - [ ] Final release tag and release date pending after full release-candidate
   verification.
 

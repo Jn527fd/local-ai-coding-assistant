@@ -163,6 +163,30 @@ def test_repository_ask_warns_when_index_is_stale(
     assert "stale" in payload["warnings"][0]
 
 
+def test_repository_ask_accepts_camel_case_repo_name_alias(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    repo_path = write_repo(tmp_path)
+    app.dependency_overrides[repos.get_ollama_service] = lambda: FakeOllamaService()
+    indexed = index_repo(client, auth_headers, repo_path)
+
+    response = client.post(
+        "/repos/ask",
+        headers=auth_headers,
+        json={
+            "repoName": indexed["repo_name"],
+            "question": "Where is the banana router?",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["answer"] == "Repository answer"
+    assert "app.py" in response.json()["sources"]
+
+
 def test_repository_vector_index_and_search_are_opt_in(
     app: FastAPI,
     client: TestClient,

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 from app.schemas.chat import ConversationSettings
 
@@ -22,7 +22,11 @@ class IndexLocalRepositoryResponse(BaseModel):
 class AskRepositoryRequest(BaseModel):
     """Input accepted by the repository question endpoint."""
 
-    repo_name: str = Field(min_length=1, max_length=255)
+    repo_name: str = Field(
+        min_length=1,
+        max_length=255,
+        validation_alias=AliasChoices("repo_name", "repoName"),
+    )
     question: str = Field(min_length=1, max_length=10_000)
 
 

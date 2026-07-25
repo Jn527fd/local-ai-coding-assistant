@@ -15,6 +15,8 @@ Python:
 
 Frontend:
 
+- `proposedFrontend/package.json`
+- `proposedFrontend/pnpm-lock.yaml`
 - `frontend/package.json`
 - `frontend/package-lock.json`
 
@@ -22,8 +24,8 @@ Containers:
 
 - `backend/Dockerfile`
 - `backend/Dockerfile.test`
-- `frontend/Dockerfile`
-- `frontend/Dockerfile.test`
+- `proposedFrontend/Dockerfile`
+- `proposedFrontend/Dockerfile.test`
 - `docker-compose.yml`
 - `docker-compose.test.yml`
 
@@ -46,9 +48,9 @@ These tools are optional and may require installation:
 python -m pip install pip-audit
 python -m pip_audit -r requirements.txt -r backend/requirements.txt
 
-cd frontend
-npm audit --omit=dev
-npm audit
+cd proposedFrontend
+pnpm audit --prod
+pnpm audit
 ```
 
 Treat audit results as inputs for review, not as automatic proof that the app

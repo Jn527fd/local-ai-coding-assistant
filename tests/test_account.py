@@ -27,6 +27,24 @@ def test_account_can_persist_and_verify_api_key(
     }
 
 
+def test_account_api_key_update_accepts_camel_case_alias(
+    logged_in_client: TestClient,
+) -> None:
+    new_key = "camel-case-key"
+
+    update_response = logged_in_client.put(
+        "/account/api-key",
+        json={"apiKey": new_key},
+    )
+
+    assert update_response.status_code == 200
+    assert update_response.json() == {
+        "username": "test-user",
+        "api_key_configured": True,
+        "api_key_active": True,
+    }
+
+
 def test_api_key_update_audit_log_is_redacted(
     logged_in_client: TestClient,
     caplog,

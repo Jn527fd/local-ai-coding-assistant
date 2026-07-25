@@ -21,7 +21,7 @@ if ! grep -q '"username"' data/config/credentials.json; then
     exit 1
 fi
 
-if [[ ! -d frontend/node_modules ]]; then
+if [[ ! -d proposedFrontend/node_modules ]]; then
     echo "Missing frontend dependencies. Run: bash scripts/setup.sh" >&2
     exit 1
 fi
@@ -49,7 +49,7 @@ echo "Starting FastAPI at http://localhost:8000..."
 backend_pid=$!
 
 echo "Starting Vite at http://localhost:5173..."
-npm --prefix frontend run dev -- --host 0.0.0.0 --strictPort &
+pnpm --dir proposedFrontend dev -- --host 0.0.0.0 --port 5173 --strictPort &
 frontend_pid=$!
 
 echo "Press Ctrl+C to stop both services."

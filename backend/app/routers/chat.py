@@ -31,7 +31,7 @@ from app.ai.embedders import OllamaEmbedderProvider
 from app.ai.providers import OllamaLLMProvider
 from app.ai.rerankers import OllamaRerankerProvider
 from app.ai.vectorstores import JsonVectorStore
-from app.auth.api_key import require_api_key
+from app.auth.api_key import require_session_or_api_key
 from app.config import Settings
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.services.component_registry import ComponentRegistry
@@ -101,7 +101,7 @@ DOCUMENT_ACCESS_REFUSAL_MARKERS = (
 router = APIRouter(
     prefix="/chat",
     tags=["chat"],
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_session_or_api_key)],
 )
 
 

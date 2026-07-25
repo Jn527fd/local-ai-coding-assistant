@@ -5,6 +5,7 @@ from fastapi import HTTPException, Request, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.config import Settings
+from app.auth.user_session import require_user_session
 from app.services.local_settings_service import (
     LocalSettingsError,
     LocalSettingsService,
@@ -54,3 +55,22 @@ def require_api_key(
         )
 
     return credentials.credentials
+
+
+def require_session_or_api_key(
+    request: Request,
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None,
+        Security(bearer_scheme),
+    ],
+) -> str:
+    """Allow a logged-in browser session or a legacy bearer API key."""
+
+    try:
+        return require_user_session(request)
+    except HTTPException as session_exc:
+        if session_exc.status_code != status.HTTP_401_UNAUTHORIZED:
+            raise
+        if credentials is None:
+            raise session_exc
+        return require_api_key(request, credentials)

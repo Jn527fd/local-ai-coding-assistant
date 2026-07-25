@@ -2,14 +2,14 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
-from app.auth.api_key import require_api_key
+from app.auth.api_key import require_session_or_api_key
 from app.schemas.jobs import JobListResponse, JobResponse
 from app.services.job_service import JobNotFoundError, JobService
 
 router = APIRouter(
     prefix="/jobs",
     tags=["jobs"],
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_session_or_api_key)],
 )
 
 

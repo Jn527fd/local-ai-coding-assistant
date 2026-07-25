@@ -139,9 +139,13 @@ Open:
 Production and Docker builds set `VITE_USE_MOCK_API=false` so the app connects
 to the backend. Set `VITE_USE_MOCK_API=true` only for frontend-only mock demos.
 
-## Add and Verify the API Key
+## Optional API Key for Scripts
 
-After login:
+Browser chat and local resources work after login without an API key. The
+account API-key controls remain available for legacy scripts or manual API
+calls that cannot use the browser session cookie.
+
+If you need that compatibility path:
 
 1. Open Settings from the app shell.
 2. Enter a private API key.
@@ -154,8 +158,9 @@ The key is stored in two local places:
 - `data/config/app-settings.json`, so FastAPI knows the active key.
 
 The Account status says connected only when the browser key matches the active
-backend value. For programmatic setup, `API_KEY` in `backend/.env` remains a
-fallback. A key saved through the Account UI overrides that fallback.
+backend value. This status does not block normal browser chat. For
+programmatic setup, `API_KEY` in `backend/.env` remains a fallback. A key saved
+through the Account UI overrides that fallback.
 
 ## Per-Chat AI Settings
 
@@ -560,9 +565,11 @@ ls -l data/config/credentials.json
 
 ### API key says not connected
 
-Open Settings, save the key again, then check API access. The browser copy
-must match `data/config/app-settings.json` or the `API_KEY` environment
-fallback.
+The API key is optional for normal browser use. A disconnected API-key status
+only matters for scripts or manual API calls that use `Authorization: Bearer`.
+If you use that compatibility path, open Settings, save the key again, then
+check API access. The browser copy must match `data/config/app-settings.json`
+or the `API_KEY` environment fallback.
 
 ### Ollama or model discovery fails
 

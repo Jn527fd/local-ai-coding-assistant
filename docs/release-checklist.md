@@ -88,7 +88,8 @@ Deferred or blocked before tagging:
   generated `backups/pre-upgrade-data-*.zip` archive until verification passes.
 - [ ] Confirm restore instructions were tested or manually reviewed for the
   target environment.
-- [ ] Rotate credentials and API keys when restoring to a different machine.
+- [ ] Rotate credentials and optional legacy API keys when restoring to a
+  different machine.
 
 ## 5. Dependency Review
 
@@ -124,7 +125,8 @@ Deferred or blocked before tagging:
 ## 8. Manual Smoke
 
 - [ ] Sign in with a configured user.
-- [ ] Save and verify an API key.
+- [ ] Optional: save and verify an API key if legacy scripts/manual API calls
+  are part of the release smoke.
 - [ ] Refresh local models/tools.
 - [ ] Send a text chat and verify streaming output.
 - [ ] Upload, process, index, and search a small text document.

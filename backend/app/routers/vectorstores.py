@@ -11,12 +11,12 @@ from app.ai.vectorstores import (
     VectorStoreManager,
     VectorStoreValidationError,
 )
-from app.auth.api_key import require_api_key
+from app.auth.api_key import require_session_or_api_key
 
 router = APIRouter(
     prefix="/vectorstores",
     tags=["vectorstores"],
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_session_or_api_key)],
 )
 
 

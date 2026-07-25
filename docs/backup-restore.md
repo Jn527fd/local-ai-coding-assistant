@@ -83,8 +83,9 @@ curl http://127.0.0.1:8000/health
 docker compose logs backend --tail=100
 ```
 
-Then sign in, verify the API key status, refresh local models/tools, and run a
-small chat plus document search.
+Then sign in, refresh local models/tools, and run a small chat plus document
+search. Verify the optional API-key status only if you use legacy scripts or
+manual API calls.
 
 Check the metadata database after restore:
 
@@ -104,7 +105,9 @@ from a known-good backup before continuing.
 Rotate credentials when moving data to a new machine:
 
 - Reset local user passwords with `scripts/manage_credentials.py`.
-- Replace the Bearer API key in the UI or `data/config/app-settings.json`.
+- Replace the optional Bearer API key in the UI or
+  `data/config/app-settings.json` if you use legacy scripts or manual API
+  calls.
 - Rebuild containers if environment variables changed.
 - Confirm ignored files are still ignored with `git status --short`.
 

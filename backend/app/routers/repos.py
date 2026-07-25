@@ -8,7 +8,7 @@ from app.ai.components import Chunk
 from app.ai.embedders import OllamaEmbedderProvider
 from app.ai.execution_context import AISettingsResolver
 from app.ai.vectorstores import VectorStoreBackend, VectorStoreError
-from app.auth.api_key import require_api_key
+from app.auth.api_key import require_session_or_api_key
 from app.config import Settings
 from app.routers.documents import (
     embed_texts_in_batches,
@@ -45,7 +45,7 @@ from app.services.model_manager import ModelManager
 router = APIRouter(
     prefix="/repos",
     tags=["repositories"],
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_session_or_api_key)],
 )
 
 

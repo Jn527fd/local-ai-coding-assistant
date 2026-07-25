@@ -98,18 +98,21 @@ Adjust `LOGIN_RATE_LIMIT_ATTEMPTS`, `LOGIN_RATE_LIMIT_WINDOW_SECONDS`, and
 `LOGIN_LOCKOUT_SECONDS` only if trusted local users are being locked out during
 normal use.
 
-Use a strong Bearer API key for normal use. Rotate it before a public demo,
-after screen sharing, and after copying local configuration between machines.
-The Settings panel can generate a replacement local API key, but the user must
-still press **Save key** to activate it.
+Normal browser use is protected by the login session cookie plus CSRF header.
+The legacy Bearer API key remains available for scripts and manual API calls.
+If you use that compatibility path, use a strong key and rotate it before a
+public demo, after screen sharing, and after copying local configuration
+between machines. The Settings panel can generate a replacement local API key,
+but the user must still press **Save key** to activate it.
 
 Auth and API-key changes emit redacted audit log events. These logs include
 action, username, client, and success/failure state, but not passwords or API
 key values.
 
-Diagnostics and support bundles are available behind the Bearer API key. They
-are metadata-only and redacted by default, but operators should still inspect
-`local-ai-support-bundle.json` before sharing it outside the trusted team.
+Diagnostics and support bundles are available after login, and still accept
+legacy Bearer keys for scripts. They are metadata-only and redacted by default,
+but operators should still inspect `local-ai-support-bundle.json` before
+sharing it outside the trusted team.
 
 ## Upgrade Flow
 
@@ -155,5 +158,5 @@ curl http://127.0.0.1:11434/api/tags
 make smoke-docker
 ```
 
-Then sign in through the browser, save an API key, verify capabilities, send a
-short chat, and upload/process a small text document.
+Then sign in through the browser, verify capabilities, send a short chat, and
+upload/process a small text document.

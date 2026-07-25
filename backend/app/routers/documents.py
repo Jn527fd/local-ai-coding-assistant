@@ -24,7 +24,7 @@ from app.ai.vectorstores import (
     VectorStoreError,
     VectorStoreValidationError,
 )
-from app.auth.api_key import require_api_key
+from app.auth.api_key import require_session_or_api_key
 from app.schemas.chat import ConversationSettings
 from app.schemas.documents import (
     IndexDocumentRequest,
@@ -49,7 +49,7 @@ from app.services.ollama_service import (
 router = APIRouter(
     prefix="/documents",
     tags=["documents"],
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_session_or_api_key)],
 )
 
 logger = logging.getLogger(__name__)

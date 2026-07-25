@@ -7,15 +7,18 @@ documentation is available at `/docs`.
 
 ## Authentication Layers
 
-The app uses two local authentication mechanisms:
+The app uses a local login session for normal browser use and keeps legacy
+Bearer-key support for scripts:
 
 1. **Login session cookie:** `/auth/login` verifies
    `data/config/credentials.json` and sets an HttpOnly cookie. Account,
-   model, component-discovery, and optional conversation-persistence endpoints
-   require this cookie. Unsafe session-cookie requests also require the CSRF
-   token from the readable `local_ai_csrf` cookie in the `X-CSRF-Token` header.
-2. **Bearer API key:** `/chat`, `/documents/*`, and `/repos/*` require
-   `Authorization: Bearer <API_KEY>`. The active key comes from the ignored
+   model, component-discovery, chat, document, repository, diagnostics, jobs,
+   vector-store, and optional conversation-persistence endpoints require this
+   cookie. Unsafe session-cookie requests also require the CSRF token from the
+   readable `local_ai_csrf` cookie in the `X-CSRF-Token` header.
+2. **Optional legacy Bearer API key:** AI/data endpoints also accept
+   `Authorization: Bearer <API_KEY>` for scripts or manual API calls that do
+   not use the browser session cookie. The active key comes from the ignored
    local app-settings file, with the `API_KEY` environment variable as a
    fallback.
 
@@ -42,32 +45,32 @@ The app uses two local authentication mechanisms:
 | `DELETE` | `/conversations/{conversation_id}` | Session | Delete one persisted conversation |
 | `POST` | `/conversations/import` | Session | Import browser conversations into backend persistence |
 | `GET` | `/conversations/export/all` | Session | Export backend-persisted conversations |
-| `POST` | `/chat` | Bearer key | Generate a complete chat response with optional document RAG, reranking, compression, and vision |
-| `POST` | `/chat/stream` | Bearer key | Stream chat progress, tokens, metadata, and completion events |
-| `POST` | `/documents/upload` | Bearer key | Stage a document for one conversation |
-| `POST` | `/documents/{document_id}/process` | Bearer key | Extract text and chunk a staged document |
-| `POST` | `/documents/{document_id}/process/jobs` | Bearer key | Start a local background processing job |
-| `POST` | `/documents/{document_id}/index` | Bearer key | Embed and index one processed document |
-| `POST` | `/documents/{document_id}/index/jobs` | Bearer key | Start a local background indexing job |
-| `POST` | `/documents/search` | Bearer key | Search indexed document chunks without chat |
-| `GET` | `/documents` | Bearer key | List documents for one conversation |
-| `GET` | `/documents/indexes` | Bearer key | List vector collections for one conversation |
-| `DELETE` | `/documents/indexes/{collection_id}` | Bearer key | Delete one vector collection |
-| `GET` | `/documents/{document_id}` | Bearer key | Get document metadata |
-| `GET` | `/documents/{document_id}/chunks` | Bearer key | Get processed document chunks |
-| `GET` | `/vectorstores/health` | Bearer key | Inspect vector backend availability and fallback state |
-| `GET` | `/vectorstores/collections/export` | Bearer key | Export one vector collection as a portable JSON payload |
-| `POST` | `/vectorstores/collections/import` | Bearer key | Import a portable vector collection payload |
-| `POST` | `/vectorstores/collections/migrate` | Bearer key | Copy a collection from one available vector backend to another |
-| `GET` | `/diagnostics/status` | Bearer key | Return redacted runtime/model/document/retrieval/job diagnostics |
-| `GET` | `/diagnostics/support-bundle` | Bearer key | Export a redacted metadata-only support bundle |
-| `GET` | `/jobs` | Bearer key | List recent local background jobs |
-| `GET` | `/jobs/{job_id}` | Bearer key | Read local job status, progress, result, or error |
-| `POST` | `/jobs/{job_id}/cancel` | Bearer key | Request conservative cancellation for a local job |
-| `POST` | `/repos/index-local` | Bearer key | Index a local repository with legacy keyword RAG |
-| `POST` | `/repos/ask` | Bearer key | Ask a grounded question against a repository index |
-| `POST` | `/repos/index-local/vector` | Bearer key | Opt into embedding repository chunks |
-| `POST` | `/repos/search-vector` | Bearer key | Search opt-in repository vector collections |
+| `POST` | `/chat` | Session or legacy key | Generate a complete chat response with optional document RAG, reranking, compression, and vision |
+| `POST` | `/chat/stream` | Session or legacy key | Stream chat progress, tokens, metadata, and completion events |
+| `POST` | `/documents/upload` | Session or legacy key | Stage a document for one conversation |
+| `POST` | `/documents/{document_id}/process` | Session or legacy key | Extract text and chunk a staged document |
+| `POST` | `/documents/{document_id}/process/jobs` | Session or legacy key | Start a local background processing job |
+| `POST` | `/documents/{document_id}/index` | Session or legacy key | Embed and index one processed document |
+| `POST` | `/documents/{document_id}/index/jobs` | Session or legacy key | Start a local background indexing job |
+| `POST` | `/documents/search` | Session or legacy key | Search indexed document chunks without chat |
+| `GET` | `/documents` | Session or legacy key | List documents for one conversation |
+| `GET` | `/documents/indexes` | Session or legacy key | List vector collections for one conversation |
+| `DELETE` | `/documents/indexes/{collection_id}` | Session or legacy key | Delete one vector collection |
+| `GET` | `/documents/{document_id}` | Session or legacy key | Get document metadata |
+| `GET` | `/documents/{document_id}/chunks` | Session or legacy key | Get processed document chunks |
+| `GET` | `/vectorstores/health` | Session or legacy key | Inspect vector backend availability and fallback state |
+| `GET` | `/vectorstores/collections/export` | Session or legacy key | Export one vector collection as a portable JSON payload |
+| `POST` | `/vectorstores/collections/import` | Session or legacy key | Import a portable vector collection payload |
+| `POST` | `/vectorstores/collections/migrate` | Session or legacy key | Copy a collection from one available vector backend to another |
+| `GET` | `/diagnostics/status` | Session or legacy key | Return redacted runtime/model/document/retrieval/job diagnostics |
+| `GET` | `/diagnostics/support-bundle` | Session or legacy key | Export a redacted metadata-only support bundle |
+| `GET` | `/jobs` | Session or legacy key | List recent local background jobs |
+| `GET` | `/jobs/{job_id}` | Session or legacy key | Read local job status, progress, result, or error |
+| `POST` | `/jobs/{job_id}/cancel` | Session or legacy key | Request conservative cancellation for a local job |
+| `POST` | `/repos/index-local` | Session or legacy key | Index a local repository with legacy keyword RAG |
+| `POST` | `/repos/ask` | Session or legacy key | Ask a grounded question against a repository index |
+| `POST` | `/repos/index-local/vector` | Session or legacy key | Opt into embedding repository chunks |
+| `POST` | `/repos/search-vector` | Session or legacy key | Search opt-in repository vector collections |
 
 ## Public Endpoints
 

@@ -84,7 +84,8 @@ This project demonstrates more than a basic LLM chat interface:
   local JSON vector indexing, retrieval-only search, RAG chat, source
   attribution, optional reranking, and context compression.
 - **Security-conscious configuration:** Salted password hashes, HttpOnly
-  sessions, Bearer authentication, ignored secret files, and safe templates.
+  sessions, optional legacy Bearer keys for scripts, ignored secret files, and
+  safe templates.
 - **Operational readiness:** Health checks, Docker Compose, non-root backend
   execution, restart policies, setup scripts, SQLite metadata migrations, and
   automated tests.
@@ -110,9 +111,10 @@ This project demonstrates more than a basic LLM chat interface:
 
 - Login page backed by an editable local credentials file.
 - Passwords stored as salted PBKDF2 hashes, never as plaintext.
-- HttpOnly login sessions for account and model-management operations.
-- Bearer API-key protection for chat and repository endpoints.
-- Locally persisted API-key configuration with connection verification.
+- HttpOnly login sessions for account, chat, document, repository, diagnostics,
+  and model-management operations.
+- Optional legacy Bearer API-key support for scripts and manual API calls.
+- Locally persisted API-key configuration remains available for compatibility.
 - No usernames, passwords, or API keys hardcoded in the source tree.
 
 ### Conversations
@@ -180,7 +182,7 @@ This project demonstrates more than a basic LLM chat interface:
 
 ```mermaid
 flowchart LR
-    Browser["Browser<br/>React + Vite"] -->|"Login cookie and Bearer key"| API["FastAPI API"]
+    Browser["Browser<br/>React + Vite"] -->|"Login cookie"| API["FastAPI API"]
     API --> Auth["Local credentials<br/>and settings"]
     API --> Components["Component registry<br/>models and tools"]
     API --> Chat["Chat orchestration"]
@@ -201,7 +203,7 @@ flowchart LR
 
 1. The user signs in with credentials stored in an ignored local JSON file.
 2. The browser receives an HttpOnly session cookie for account controls.
-3. Protected AI requests include the configured Bearer API key.
+3. Protected browser requests use the login session cookie and CSRF token.
 4. Each conversation sends its own selected AI component settings.
 5. Document RAG retrieves local indexed chunks when enabled for the chat.
 6. Optional reranking reorders candidate chunks before prompt construction.
@@ -325,10 +327,9 @@ Open:
 - Backend: `http://localhost:8000`
 - OpenAPI docs: `http://localhost:8000/docs`
 
-After signing in, open the account menu and create an API key. Short keys are
-accepted for local testing, but a longer private key is recommended for normal
-use. The application stores it only in ignored local configuration and the
-current browser profile.
+After signing in, browser chat and local resource access work with the login
+session. The account API-key controls remain only for legacy scripts or manual
+API calls that cannot use the browser session cookie.
 
 Press `Ctrl+C` in the startup terminal to stop both development servers.
 
@@ -655,9 +656,9 @@ make run-backend
 make run-frontend
 ```
 
-Open `http://localhost:5173`, sign in, save or verify an API key in Settings,
-refresh local models/tools, send a short chat, upload a small text document,
-process/index it, and ask a RAG question that cites the document source.
+Open `http://localhost:5173`, sign in, refresh local models/tools, send a
+short chat, upload a small text document, process/index it, and ask a RAG
+question that cites the document source.
 
 Docker users can run the promoted production frontend and backend with:
 
@@ -679,7 +680,9 @@ Before a public release or remote deployment, also review the
 - Passwords are salted and hashed with PBKDF2.
 - Login sessions are stored in backend memory and delivered through HttpOnly
   cookies.
-- Protected AI routes use constant-time Bearer-key comparison.
+- Protected browser routes require a valid login session and CSRF token.
+- Legacy Bearer-key authentication remains available for scripts and manual
+  API calls.
 - Secrets and mutable configuration are stored only in ignored local files.
 - Repository mounts are read-only in the default Docker configuration.
 - Logs include operational metadata, not prompts, passwords, or API keys.

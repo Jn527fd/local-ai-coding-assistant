@@ -14,7 +14,7 @@ Browser
 React frontend
   |
   | JSON / multipart HTTP
-  | HttpOnly login cookie + Authorization: Bearer <API_KEY>
+  | HttpOnly login cookie + CSRF token
   v
 FastAPI backend
   |-----------------------------|--------------------------|
@@ -63,7 +63,7 @@ proposedFrontend/src/
 |   |-- useDocumentWorkflow.js
 |   `-- useStoredApiKey.js
 `-- components/
-    |-- AccountPanel.jsx    # API key, capabilities, per-chat settings
+    |-- AccountPanel.jsx    # Optional API key, capabilities, per-chat settings
     |-- Conversation.jsx
     |-- NavigationRail.jsx
     |-- Workspace.jsx
@@ -76,7 +76,7 @@ chat list lifecycle, conversation persistence mode, account panel visibility,
 navigation/dialog state, and toasts. Focused hooks own workflow state:
 
 - `useCapabilities` owns component capability loading and refresh status.
-- `useStoredApiKey` owns API key localStorage reads/writes.
+- `useStoredApiKey` owns optional legacy API key localStorage reads/writes.
 - `useChatSender` owns optimistic chat send/stream state and assistant
   response metadata mapping.
 - `useDocumentWorkflow` owns document lists, indexes, upload/process/index job
@@ -224,8 +224,9 @@ The backend adds conservative response headers on all routes:
 `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, and
 `Permissions-Policy`.
 
-Diagnostics endpoints are Bearer-key protected and intentionally metadata-only.
-They summarize runtime, model, document, retrieval, vector, and job state
+Diagnostics endpoints are session-protected, still accept legacy Bearer keys,
+and are intentionally metadata-only. They summarize runtime, model, document,
+retrieval, vector, and job state
 without prompts, chat messages, document/OCR contents, secrets, session values,
 CSRF values, cookies, or private file paths. The support bundle endpoint wraps
 the same redacted data for local troubleshooting and should still be reviewed
@@ -238,15 +239,26 @@ Session-protected endpoints:
 - `/account/*`
 - `/models/*`
 - `/components/*`
+- `/chat`
+- `/documents/*`
+- `/repos/*`
+- `/jobs/*`
+- `/vectorstores/*`
+- `/diagnostics/*`
 
-Bearer-protected endpoints:
+Legacy Bearer-compatible endpoints:
 
 - `/chat`
 - `/documents/*`
 - `/repos/*`
+- `/jobs/*`
+- `/vectorstores/*`
+- `/diagnostics/*`
 
-The expected Bearer key comes from ignored `data/config/app-settings.json`,
-with `API_KEY` as a fallback. `hmac.compare_digest` performs the comparison.
+The expected optional Bearer key comes from ignored
+`data/config/app-settings.json`, with `API_KEY` as a fallback.
+`hmac.compare_digest` performs the comparison when that compatibility path is
+used.
 
 This auth model is intended for one operator or a trusted local network. It is
 not a public multi-tenant security model.

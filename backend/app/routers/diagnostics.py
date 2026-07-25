@@ -2,13 +2,13 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 
-from app.auth.api_key import require_api_key
+from app.auth.api_key import require_session_or_api_key
 from app.services.diagnostics import DiagnosticsService
 
 router = APIRouter(
     prefix="/diagnostics",
     tags=["diagnostics"],
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_session_or_api_key)],
 )
 
 

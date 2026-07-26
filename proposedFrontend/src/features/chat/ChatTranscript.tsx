@@ -210,9 +210,6 @@ function MessageRow({
             ))}
           </div>
         )}
-        {isAssistant && message.metadata && (
-          <MessageMetadataSummary message={message} />
-        )}
         {message.status !== "complete" && (
           <div
             className={`message-status message-status-${message.status}`}
@@ -257,94 +254,6 @@ function MessageRow({
       </div>
     </article>
   )
-}
-
-function MessageMetadataSummary({ message }: { message: ChatMessage }) {
-  const metadata = message.metadata
-  if (!metadata) return null
-  const sources = metadata.sources ?? []
-  const warnings = [
-    ...(metadata.ragWarnings ?? []),
-    ...(metadata.rerankWarnings ?? []),
-    ...(metadata.compressionWarnings ?? []),
-  ]
-  const hasMetadata =
-    sources.length > 0 ||
-    warnings.length > 0 ||
-    metadata.rerankingUsed ||
-    metadata.compressionUsed
-  if (!hasMetadata) return null
-
-  return (
-    <aside
-      className="message-metadata"
-      aria-label="Response source and context metadata"
-    >
-      <div className="message-metadata-indicators">
-        {sources.length > 0 && (
-          <span>
-            {sources.length} {sources.length === 1 ? "source" : "sources"}
-          </span>
-        )}
-        {metadata.rerankingUsed && (
-          <span>
-            Reranked
-            {metadata.rerankerModel ? ` with ${metadata.rerankerModel}` : ""}
-          </span>
-        )}
-        {metadata.compressionUsed && (
-          <span>
-            Context compressed
-            {metadata.compressorMode ? ` (${metadata.compressorMode})` : ""}
-          </span>
-        )}
-      </div>
-
-      {warnings.length > 0 && (
-        <ul className="message-metadata-warnings" aria-label="RAG warnings">
-          {warnings.map((warning) => (
-            <li key={warning}>{warning}</li>
-          ))}
-        </ul>
-      )}
-
-      {sources.length > 0 && (
-        <ol className="message-source-list" aria-label="Response sources">
-          {sources.map((source) => (
-            <li key={`${source.sourceNumber}-${source.chunkId}`}>
-              <div>
-                <strong>
-                  [{source.sourceNumber}] {source.documentName}
-                </strong>
-                <span>
-                  Final rank {source.finalRank}
-                  {source.pageNumber ? ` · Page ${source.pageNumber}` : ""}
-                </span>
-              </div>
-              <p>{source.textPreview}</p>
-              <dl>
-                <div>
-                  <dt>Vector</dt>
-                  <dd>{formatScore(source.vectorScore)}</dd>
-                </div>
-                {source.rerankScore !== null &&
-                  source.rerankScore !== undefined && (
-                    <div>
-                      <dt>Rerank</dt>
-                      <dd>{formatScore(source.rerankScore)}</dd>
-                    </div>
-                  )}
-              </dl>
-            </li>
-          ))}
-        </ol>
-      )}
-    </aside>
-  )
-}
-
-function formatScore(score: number): string {
-  return Number.isFinite(score) ? score.toFixed(3) : "0.000"
 }
 
 function SafeMarkdown({ content }: { content: string }) {

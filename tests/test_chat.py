@@ -515,6 +515,29 @@ def test_chat_returns_mocked_ollama_answer(
     ]
 
 
+def test_chat_hides_model_reasoning_blocks(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    fake_ollama = FakeOllamaService(
+        chat_response="<think>private chain of thought</think>\nVisible answer"
+    )
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        response = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={"message": "Hello"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["answer"] == "Visible answer"
+
+
 def test_chat_sends_only_explicit_history_as_context(
     app: FastAPI,
     client: TestClient,
@@ -1081,6 +1104,41 @@ def test_chat_stream_returns_progress_tokens_and_done(
     assert "event: done" in body
     assert '"answer": "Hello stream"' in body
     assert streaming_provider.calls[0]["settings"]["model"] == "qwen3:4b"
+
+
+def test_chat_stream_hides_model_reasoning_blocks(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService([installed_model("qwen3:4b")])
+    streaming_provider = FakeStreamingLLMProvider(
+        ["Hello ", "<thi", "nk>private", " reasoning</thi", "nk>answer"]
+    )
+    streaming_provider.ollama_service = fake_ollama
+    app.state.llm_provider = streaming_provider
+    configure_chat_rag_tests(app, tmp_path)
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        with client.stream(
+            "POST",
+            "/chat/stream",
+            headers=auth_headers,
+            json={
+                "message": "Stream please.",
+                "conversationSettings": {"llmModel": "qwen3:4b"},
+            },
+        ) as response:
+            body = "".join(response.iter_text())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert "private" not in body
+    assert "reasoning" not in body
+    assert '"answer": "Hello answer"' in body
 
 
 def test_chat_stream_reports_generation_errors_as_error_events(

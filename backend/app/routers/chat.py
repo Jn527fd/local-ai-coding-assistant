@@ -27,6 +27,7 @@ from app.ai.pipelines import (
     RetrievalResult,
     RetrievedSource,
 )
+from app.ai.output_sanitizer import ReasoningStreamFilter, strip_reasoning_text
 from app.ai.embedders import OllamaEmbedderProvider
 from app.ai.providers import OllamaLLMProvider
 from app.ai.rerankers import OllamaRerankerProvider
@@ -2036,6 +2037,7 @@ async def chat(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
         ) from exc
+    answer = strip_reasoning_text(answer)
     answer = repair_document_access_refusal(answer, retrieved_sources)
     answer = prepend_limited_document_warning(
         answer,
@@ -2149,6 +2151,7 @@ async def chat_stream(
         yield _sse_event("metadata", _chat_metadata_payload(prepared))
 
         answer_parts: list[str] = []
+        reasoning_filter = ReasoningStreamFilter()
         try:
             async for chunk in llm_provider.stream_generate(
                 prompt=prepared.prompt.text,
@@ -2157,11 +2160,18 @@ async def chat_stream(
                 ],
                 settings=prepared.generation_settings(),
             ):
-                answer_parts.append(chunk)
-                yield _sse_event("token", {"text": chunk})
+                visible_chunk = reasoning_filter.feed(chunk)
+                if visible_chunk:
+                    answer_parts.append(visible_chunk)
+                    yield _sse_event("token", {"text": visible_chunk})
         except Exception as exc:
             yield _sse_event("error", _stream_error_payload(exc))
             return
+
+        final_visible_chunk = reasoning_filter.flush()
+        if final_visible_chunk:
+            answer_parts.append(final_visible_chunk)
+            yield _sse_event("token", {"text": final_visible_chunk})
 
         final_answer = repair_document_access_refusal(
             "".join(answer_parts).strip(),

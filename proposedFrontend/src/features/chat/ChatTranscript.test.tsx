@@ -107,7 +107,7 @@ describe("ChatTranscript", () => {
     expect(screen.getByText(expectedTime)).toBeInTheDocument()
   })
 
-  it("renders source citations, scores, and metadata warnings", () => {
+  it("keeps response metadata out of the simple transcript view", () => {
     render(
       <ChatTranscript
         activeConversation={{
@@ -158,17 +158,13 @@ describe("ChatTranscript", () => {
       />,
     )
 
+    expect(screen.getByText("Answer grounded in sources.")).toBeInTheDocument()
     expect(
-      screen.getByLabelText("Response source and context metadata"),
-    ).toBeInTheDocument()
-    expect(screen.getByText("[1] notes.pdf")).toBeInTheDocument()
-    expect(screen.getByText("Final rank 1 · Page 3")).toBeInTheDocument()
-    expect(screen.getByText("0.720")).toBeInTheDocument()
-    expect(screen.getByText("0.910")).toBeInTheDocument()
-    expect(screen.getByText("Reranked with bge-reranker")).toBeInTheDocument()
-    expect(screen.getByText("Context compressed (token)")).toBeInTheDocument()
-    expect(screen.getByText("Skipped one stale source.")).toBeInTheDocument()
-    expect(screen.getByText("Reranker warning.")).toBeInTheDocument()
-    expect(screen.getByText("Trimmed older history.")).toBeInTheDocument()
+      screen.queryByLabelText("Response source and context metadata"),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText("[1] notes.pdf")).not.toBeInTheDocument()
+    expect(screen.queryByText("Reranked with bge-reranker")).not.toBeInTheDocument()
+    expect(screen.queryByText("Context compressed (token)")).not.toBeInTheDocument()
+    expect(screen.queryByText("Skipped one stale source.")).not.toBeInTheDocument()
   })
 })

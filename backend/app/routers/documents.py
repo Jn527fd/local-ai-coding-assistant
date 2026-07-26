@@ -819,6 +819,24 @@ async def get_document(
     return document
 
 
+@router.delete("/{document_id}")
+async def delete_document(
+    document_id: str,
+    document_service: Annotated[DocumentService, Depends(get_document_service)],
+    conversationId: Annotated[str, Query(min_length=1, max_length=100)],
+) -> dict[str, Any]:
+    """Delete one uploaded document and its extracted local artifacts."""
+
+    try:
+        return await run_in_threadpool(
+            document_service.delete_document,
+            conversationId,
+            document_id,
+        )
+    except (DocumentValidationError, DocumentNotFoundError, DocumentStorageError) as exc:
+        raise_document_http_error(exc)
+
+
 @router.get("/{document_id}/chunks")
 async def get_document_chunks(
     document_id: str,

@@ -806,7 +806,13 @@ export function createHttpServices({
         }
         return uploaded
       },
-      delete: () => reject("sources.delete"),
+      async delete(id) {
+        const conversationId = requireDocumentConversationId()
+        await apiClient.request<void>(
+          `/documents/${encodeURIComponent(id)}?conversationId=${encodeURIComponent(conversationId)}`,
+          { method: "DELETE" },
+        )
+      },
       async getSummary(id) {
         const conversationId = requireDocumentConversationId()
         const response = await apiClient.request<BackendDocumentChunksResponse>(

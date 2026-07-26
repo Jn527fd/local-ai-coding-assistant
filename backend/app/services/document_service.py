@@ -11,6 +11,7 @@ import json
 import logging
 from pathlib import Path
 import re
+import shutil
 import uuid
 from typing import Any
 from zipfile import BadZipFile, ZipFile
@@ -351,6 +352,23 @@ class DocumentService:
             document_id,
             document_directory,
         )
+
+    def delete_document(
+        self,
+        conversation_id: str,
+        document_id: str,
+    ) -> dict[str, Any]:
+        safe_conversation_id = self._validate_conversation_id(conversation_id)
+        document_directory = self._existing_document_directory(
+            safe_conversation_id,
+            document_id,
+        )
+        shutil.rmtree(document_directory)
+        return {
+            "deleted": True,
+            "conversationId": safe_conversation_id,
+            "documentId": document_id,
+        }
 
     def get_chunks(
         self,

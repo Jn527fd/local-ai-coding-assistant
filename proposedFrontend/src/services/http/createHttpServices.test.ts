@@ -620,6 +620,38 @@ describe("HTTP application services", () => {
     })
   })
 
+  it("deletes uploaded sources through the active backend conversation", async () => {
+    const calls: ApiCall[] = []
+    const services = createHttpServices({
+      apiClient: createFakeApiClient((path, options) => {
+        calls.push({ path, options })
+        if (path === "/conversations/chat-a" && !options.method) {
+          return {
+            conversation: backendConversation({
+              id: "chat-a",
+              title: "Chat A",
+            }),
+          }
+        }
+        if (
+          path === "/documents/doc-a?conversationId=chat-a" &&
+          options.method === "DELETE"
+        ) {
+          return { deleted: true, documentId: "doc-a", conversationId: "chat-a" }
+        }
+        throw new Error(`Unexpected request: ${path}`)
+      }),
+    })
+
+    await services.conversations.get("chat-a")
+    await services.sources.delete("doc-a")
+
+    expect(calls.at(-1)).toEqual({
+      path: "/documents/doc-a?conversationId=chat-a",
+      options: { method: "DELETE" },
+    })
+  })
+
   it("keeps temporary conversations local in HTTP mode", async () => {
     const calls: string[] = []
     const services = createHttpServices({

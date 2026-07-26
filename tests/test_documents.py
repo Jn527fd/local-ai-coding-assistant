@@ -807,6 +807,43 @@ def test_missing_or_corrupt_artifacts_do_not_crash_list_or_get(
     assert get_response.json()["status"] == "failed"
 
 
+def test_delete_document_removes_uploaded_artifacts(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    configure_documents(app, tmp_path)
+    metadata = upload_document(
+        client,
+        auth_headers,
+        "conversation-a",
+        "notes.txt",
+        b"hello",
+    )
+    document_directory = (
+        app.state.document_service.upload_directory
+        / "conversation-a"
+        / metadata["documentId"]
+    )
+
+    response = client.delete(
+        f"/documents/{metadata['documentId']}",
+        headers=auth_headers,
+        params={"conversationId": "conversation-a"},
+    )
+    list_response = client.get(
+        "/documents",
+        headers=auth_headers,
+        params={"conversationId": "conversation-a"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["deleted"] is True
+    assert not document_directory.exists()
+    assert list_response.json()["documents"] == []
+
+
 def test_metadata_identity_mismatch_is_reported_as_failed_artifact(
     app: FastAPI,
     client: TestClient,

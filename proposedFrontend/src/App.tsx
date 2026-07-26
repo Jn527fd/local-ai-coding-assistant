@@ -436,6 +436,24 @@ export default function App() {
     if (summarySourceId === sourceId) setSummarySourceId(null)
   }
 
+  const deleteTemporaryConversationArtifacts = async (
+    conversation: Conversation,
+  ) => {
+    if (!conversation.temporary) return
+
+    const documents = await appServices.sources.list().catch(() =>
+      sourceDocuments.filter((source) =>
+        conversation.sourceIds.includes(source.id),
+      ),
+    )
+    await Promise.allSettled(
+      documents.map((source) => appServices.sources.delete(source.id)),
+    )
+    await appServices.conversations.delete(conversation.id)
+    setSourceDocuments([])
+    setSummarySourceId(null)
+  }
+
   const requestDeleteSource = (sourceId: string) => {
     const source = sourceDocuments.find((document) => document.id === sourceId)
     if (!source) return
@@ -1138,6 +1156,13 @@ export default function App() {
   }
 
   const startNewConversation = async () => {
+    const temporaryConversation = activeConversation?.temporary
+      ? activeConversation
+      : null
+    if (temporaryConversation) {
+      await deleteTemporaryConversationArtifacts(temporaryConversation)
+    }
+
     const conversation = await appServices.conversations.create({
       title: "New conversation",
       systemPrompt: "",
@@ -1145,7 +1170,10 @@ export default function App() {
       sourceIds: [],
       temporary: false,
     })
-    setConversations((current) => [conversation, ...current])
+    setConversations((current) => [
+      conversation,
+      ...current.filter((item) => item.id !== temporaryConversation?.id),
+    ])
     adjustConversationListTotal(1)
     setActiveConversationId(conversation.id)
     navigate(`/chat/${conversation.id}`)

@@ -2691,17 +2691,19 @@ input[aria-label="Search chats"]:focus-visible {
 }
 
 .temporary-chat-banner {
-  position: absolute;
-  top: 16px;
-  left: 50%;
+  position: sticky;
+  top: 12px;
+  z-index: 28;
   display: flex;
+  align-self: center;
   align-items: center;
   gap: 5px;
+  margin-bottom: 16px;
   padding: 5px 14px;
-  transform: translateX(-50%);
   border: 1px solid rgba(247, 192, 79, 0.4);
   border-radius: 20px;
   background: rgba(251, 220, 100, 0.18);
+  backdrop-filter: blur(14px);
   color: #996b14;
   font-size: 12px;
   font-weight: 600;

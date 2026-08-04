@@ -142,7 +142,7 @@ def test_document_index_job_completes(
             "conversationSettings": {
                 "embedderModel": "embed-a",
                 "chunker": "fixed",
-                "vectorDatabase": "chroma",
+                "vectorDatabase": "qdrant",
             },
         },
     )

@@ -62,16 +62,6 @@ export function ChatConfigurationModal({
       capabilities: capabilities?.embedderModels ?? [],
     },
     {
-      field: "vectorDatabase",
-      label: "Vector Database",
-      capabilities: capabilities?.vectorDatabases ?? [],
-    },
-    {
-      field: "contextCompressor",
-      label: "Context Compressor",
-      capabilities: capabilities?.contextCompressors ?? [],
-    },
-    {
       field: "reranker",
       label: "ReRanker",
       capabilities: capabilities?.rerankerModels ?? [],

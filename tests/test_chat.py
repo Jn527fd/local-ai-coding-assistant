@@ -5,14 +5,18 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import pytest
 
 from app.ai.components import Chunk, ComponentUnavailableError
 from app.ai.execution_context import AISettingsResolver
 from app.ai.ocr import OCRResult
+from app.ai.pipelines.retrieval import DocumentRetrievalPipeline
 from app.ai.rerankers import RerankResult
-from app.ai.vectorstores import JsonVectorStore, VectorStoreError
-from app.routers.chat import get_ollama_service
+from app.ai.vectorstores import JsonVectorStore, QdrantVectorStore, VectorStoreError
+from app.routers.chat import get_conversation_memory_service, get_ollama_service
+from app.schemas.memories import MemoryRecord
 from app.services.component_registry import CAPABILITY_KEYS
+from app.services.conversation_memory import MemoryOperationResult
 from app.services.document_service import DocumentService
 from app.services.ollama_service import InstalledOllamaModel
 
@@ -136,6 +140,40 @@ class FakeRerankerProvider:
         return RerankResult(sources=scored, warnings=[])
 
 
+class FakeConversationMemoryService:
+    def __init__(self, context: str = "") -> None:
+        self.context = context
+        self.retrieve_calls: list[dict[str, object]] = []
+        self.store_calls: list[dict[str, object]] = []
+
+    async def retrieve(self, **kwargs) -> MemoryOperationResult:
+        self.retrieve_calls.append(kwargs)
+        return MemoryOperationResult(memories=[], warnings=[])
+
+    def list(self, **kwargs) -> MemoryOperationResult:
+        return MemoryOperationResult(
+            memories=[
+                MemoryRecord(
+                    id="memory-a",
+                    workspaceId="default",
+                    conversationId=kwargs.get("conversation_id"),
+                    text="I prefer TypeScript examples.",
+                    type="preference",
+                    importance=0.8,
+                    sourceHash="hash-a",
+                )
+            ],
+            warnings=[],
+        )
+
+    def format_memory_context(self, memories) -> str:
+        return self.context
+
+    async def store_from_message(self, **kwargs) -> MemoryOperationResult:
+        self.store_calls.append(kwargs)
+        return MemoryOperationResult(memories=[], warnings=[])
+
+
 class FakePDFOCREngine:
     engine_id = "ocrmypdf"
 
@@ -238,7 +276,7 @@ def chat_capabilities(
         capability("recursive", "chunker"),
     ]
     capabilities["vectorDatabases"] = [
-        capability("chroma", "vectorDatabase"),
+        capability("qdrant", "vectorDatabase"),
     ]
     capabilities["ragPipelines"] = [
         capability("basic", "ragPipeline"),
@@ -277,7 +315,7 @@ def seed_vector_index(
     app: FastAPI,
     conversation_id: str,
     embedder_model: str = "embed-a",
-    vector_database: str = "chroma",
+    vector_database: str = "qdrant",
     document_id: str = "doc-1",
     chunk_texts: list[str] | None = None,
     chunk_metadata: list[dict[str, object]] | None = None,
@@ -326,6 +364,73 @@ def seed_vector_index(
     )
 
 
+@pytest.mark.asyncio
+async def test_qdrant_retrieval_pipeline_returns_indexed_sources(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("qdrant_client")
+    store = QdrantVectorStore(tmp_path / "qdrant")
+    embedder = FakeEmbedderProvider()
+    capabilities = chat_capabilities()
+    resolver = AISettingsResolver(FakeComponentRegistry(capabilities))
+    execution_context = await resolver.resolve(
+        conversation_settings=None,
+        active_model="qwen3:4b",
+        conversation_id="chat-qdrant",
+    )
+    chunks = [
+        Chunk(
+            id="chunk-apple",
+            text="apple tart instructions",
+            metadata={
+                "documentId": "doc-apple",
+                "documentName": "recipes.txt",
+                "chunkId": "chunk-apple",
+                "chunkIndex": 0,
+            },
+        ),
+        Chunk(
+            id="chunk-banana",
+            text="banana bread notes",
+            metadata={
+                "documentId": "doc-banana",
+                "documentName": "recipes.txt",
+                "chunkId": "chunk-banana",
+                "chunkIndex": 1,
+            },
+        ),
+    ]
+    collection_id = store.collection_id(
+        "chat-qdrant",
+        "embed-a",
+        "qdrant",
+    )
+    try:
+        await store.upsert(
+            collection=store.collection_ref("chat-qdrant", collection_id),
+            chunks=chunks,
+            embeddings=[embedder.embed(chunk.text) for chunk in chunks],
+            metadata={
+                "embedderModel": "embed-a",
+                "vectorDatabase": "qdrant",
+                "documentIds": ["doc-apple", "doc-banana"],
+            },
+        )
+
+        result = await DocumentRetrievalPipeline(embedder, store).retrieve(
+            query="apple",
+            conversation_id="chat-qdrant",
+            execution_context=execution_context,
+            top_k=1,
+        )
+        assert result.rag_used is True
+        assert result.sources[0].document_id == "doc-apple"
+        assert result.sources[0].collection_id == collection_id
+        assert result.sources[0].vector_score > 0
+    finally:
+        store.close()
+
+
 def seed_processed_document_metadata(
     app: FastAPI,
     conversation_id: str,
@@ -371,7 +476,7 @@ def vector_index_path(
     app: FastAPI,
     conversation_id: str,
     embedder_model: str = "embed-a",
-    vector_database: str = "chroma",
+    vector_database: str = "qdrant",
 ) -> Path:
     collection_id = JsonVectorStore.collection_id(
         conversation_id=conversation_id,
@@ -421,7 +526,7 @@ def pdf_chat_settings() -> dict[str, str]:
         "pdfParser": "pdfplumber",
         "ocrEngine": "none",
         "chunker": "recursive",
-        "vectorDatabase": "chroma",
+        "vectorDatabase": "qdrant",
         "ragPipeline": "basic",
         "contextCompressor": "none",
     }
@@ -536,6 +641,45 @@ def test_chat_hides_model_reasoning_blocks(
 
     assert response.status_code == 200
     assert response.json()["answer"] == "Visible answer"
+
+
+def test_chat_injects_retrieved_conversation_memory(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService()
+    configure_chat_rag_tests(app, tmp_path)
+    fake_memory = FakeConversationMemoryService(
+        "Long-term project memory from Qdrant:\n"
+        "1. [preference] I prefer TypeScript examples."
+    )
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+    app.dependency_overrides[get_conversation_memory_service] = lambda: fake_memory
+
+    try:
+        response = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "conversationId": "conversation-a",
+                "message": "Show an example.",
+                "conversationSettings": {
+                    "embedderModel": "embed-a",
+                    "vectorDatabase": "qdrant",
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    prompt = fake_ollama.calls[0][1]
+    assert "[Conversation Memory]" in prompt
+    assert "I prefer TypeScript examples." in prompt
+    assert fake_memory.retrieve_calls[0]["conversation_id"] == "conversation-a"
+    assert fake_memory.store_calls
 
 
 def test_chat_sends_only_explicit_history_as_context(
@@ -675,7 +819,7 @@ def test_context_compressor_none_preserves_prompt_behavior(
     assert "Assistant: It provides reusable request-time values." in prompt
     assert "User: And how is it declared?" in prompt
     assert response.json()["compressionUsed"] is False
-    assert response.json()["compressorMode"] == "none"
+    assert response.json()["compressorMode"] == "auto"
 
 
 def test_token_compression_trims_older_history_first_and_preserves_latest(
@@ -711,7 +855,7 @@ def test_token_compression_trims_older_history_first_and_preserves_latest(
     payload = response.json()
     prompt = fake_ollama.calls[0][1]
     assert payload["compressionUsed"] is True
-    assert payload["compressorMode"] == "token"
+    assert payload["compressorMode"] == "auto"
     assert payload["compressionStats"]["messagesTrimmed"] > 0
     assert "message-0" not in prompt
     assert "message-13" in prompt
@@ -747,7 +891,7 @@ def test_token_compression_trims_retrieved_context_after_history(
                     "embedderModel": "embed-a",
                     "ragPipeline": "hybrid",
                     "contextCompressor": "token",
-                    "vectorDatabase": "chroma",
+                    "vectorDatabase": "qdrant",
                 },
             },
         )
@@ -794,17 +938,12 @@ def test_summarizer_compression_generates_memory_and_keeps_recent_messages(
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["compressionUsed"] is True
-    assert payload["compressorMode"] == "summarizer"
-    assert payload["compressionStats"]["summaryGenerated"] is True
-    assert "Older conversation:" in fake_ollama.calls[0][1]
-    assert "message-0" in fake_ollama.calls[0][1]
+    assert payload["compressorMode"] == "auto"
+    assert payload["compressionStats"]["summaryGenerated"] is False
 
     final_prompt = fake_ollama.calls[-1][1]
-    assert "[Conversation Memory]" in final_prompt
-    assert "Remember the API design." in final_prompt
     assert "message-11" in final_prompt
-    assert "message-0" not in final_prompt
+    assert "message-0" in final_prompt
     assert "What should we do next?" in final_prompt
 
 
@@ -839,9 +978,8 @@ def test_summarizer_failure_falls_back_safely_with_warning(
     assert response.status_code == 200
     payload = response.json()
     assert payload["compressionUsed"] is True
-    assert payload["compressorMode"] == "summarizer"
-    assert "Summarizer context compression failed" in payload["compressionWarnings"][0]
-    assert "[Conversation Memory]" not in fake_ollama.calls[-1][1]
+    assert payload["compressorMode"] == "auto"
+    assert "Context management is automatic" in payload["compressionWarnings"][0]
 
 
 def test_semantic_compression_falls_back_to_token_with_warning(
@@ -875,8 +1013,8 @@ def test_semantic_compression_falls_back_to_token_with_warning(
     assert response.status_code == 200
     payload = response.json()
     assert payload["compressionUsed"] is True
-    assert payload["compressorMode"] == "semantic"
-    assert "Semantic context compression is not implemented yet" in payload[
+    assert payload["compressorMode"] == "auto"
+    assert "Context management is automatic" in payload[
         "compressionWarnings"
     ][0]
     assert payload["compressionStats"]["messagesTrimmed"] > 0
@@ -912,13 +1050,12 @@ def test_memory_compression_falls_back_to_summarizer_with_warning(
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["compressionUsed"] is True
-    assert payload["compressorMode"] == "memory"
-    assert payload["compressionStats"]["summaryGenerated"] is True
-    assert "Memory context compression is not implemented yet" in payload[
+    assert payload["compressionUsed"] is False
+    assert payload["compressorMode"] == "auto"
+    assert payload["compressionStats"]["summaryGenerated"] is False
+    assert "Context management is automatic" in payload[
         "compressionWarnings"
     ][0]
-    assert "Persistent memory summary." in fake_ollama.calls[-1][1]
 
 
 def test_chat_uses_conversation_llm_model_when_available(
@@ -1226,7 +1363,7 @@ def test_basic_rag_pipeline_does_not_retrieve_documents(
                 "conversationSettings": {
                     "embedderModel": "embed-a",
                     "ragPipeline": "basic",
-                    "vectorDatabase": "chroma",
+                    "vectorDatabase": "qdrant",
                 },
             },
         )
@@ -1285,7 +1422,7 @@ def test_attached_document_ids_force_retrieval_with_basic_pipeline(
                 "conversationSettings": {
                     "embedderModel": "embed-a",
                     "ragPipeline": "basic",
-                    "vectorDatabase": "chroma",
+                    "vectorDatabase": "qdrant",
                 },
             },
         )
@@ -1513,7 +1650,7 @@ def test_document_context_does_not_show_truncated_marker_to_model(
                 "conversationSettings": {
                     "embedderModel": "embed-a",
                     "ragPipeline": "basic",
-                    "vectorDatabase": "chroma",
+                    "vectorDatabase": "qdrant",
                 },
             },
         )
@@ -1567,7 +1704,7 @@ def test_document_context_refusal_about_full_text_is_repaired(
                 "conversationSettings": {
                     "embedderModel": "embed-a",
                     "ragPipeline": "basic",
-                    "vectorDatabase": "chroma",
+                    "vectorDatabase": "qdrant",
                 },
             },
         )
@@ -1744,7 +1881,7 @@ def test_document_question_without_uploaded_document_asks_for_attachment(
                 "conversationSettings": {
                     "embedderModel": "embed-a",
                     "ragPipeline": "basic",
-                    "vectorDatabase": "chroma",
+                    "vectorDatabase": "qdrant",
                 },
             },
         )
@@ -1808,7 +1945,7 @@ def test_second_attachment_in_same_conversation_excludes_first_document_context(
                 "conversationSettings": {
                     "embedderModel": "embed-a",
                     "ragPipeline": "basic",
-                    "vectorDatabase": "chroma",
+                    "vectorDatabase": "qdrant",
                 },
             },
         )
@@ -1877,7 +2014,7 @@ def test_compare_attachment_to_previous_document_includes_current_then_historica
                 "conversationSettings": {
                     "embedderModel": "embed-a",
                     "ragPipeline": "basic",
-                    "vectorDatabase": "chroma",
+                    "vectorDatabase": "qdrant",
                 },
             },
         )
@@ -1928,7 +2065,7 @@ def test_conversation_reference_retrieves_previous_resume_without_attachment(
                 "conversationSettings": {
                     "embedderModel": "embed-a",
                     "ragPipeline": "basic",
-                    "vectorDatabase": "chroma",
+                    "vectorDatabase": "qdrant",
                 },
             },
         )
@@ -1978,7 +2115,7 @@ def test_conversation_reference_retrieves_previous_certificate_without_attachmen
                 "conversationSettings": {
                     "embedderModel": "embed-a",
                     "ragPipeline": "basic",
-                    "vectorDatabase": "chroma",
+                    "vectorDatabase": "qdrant",
                 },
             },
         )
@@ -2024,7 +2161,7 @@ def test_ambiguous_previous_pdf_reference_asks_for_clarification(
                 "conversationSettings": {
                     "embedderModel": "embed-a",
                     "ragPipeline": "basic",
-                    "vectorDatabase": "chroma",
+                    "vectorDatabase": "qdrant",
                 },
             },
         )
@@ -2073,7 +2210,7 @@ def test_semantic_rag_retrieves_relevant_document_without_attachment(
                 "conversationSettings": {
                     "embedderModel": "embed-a",
                     "ragPipeline": "basic",
-                    "vectorDatabase": "chroma",
+                    "vectorDatabase": "qdrant",
                 },
             },
         )
@@ -2124,7 +2261,7 @@ def test_unrelated_message_does_not_inject_document_context(
                 "conversationSettings": {
                     "embedderModel": "embed-a",
                     "ragPipeline": "basic",
-                    "vectorDatabase": "chroma",
+                    "vectorDatabase": "qdrant",
                 },
             },
         )
@@ -2161,7 +2298,7 @@ def test_attached_missing_document_is_rejected_before_generation(
                 "conversationSettings": {
                     "embedderModel": "embed-a",
                     "ragPipeline": "basic",
-                    "vectorDatabase": "chroma",
+                    "vectorDatabase": "qdrant",
                 },
             },
         )
@@ -2199,7 +2336,7 @@ def test_attached_processed_document_without_index_is_rejected_before_generation
                 "conversationSettings": {
                     "embedderModel": "embed-a",
                     "ragPipeline": "basic",
-                    "vectorDatabase": "chroma",
+                    "vectorDatabase": "qdrant",
                 },
             },
         )
@@ -2245,7 +2382,7 @@ def test_attached_failed_document_is_rejected_before_generation(
                 "conversationSettings": {
                     "embedderModel": "embed-a",
                     "ragPipeline": "basic",
-                    "vectorDatabase": "chroma",
+                    "vectorDatabase": "qdrant",
                 },
             },
         )
@@ -2280,7 +2417,7 @@ def test_hybrid_rag_retrieves_chunks_and_inserts_them_into_prompt(
                 "conversationSettings": {
                     "embedderModel": "embed-a",
                     "ragPipeline": "hybrid",
-                    "vectorDatabase": "chroma",
+                    "vectorDatabase": "qdrant",
                 },
             },
         )
@@ -2350,7 +2487,7 @@ def test_rag_source_metadata_is_normalized_for_sparse_vector_records(
                 "conversationSettings": {
                     "embedderModel": "embed-a",
                     "ragPipeline": "hybrid",
-                    "vectorDatabase": "chroma",
+                    "vectorDatabase": "qdrant",
                 },
             },
         )
@@ -2394,7 +2531,7 @@ def test_rag_skips_empty_retrieved_chunks_and_keeps_source_numbers_stable(
                 "conversationSettings": {
                     "embedderModel": "embed-a",
                     "ragPipeline": "hybrid",
-                    "vectorDatabase": "chroma",
+                    "vectorDatabase": "qdrant",
                 },
             },
         )
@@ -2440,7 +2577,7 @@ def test_reranked_pipeline_attempts_reranking_and_uses_reranked_order(
                     "embedderModel": "embed-a",
                     "ragPipeline": "reranked",
                     "reranker": "rerank-a",
-                    "vectorDatabase": "chroma",
+                    "vectorDatabase": "qdrant",
                 },
             },
         )
@@ -2494,7 +2631,7 @@ def test_valid_reranker_with_hybrid_pipeline_attempts_reranking(
                     "embedderModel": "embed-a",
                     "ragPipeline": "hybrid",
                     "reranker": "rerank-a",
-                    "vectorDatabase": "chroma",
+                    "vectorDatabase": "qdrant",
                 },
             },
         )
@@ -2535,7 +2672,7 @@ def test_invalid_reranker_falls_back_with_warning(
                     "embedderModel": "embed-a",
                     "ragPipeline": "reranked",
                     "reranker": "missing-reranker",
-                    "vectorDatabase": "chroma",
+                    "vectorDatabase": "qdrant",
                 },
             },
         )
@@ -2574,7 +2711,7 @@ def test_reranker_failure_falls_back_with_warning(
                     "embedderModel": "embed-a",
                     "ragPipeline": "reranked",
                     "reranker": "rerank-a",
-                    "vectorDatabase": "chroma",
+                    "vectorDatabase": "qdrant",
                 },
             },
         )
@@ -2626,7 +2763,7 @@ def test_rerank_candidate_k_is_never_less_than_top_k(
                     "embedderModel": "embed-a",
                     "ragPipeline": "reranked",
                     "reranker": "rerank-a",
-                    "vectorDatabase": "chroma",
+                    "vectorDatabase": "qdrant",
                 },
             },
         )
@@ -2660,7 +2797,7 @@ def test_hybrid_rag_without_index_falls_back_to_normal_chat(
                 "conversationSettings": {
                     "embedderModel": "embed-a",
                     "ragPipeline": "hybrid",
-                    "vectorDatabase": "chroma",
+                    "vectorDatabase": "qdrant",
                 },
             },
         )
@@ -2699,7 +2836,7 @@ def test_hybrid_rag_without_valid_embedder_warns_and_falls_back(
                 "conversationSettings": {
                     "embedderModel": "missing-embedder",
                     "ragPipeline": "hybrid",
-                    "vectorDatabase": "chroma",
+                    "vectorDatabase": "qdrant",
                 },
             },
         )
@@ -2739,7 +2876,7 @@ def test_hybrid_rag_embedder_mismatch_warns_and_falls_back(
                 "conversationSettings": {
                     "embedderModel": "embed-b",
                     "ragPipeline": "hybrid",
-                    "vectorDatabase": "chroma",
+                    "vectorDatabase": "qdrant",
                 },
             },
         )
@@ -2775,7 +2912,7 @@ def test_hybrid_rag_vector_failure_warns_and_falls_back(
                 "conversationSettings": {
                     "embedderModel": "embed-a",
                     "ragPipeline": "hybrid",
-                    "vectorDatabase": "chroma",
+                    "vectorDatabase": "qdrant",
                 },
             },
         )

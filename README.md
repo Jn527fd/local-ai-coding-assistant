@@ -29,8 +29,9 @@ model provider.
 The application connects a React dashboard to a FastAPI backend and a locally
 installed Ollama service. You can sign in locally, choose AI components per
 chat, upload documents, build local vector indexes, retrieve source snippets,
-stream answers, inspect source metadata, and enable optional reranking or
-context compression per conversation.
+stream answers, inspect source metadata, and enable optional reranking while
+automatic context management keeps long chats and retrieved context within the
+active model budget.
 
 Internet access is required only when installing dependencies or downloading
 new Ollama models. Chat prompts, generated repository indexes, credentials,
@@ -44,7 +45,7 @@ API keys, and source code remain on the host machine during normal use.
   warnings, and compression metadata.
 - Local capability discovery for LLMs, embedders, rerankers, vision models,
   OCR engines, PDF parsers, chunkers, vector stores, RAG pipelines, and
-  context compressors.
+  runtime context-management support.
 - Optional OCRmyPDF fallback for low-text PDFs and optional vision chat for
   local multimodal Ollama models.
 - Docker Compose deployment, hermetic default tests, optional live Ollama smoke
@@ -82,7 +83,7 @@ This project demonstrates more than a basic LLM chat interface:
   dependency.
 - **Retrieval-augmented generation:** Document upload, extraction, chunking,
   local JSON vector indexing, retrieval-only search, RAG chat, source
-  attribution, optional reranking, and context compression.
+  attribution, optional reranking, and automatic context management.
 - **Security-conscious configuration:** Salted password hashes, HttpOnly
   sessions, optional legacy Bearer keys for scripts, ignored secret files, and
   safe templates.
@@ -126,8 +127,8 @@ This project demonstrates more than a basic LLM chat interface:
   users, settings, conversations, document metadata, and index metadata while
   preserving the JSON artifact stores.
 - Isolated history and context for each conversation.
-- Per-chat settings for LLM, embedder, chunker, vector database, RAG pipeline,
-  reranker, context compressor, and vision model.
+- Per-chat settings for LLM, embedder, chunker, RAG pipeline, reranker, and
+  vision model.
 - Compact setting status lines show whether a selected capability is
   implemented, fallback-backed, detected but not wired, planned, or
   unavailable when that metadata is available.
@@ -149,7 +150,7 @@ This project demonstrates more than a basic LLM chat interface:
 - Record extraction diagnostics and detect duplicate document uploads.
 - Chunk documents with fixed and recursive chunking modes.
 - Embed chunks with local Ollama embedding models.
-- Store document chunks and vectors in a local JSON-backed index.
+- Store document chunks and vectors in Qdrant.
 - Search indexed chunks without sending data to external services.
 - Use retrieved chunks in chat prompts with stable source numbering and source
   metadata.
@@ -190,7 +191,7 @@ flowchart LR
     Documents --> VectorIndex["Local vector<br/>index"]
     VectorIndex --> Retriever["Retriever"]
     Retriever --> Reranker["Optional reranker"]
-    Reranker --> Compressor["Optional context<br/>compressor"]
+    Reranker --> Compressor["Automatic context<br/>manager"]
     Chat --> Compressor
     Compressor --> Prompt["Final prompt"]
     Components --> Ollama["Ollama on host"]
@@ -207,7 +208,8 @@ flowchart LR
 4. Each conversation sends its own selected AI component settings.
 5. Document RAG retrieves local indexed chunks when enabled for the chat.
 6. Optional reranking reorders candidate chunks before prompt construction.
-7. Optional context compression trims or summarizes long prompts safely.
+7. Automatic context management preserves recent messages and trims or
+   extracts source evidence only when the prompt budget requires it.
 8. The API returns the generated answer, warnings, and contributing source
    metadata.
 
@@ -222,7 +224,7 @@ Detailed design notes are available in
 | Backend | Python, FastAPI, Pydantic | APIs, validation, sessions, orchestration, and component discovery |
 | Local inference | Ollama | Model downloads, text generation, embeddings, and reranker prompts |
 | Metadata | SQLite + local JSON artifacts | Migration bookkeeping and local metadata catalogue |
-| Retrieval | JSON vector store, optional Chroma | Document vectors, source metadata, and legacy keyword RAG |
+| Retrieval | Qdrant, JSON fallback | Document vectors, source metadata, and legacy keyword RAG |
 | HTTP client | HTTPX | Async communication with Ollama |
 | Deployment | Docker, Docker Compose, Nginx | Reproducible frontend and backend services |
 | Testing | pytest, FastAPI TestClient, Vitest, MSW | API, authentication, AI flow, documents, frontend, and Docker tests |
@@ -273,9 +275,9 @@ docling
 ocrmypdf
 ```
 
-The default vector backend is local JSON storage. The optional Chroma adapter
-is available when `chromadb` is installed in the backend runtime and
-`VECTOR_STORE_BACKEND=chroma` is configured.
+The standard vector backend is Qdrant. Docker Compose starts a Qdrant service
+with a named `qdrant_storage` volume so indexed vectors survive container
+recreation and ordinary `docker compose down` runs.
 
 Tesseract is a system binary, so Docker images or host environments must
 install `tesseract-ocr` separately if you want the `tesseract` engine detected.
@@ -440,9 +442,10 @@ Document workflows use the active chat's settings. A typical local RAG setup is:
 5. Ask a question with document RAG enabled.
 
 RAG responses include source metadata. When reranking is enabled and succeeds,
-sources can include both vector and rerank scores. When context compression is
-enabled, responses include compression metadata and warnings when trimming or
-fallbacks occur.
+sources can include both vector and rerank scores. Automatic context
+management preserves recent messages verbatim, keeps source attribution
+stable, trims retrieved context deterministically, and reports compression
+metadata or warnings when the model budget requires it.
 
 OCR is automatic for scanned or low-text PDFs. Docker installs PaddleOCR
 (Baidu) for CPU-friendly local OCR, and OCRmyPDF remains available as a
@@ -527,14 +530,13 @@ Markdown, JSON/YAML, HTML, and CSS. Source citations and vector metadata can
 include language, symbol kind, and symbol name. If a parser cannot understand a
 file, indexing falls back to safe line-based chunks.
 
-Document vectors use local JSON-backed storage by default, with an optional
-Chroma adapter available when `chromadb` is installed and
-`VECTOR_STORE_BACKEND=chroma` is set. Vector backend health and fallback
-diagnostics are available from `/vectorstores/health`, and collection
-export/import/migration endpoints can copy portable vector payloads between
-available adapters. Qdrant and LanceDB are reported as deferred adapters for
-now. Re-indexing a directory with the same final directory name replaces its
-previous repository index.
+Document and repository vectors use Qdrant as the standard backend. Docker
+Compose persists Qdrant data in the named `qdrant_storage` volume, while a
+small JSON store remains as an internal test/emergency fallback when the Qdrant
+client is unavailable. Vector backend health diagnostics are available from
+`/vectorstores/health`, and collection export/import/migration endpoints can
+copy portable vector payloads between available stores. Re-indexing a directory
+with the same final directory name replaces its previous repository index.
 
 GitHub cloning is not implemented yet. Clone a GitHub repository locally, then
 index its local path.
@@ -564,15 +566,21 @@ Important inference settings:
 | `RAG_CANDIDATE_K` | `20` | Default candidate chunks fetched before reranking |
 | `RAG_MAX_TOP_K` | `20` | Hard cap for requested RAG result count |
 | `RERANKER_MAX_CANDIDATES` | `50` | Hard cap for reranker candidate scoring |
-| `CONTEXT_COMPRESSION_MAX_PROMPT_CHARS` | `12000` | Prompt budget for optional compression |
+| `CONTEXT_COMPRESSION_MAX_PROMPT_CHARS` | `12000` | Prompt budget for automatic context management |
 | `CONTEXT_COMPRESSION_RECENT_MESSAGES_TO_KEEP` | `10` | Recent messages kept verbatim during compression |
 | `CONTEXT_COMPRESSION_MAX_RETRIEVED_CONTEXT_CHARS` | `6000` | Retrieved context budget during compression |
-| `CONTEXT_COMPRESSION_MAX_SUMMARY_CHARS` | `2000` | Maximum summarizer memory block length |
+| `CONTEXT_COMPRESSION_MAX_SUMMARY_CHARS` | `2000` | Maximum compatibility summary block length |
 | `DOCUMENT_MAX_UPLOAD_BYTES` | `26214400` | Maximum uploaded document size |
 | `DOCUMENT_CHUNK_SIZE` | `2000` | Target document chunk size |
 | `DOCUMENT_MAX_CHUNKS` | `500` | Maximum chunks kept from one processed document |
 | `EMBEDDING_BATCH_SIZE` | `16` | Maximum chunks embedded per local batch |
-| `VECTOR_STORE_BACKEND` | `json` | Active vector backend; `chroma` is optional when `chromadb` is installed |
+| `VECTOR_STORE_BACKEND` | `qdrant` | Active vector backend |
+| `QDRANT_URL` | empty | Optional Qdrant service URL; Docker sets this to `http://qdrant:6333` |
+| `QDRANT_API_KEY` | empty | Optional Qdrant API key for protected deployments |
+| `MEMORY_COLLECTION_NAME` | `local_ai_conversation_memory_v1` | Separate Qdrant collection for durable conversational memories |
+| `MEMORY_TOP_K` | `5` | Maximum long-term memories retrieved during prompt assembly |
+| `MEMORY_MIN_IMPORTANCE` | `0.35` | Minimum memory importance for auto-store and retrieval |
+| `MEMORY_AUTO_STORE_ENABLED` | `true` | Enable conservative automatic storage of durable user-provided memories |
 | `CONVERSATION_MAX_COUNT` | `50` | Maximum backend-persisted conversations per local user |
 | `METADATA_DATABASE_FILE` | empty | Optional override for the local SQLite metadata database |
 
@@ -727,16 +735,16 @@ local-ai-coding-assistant/
 
 ## Current Limitations
 
-- Document vectors use local JSON storage by default. Chroma is available as
-  an optional adapter when `chromadb` is installed; Qdrant and LanceDB are
-  explicitly deferred and reported through backend health metadata.
+- Document and repository vectors now standardize on Qdrant. The JSON vector
+  store remains only as an internal fallback when Qdrant client support is
+  unavailable.
 - Legacy repository RAG still uses keyword overlap.
 - OCRmyPDF fallback exists for low-text PDFs, but broad OCR expansion and UI
   workflows are still early.
 - Vision chat requires a local multimodal Ollama model and is not part of the
   default tiny smoke-model setup.
-- Semantic and memory context compression modes currently fall back safely to
-  implemented compressors.
+- Context management is automatic. Legacy `contextCompressor` request values
+  are accepted for compatibility but are not user-selectable.
 - Chat streaming is implemented for generation; broader runtime progress for
   every long-running operation is still limited.
 - Login sessions are in memory and end when the backend restarts.

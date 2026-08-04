@@ -9,11 +9,13 @@ from app.ai.vectorstores.json_store import (
     VectorStoreValidationError,
 )
 from app.ai.vectorstores.manager import VectorStoreManager
+from app.ai.vectorstores.qdrant import QdrantVectorStore
 from app.ai.vectorstores.unavailable import UnavailableVectorStore
 
 __all__ = [
     "ChromaVectorStore",
     "JsonVectorStore",
+    "QdrantVectorStore",
     "UnavailableVectorStore",
     "VectorCollectionMismatchError",
     "VectorCollectionNotFoundError",

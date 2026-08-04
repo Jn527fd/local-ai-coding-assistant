@@ -365,7 +365,7 @@ describe("HTTP application services", () => {
             conversationId: "chat-a",
             collectionId: "repo-123",
             embedderModel: "all-minilm",
-            vectorDatabase: "chroma",
+            vectorDatabase: "qdrant",
             freshness: {
               fresh: false,
               warnings: ["Repository index is stale."],
@@ -474,7 +474,7 @@ describe("HTTP application services", () => {
             runtime: { status: "ok" },
             models: { ollamaReachable: true },
             documents: { total: 2 },
-            retrieval: { vectorDatabase: "json" },
+            retrieval: { vectorDatabase: "qdrant" },
             jobs: { running: 0 },
             warnings: [],
           }

@@ -1718,3 +1718,102 @@ Scope:
 | `.venv\\Scripts\\python.exe -m compileall backend\\app` | Passed | Backend modules compiled successfully. |
 | `rg -n "PDF parser\\|PDF Parser\\|Docling is discoverable\\|PyMuPDF or pdfplumber\\|OCR engine selector\\|PDF parser selector" README.md docs frontend\\src\\features\\configuration frontend\\src\\services` | Passed | Remaining matches are capability/discovery docs, mock labels, roadmap history, and tests asserting the settings dropdown is absent. |
 | `git diff --check` | Passed | No whitespace errors; Git reported expected LF-to-CRLF working-copy warnings on Windows. |
+
+## Qdrant Vector Database Standardization
+
+Date: 2026-08-04
+
+Scope:
+
+- Standardize document and repository vector storage on Qdrant.
+- Add a Qdrant vector store adapter and make Qdrant the preferred/default
+  vector backend.
+- Remove vector database selection from chat settings.
+- Configure Docker Compose and production Compose with a Qdrant service and
+  persistent `qdrant_storage` named volume.
+- Keep JSON as an internal test/emergency fallback when qdrant-client is
+  unavailable.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `.venv\\Scripts\\python.exe -m pip install "qdrant-client>=1.13.0,<2.0.0"` | Failed, then passed after escalation | Sandboxed network access was unavailable. Escalated install completed with `qdrant-client 1.19.0`. |
+| `.venv\\Scripts\\python.exe -m pytest tests\\test_vector_store_adapters.py tests\\test_chat.py -k "qdrant"` | Failed, then passed | First run exposed missing Qdrant collection `conversationId` payload metadata. After fixing adapter metadata, 5 passed. |
+| `.venv\\Scripts\\python.exe -m pytest tests\\test_vector_indexes.py::test_vector_store_export_import_and_migrate_endpoints tests\\test_repositories.py::test_repository_vector_index_and_search_are_opt_in` | Failed, then passed | First run exposed stale JSON fallback expectation and missing Qdrant repository collection metadata. After fixes, 2 passed. |
+| `.venv\\Scripts\\python.exe -m pytest tests\\test_vector_store_adapters.py tests\\test_vector_indexes.py tests\\test_component_capabilities.py tests\\test_ai_execution_context.py tests\\test_chat.py tests\\test_documents.py tests\\test_repositories.py tests\\test_retrieval_eval.py` | Passed | 125 passed, 2 skipped. Skips were optional Chroma package and OCRmyPDF binary smoke. |
+| `.venv\\Scripts\\python.exe -m pytest` | Passed | 202 passed, 7 skipped. Skips were optional OCRmyPDF, live Ollama smoke, and optional Chroma package checks. |
+| `.\\node_modules\\.bin\\vitest.CMD run src\\features\\configuration\\ChatConfigurationModal.test.tsx src\\services\\capabilities.test.ts src\\services\\mock\\createMockServices.test.ts src\\services\\http\\conversationMapper.test.ts src\\services\\http\\createHttpServices.test.ts` from `frontend/` | Passed | 5 files, 54 tests. |
+| `.\\node_modules\\.bin\\tsc.CMD --noEmit` from `frontend/` | Passed | TypeScript check passed. |
+| `.\\node_modules\\.bin\\eslint.CMD .` from `frontend/` | Passed | ESLint passed. |
+| `.\\node_modules\\.bin\\vite.CMD build` from `frontend/` | Passed | Production frontend build passed. |
+| `.venv\\Scripts\\python.exe -m compileall backend\\app` | Passed | Backend modules compiled successfully. |
+| `docker compose config --quiet` | Passed after escalation | Initial sandboxed attempt could not read `C:\\Users\\naran\\.docker\\config.json`; escalated Compose validation passed. |
+| `docker compose -f docker-compose.prod.yml config --quiet` | Passed after escalation | Initial sandboxed attempt could not read `C:\\Users\\naran\\.docker\\config.json`; escalated production Compose validation passed. |
+| `rg -n "VECTOR_STORE_BACKEND=json\\|VECTOR_STORE_BACKEND=chroma\\|Qdrant.*deferred\\|qdrant.*deferred\\|vectorDatabase\\\":\\\"chroma\\|\\\"vectorDatabase\\\": \\\"chroma\\\"\\|JSON vector storage is the default\\|Qdrant and LanceDB\\|FAISS, Qdrant\\|local JSON-backed index\\|optional Chroma\\|Vector Database" README.md docs backend frontend\\src tests CHANGELOG.md` | Passed | Remaining matches are historical verification-log entries and the frontend test asserting the vector database dropdown is absent. |
+
+## Automatic Layered Context Management
+
+Date: 2026-08-04
+
+Scope:
+
+- Remove the user-selectable context compressor from chat configuration.
+- Resolve legacy `contextCompressor` selections to automatic mode for
+  compatibility.
+- Add automatic layered prompt management: preserve recent history and the
+  latest user message, keep structured state when older messages are omitted,
+  preserve retrieved source attribution, trim deterministically, and use
+  exact-substring structured evidence extraction only when needed to fit the
+  prompt budget.
+- Expose `evidenceExtracted` and `contextOverflow` compression stats.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `.venv\\Scripts\\python.exe -m pytest tests\\test_context_management.py tests\\test_chat.py -k "context_compress or auto_context or token_compression or summarizer_failure or semantic_compression or memory_compression"` | Failed, then passed | First run exposed outdated expectations for drift fallback and old manual memory mode. After test alignment, 11 passed, 48 deselected. |
+| `.\\node_modules\\.bin\\vitest.CMD run src\\features\\configuration\\ChatConfigurationModal.test.tsx src\\services\\capabilities.test.ts` from `frontend/` | Passed | 2 files, 4 tests. |
+| `.venv\\Scripts\\python.exe -m pytest tests\\test_context_management.py tests\\test_chat.py tests\\test_ai_execution_context.py` | Failed, then passed | First run exposed an outdated resolver assertion expecting `none`; after updating to `auto`, 65 passed. |
+| `.\\node_modules\\.bin\\vitest.CMD run src\\features\\configuration\\ChatConfigurationModal.test.tsx src\\services\\capabilities.test.ts src\\services\\http\\conversationMapper.test.ts src\\services\\http\\createHttpServices.test.ts` from `frontend/` | Failed, then passed | First run timed out on a same-value select interaction. After adding a real reranker option to the fixture, 4 files, 40 tests passed. |
+| `.venv\\Scripts\\python.exe -m pytest` | Passed | 207 passed, 7 skipped. Skips were optional OCRmyPDF, live Ollama smoke, and optional Chroma package checks. |
+| `.\\node_modules\\.bin\\tsc.CMD --noEmit` from `frontend/` | Passed | TypeScript check passed. |
+| `.\\node_modules\\.bin\\eslint.CMD .` from `frontend/` | Passed | ESLint passed. |
+| `.\\node_modules\\.bin\\vite.CMD build` from `frontend/` | Passed | Production frontend build passed. |
+| `.venv\\Scripts\\python.exe -m compileall backend\\app` | Passed | Backend modules compiled successfully. |
+| `.\\node_modules\\.bin\\vitest.CMD run` from `frontend/` | Passed | 21 files, 104 tests. |
+| `git diff --check` | Passed | No whitespace errors; Git reported expected LF-to-CRLF working-copy warnings on Windows. |
+| `rg -n "optional context compression\\|Optional context compression\\|optional compression\\|optional context compressor\\|Compression modes\\|semantic and memory context compression" README.md docs CHANGELOG.md` | Passed | The only remaining match is the historical `0.1.0` changelog entry. |
+
+## Qdrant Conversational Memory
+
+Date: 2026-08-04
+
+Scope:
+
+- Add a separate Qdrant-backed conversational memory system without changing
+  document or repository vector collections.
+- Store durable memories only: preferences, decisions, constraints,
+  unresolved tasks, and important project facts.
+- Include workspace, conversation, timestamp, type, importance, and
+  source-message metadata.
+- Retrieve relevant memories during chat prompt assembly and budget them with
+  automatic context management.
+- Prevent duplicate memories, support deletion, preserve workspace/conversation
+  isolation, and keep memory data in the persistent Qdrant volume.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `.venv\\Scripts\\python.exe -m pytest tests\\test_conversation_memory.py tests\\test_chat.py::test_chat_injects_retrieved_conversation_memory tests\\test_frontend_nginx_proxy.py` | Passed | 10 passed. Covered memory storage, filtering, relevance, isolation, deletion, persistence across service recreation, chat prompt injection, and Nginx route proxying. |
+| `.venv\\Scripts\\python.exe -m pytest tests\\test_conversation_memory.py tests\\test_chat.py::test_chat_injects_retrieved_conversation_memory tests\\test_frontend_nginx_proxy.py tests\\test_documents.py -k "indexes or conversation_memory or chat_injects_retrieved_conversation_memory or docker_frontend"` | Passed | 11 passed, 26 deselected. Rechecked memory/document index isolation after marking memory collections with `sourceType=conversation_memory`. |
+| `.venv\\Scripts\\python.exe -m pytest tests\\test_chat.py -k "summarizer_failure or semantic_compression or memory_compression or basic_rag_pipeline or attached_document_ids_force or broad_attached_short_pdf or semantic_rag_retrieves or unrelated_message or hybrid_rag_retrieves_chunks or hybrid_rag_embedder_mismatch or hybrid_rag_vector_failure or chat_injects_retrieved_conversation_memory"` | Failed, then passed | First run showed empty memory lookup was causing extra embedder calls in old chat assertions. After adding a memory preflight check, 12 passed, 43 deselected. |
+| `.venv\\Scripts\\python.exe -m pytest` | Failed, then passed | First full run had the same empty-memory embedder-call issue. After the preflight fix, 215 passed, 7 skipped. |
+| `.venv\\Scripts\\python.exe -m compileall backend\\app` | Passed | Backend modules compiled successfully. |
+| `.\\node_modules\\.bin\\tsc.CMD --noEmit` from `frontend/` | Passed | TypeScript check passed. |
+| `.\\node_modules\\.bin\\eslint.CMD .` from `frontend/` | Passed | ESLint passed. |
+| `.\\node_modules\\.bin\\vite.CMD build` from `frontend/` | Passed | Production frontend build passed. |
+| `git diff --check` | Passed | No whitespace errors; Git reported expected LF-to-CRLF working-copy warnings on Windows. |
+| `docker compose config --quiet` | Failed, then passed after escalation | Initial sandboxed attempt could not read `C:\\Users\\naran\\.docker\\config.json`; escalated Compose validation passed. |
+| `docker compose -f docker-compose.prod.yml config --quiet` | Failed, then passed after escalation | Initial sandboxed attempt could not read `C:\\Users\\naran\\.docker\\config.json`; escalated production Compose validation passed. |

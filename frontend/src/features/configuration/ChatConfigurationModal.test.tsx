@@ -14,7 +14,7 @@ const configuration: ModelConfiguration = {
   embedder: "all-minilm",
   ocrEngine: "none",
   pdfParser: "pymupdf",
-  vectorDatabase: "chroma",
+  vectorDatabase: "qdrant",
   contextCompressor: "token",
   reranker: "none",
 }
@@ -45,6 +45,13 @@ const capabilities: ComponentCapabilities = {
       type: "rerankerModel",
       available: true,
       source: "builtin",
+    },
+    {
+      id: "reranker-a",
+      label: "reranker-a",
+      type: "rerankerModel",
+      available: true,
+      source: "ollama",
     },
   ],
   visionModels: [
@@ -84,11 +91,11 @@ const capabilities: ComponentCapabilities = {
   chunkers: [],
   vectorDatabases: [
     {
-      id: "chroma",
-      label: "Chroma",
+      id: "qdrant",
+      label: "Qdrant",
       type: "vectorDatabase",
       available: true,
-      source: "static",
+      source: "qdrant",
     },
   ],
   ragPipelines: [],
@@ -119,15 +126,22 @@ describe("ChatConfigurationModal", () => {
     expect(
       screen.queryByRole("combobox", { name: "PDF Parser" }),
     ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("combobox", { name: "Vector Database" }),
+    ).not.toBeInTheDocument()
+
+    expect(
+      screen.queryByRole("combobox", { name: "Context Compressor" }),
+    ).not.toBeInTheDocument()
 
     await user.selectOptions(
-      screen.getByRole("combobox", { name: "Context Compressor" }),
-      "token",
+      screen.getByRole("combobox", { name: "ReRanker" }),
+      "reranker-a",
     )
 
     expect(onConfigurationChange).toHaveBeenCalledWith(
-      "contextCompressor",
-      "token",
+      "reranker",
+      "reranker-a",
     )
   })
 

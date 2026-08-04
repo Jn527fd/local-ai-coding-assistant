@@ -92,9 +92,9 @@ STATIC_CAPABILITY_METADATA = {
             "Selection is recorded; vectors are stored in the local JSON index.",
         ),
         "qdrant": (
-            CAPABILITY_STATUS_FALLBACK,
-            False,
-            "Selection is recorded; vectors are stored in the local JSON index.",
+            CAPABILITY_STATUS_IMPLEMENTED,
+            True,
+            "Qdrant is the standard vector database for document and repository indexes.",
         ),
         "lancedb": (
             CAPABILITY_STATUS_FALLBACK,
@@ -383,10 +383,7 @@ class ComponentRegistry:
         ]
 
     def _vector_databases(self) -> list[dict[str, Any]]:
-        capabilities = self._static_capabilities(
-            "vectorDatabase",
-            ("chroma", "faiss", "qdrant", "lancedb"),
-        )
+        capabilities = self._static_capabilities("vectorDatabase", ("qdrant",))
         health_items = (
             self.vector_store_manager.health()
             if self.vector_store_manager
@@ -417,7 +414,11 @@ class ComponentRegistry:
                         implemented=False,
                         description=adapter_health.description,
                     )
-            capability["fallbackStore"] = "json"
+            capability["fallbackStore"] = (
+                "json"
+                if not adapter_health or not adapter_health.available
+                else adapter_health.id
+            )
             if json_health:
                 capability["fallbackAvailable"] = json_health.available
         return capabilities

@@ -45,8 +45,12 @@ Bearer-key support for scripts:
 | `DELETE` | `/conversations/{conversation_id}` | Session | Delete one persisted conversation |
 | `POST` | `/conversations/import` | Session | Import browser conversations into backend persistence |
 | `GET` | `/conversations/export/all` | Session | Export backend-persisted conversations |
-| `POST` | `/chat` | Session or legacy key | Generate a complete chat response with optional document RAG, reranking, compression, and vision |
+| `POST` | `/chat` | Session or legacy key | Generate a complete chat response with optional document RAG, reranking, automatic context management, long-term memory, and vision |
 | `POST` | `/chat/stream` | Session or legacy key | Stream chat progress, tokens, metadata, and completion events |
+| `GET` | `/memories` | Session or legacy key | List durable conversational memories by workspace/conversation |
+| `POST` | `/memories` | Session or legacy key | Store one durable conversational memory in the separate Qdrant memory collection |
+| `POST` | `/memories/search` | Session or legacy key | Retrieve relevant durable conversational memories |
+| `DELETE` | `/memories/{memory_id}` | Session or legacy key | Delete one durable conversational memory |
 | `POST` | `/documents/upload` | Session or legacy key | Stage a document for one conversation |
 | `POST` | `/documents/{document_id}/process` | Session or legacy key | Extract text and chunk a staged document |
 | `POST` | `/documents/{document_id}/process/jobs` | Session or legacy key | Start a local background processing job |
@@ -227,17 +231,18 @@ shape:
   "ocrEngine": "none",
   "pdfParser": "pymupdf",
   "chunker": "recursive",
-  "vectorDatabase": "chroma",
+  "vectorDatabase": "qdrant",
   "ragPipeline": "basic",
   "reranker": "none",
-  "contextCompressor": "none",
+  "contextCompressor": "auto",
   "visionModel": "none"
 }
 ```
 
 Extra fields are ignored inside `conversationSettings`. Invalid or unavailable
 components are resolved by the backend and usually produce warnings or clear
-validation errors depending on the operation.
+validation errors depending on the operation. `contextCompressor` is accepted
+for older clients but runtime context management is automatic.
 
 ## Optional Conversation Persistence
 
@@ -265,6 +270,63 @@ Each record can include:
 not returned by future list/read calls. Browser-local fallback data is managed
 by the frontend.
 
+## Conversational Memory
+
+Durable conversational memory is stored in a separate Qdrant collection named
+`local_ai_conversation_memory_v1` by default. It does not share document or
+repository retrieval collections. The backend stores and retrieves only durable
+items such as preferences, decisions, constraints, unresolved tasks, and
+important project facts. Ordinary chat messages are skipped by the automatic
+memory extractor.
+
+Memory records include:
+
+- `workspaceId`
+- `conversationId`
+- `text`
+- `type`
+- `importance`
+- `createdAt` and `updatedAt`
+- `sourceMessageId`, `sourceRole`, and `sourceHash`
+
+Create a memory:
+
+```bash
+curl -X POST http://localhost:8000/memories \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workspaceId":"default",
+    "conversationId":"chat-1",
+    "text":"I prefer TypeScript examples.",
+    "type":"preference",
+    "importance":0.8,
+    "sourceMessageId":"message-1",
+    "sourceRole":"user",
+    "embedderModel":"all-minilm"
+  }'
+```
+
+Search memories:
+
+```bash
+curl -X POST http://localhost:8000/memories/search \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workspaceId":"default",
+    "conversationId":"chat-1",
+    "query":"Show me an example",
+    "embedderModel":"all-minilm",
+    "topK":5
+  }'
+```
+
+Prompt assembly retrieves relevant memories before automatic context
+management. Retrieved memories are budgeted with the rest of the prompt and
+are treated as background context; the latest user message remains
+authoritative. Duplicate memories are prevented by a stable source hash.
+
 ## Chat
 
 Chat uses the selected per-conversation `llmModel` when supplied. The legacy
@@ -281,8 +343,7 @@ curl -X POST http://localhost:8000/chat \
     "conversationSettings":{
       "llmModel":"llama3.2:3b",
       "ragPipeline":"basic",
-      "reranker":"none",
-      "contextCompressor":"none"
+      "reranker":"none"
     },
     "ragOptions":{
       "enabled":false,
@@ -338,7 +399,7 @@ Response:
   "rerankerModel": null,
   "rerankWarnings": [],
   "compressionUsed": false,
-  "compressorMode": "none",
+  "compressorMode": "auto",
   "compressionWarnings": [],
   "compressionStats": {
     "originalCharEstimate": 0,
@@ -347,7 +408,9 @@ Response:
     "compressedTokenEstimate": 0,
     "messagesTrimmed": 0,
     "contextTrimmed": 0,
-    "summaryGenerated": false
+    "summaryGenerated": false,
+    "evidenceExtracted": false,
+    "contextOverflow": false
   },
   "visionUsed": false,
   "visionModel": null,
@@ -359,7 +422,7 @@ Response:
 `history` accepts at most 30 user/assistant messages. The backend does not
 persist chat history. It builds a bounded prompt using
 `CHAT_CONTEXT_MAX_CHARS`, optional retrieved document context, optional
-reranking, and optional compression.
+reranking, and automatic context management.
 
 Common errors:
 
@@ -423,16 +486,15 @@ curl -X POST http://localhost:8000/documents/DOCUMENT_ID/index \
     "conversationId":"chat-1",
     "conversationSettings":{
       "embedderModel":"nomic-embed-text:latest",
-      "vectorDatabase":"chroma"
+      "vectorDatabase":"qdrant"
     }
   }'
 ```
 
-By default, vectors are persisted in the local JSON store.
-`VECTOR_STORE_BACKEND=chroma` enables the optional Chroma adapter only when the
-`chromadb` Python package is installed; otherwise JSON remains the fallback.
-Qdrant and LanceDB are reported as deferred adapters and do not require
-external services for default tests or Docker runs.
+Vectors are persisted in Qdrant by default. Docker Compose provides the Qdrant
+service and a persistent `qdrant_storage` volume. The backend keeps a JSON
+store only as an internal test/emergency fallback when the Qdrant client is not
+available.
 
 Document artifacts are checked before processing and indexing. Missing
 documents return `404`, invalid requests return `400`, unreadable artifacts
@@ -472,7 +534,7 @@ curl -X POST http://localhost:8000/documents/search \
     "query":"What does this document say about setup?",
     "conversationSettings":{
       "embedderModel":"nomic-embed-text:latest",
-      "vectorDatabase":"chroma"
+      "vectorDatabase":"qdrant"
     },
     "topK":5
   }'
@@ -554,7 +616,7 @@ session identifiers, CSRF values, prompts, chat text, document/OCR contents,
 and private file paths. Failure messages are redacted recursively before being
 returned.
 
-## RAG, Reranking, and Compression
+## RAG, Reranking, and Context Management
 
 Document RAG is attempted when the resolved RAG pipeline is one of `hybrid`,
 `reranked`, `graph`, or `agentic`, or when request `ragOptions.enabled` asks
@@ -567,17 +629,19 @@ adapter asks the selected local model for a numeric relevance score per
 candidate. Failures fall back to vector-ranked chunks and produce
 `rerankWarnings`.
 
-Compression modes:
-
-- `none`: no compression.
-- `token`: deterministic trimming.
-- `summarizer`: LLM-generated summary of older history.
-- `semantic`: currently falls back to token compression with a warning.
-- `memory`: currently falls back to summarizer or token compression with a
-  warning.
+Context management is automatic and is not user-selectable. The backend keeps
+recent messages verbatim, preserves the latest user message, uses retrieved
+Qdrant-backed source context when available, applies reranked order when
+reranking succeeds, trims deterministically against the configured prompt
+budget, and only asks the active LLM to extract structured evidence when the
+deterministic pass still cannot fit the context. Extracted evidence is accepted
+only when it exactly matches source text, which protects code, identifiers,
+paths, numbers, and names from summarization drift. Failures fall back to
+deterministic trimming and return `compressionWarnings`.
 
 Returned RAG `sources` are ordered exactly as they were injected into the final
-prompt after vector ranking, optional reranking, and optional compression.
+prompt after vector ranking, optional reranking, and automatic context
+management.
 `sourceNumber` and `finalRank` are one-based positions in that final prompt
 context. `vectorScore` is the original vector similarity score, `rerankScore`
 is present only when reranking succeeded, and `score` is the final score used

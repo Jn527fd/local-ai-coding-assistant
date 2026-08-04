@@ -118,7 +118,8 @@ class DocumentRetrievalPipeline:
             for collection in collections
             if collection.get("embedderModel") == embedder_model
             and collection.get("vectorDatabase") == vector_database
-            and collection.get("sourceType") != "repository"
+            and collection.get("sourceType")
+            not in {"repository", "conversation_memory"}
             and collection.get("collectionId")
         ]
         if not matching_collections:

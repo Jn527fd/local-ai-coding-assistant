@@ -86,7 +86,17 @@ class Settings(BaseSettings):
     document_chunk_size: int = Field(default=2000, ge=200, le=20_000)
     document_max_chunks: int = Field(default=500, ge=1, le=10_000)
     embedding_batch_size: int = Field(default=16, ge=1, le=128)
-    vector_store_backend: str = Field(default="json", min_length=1, max_length=40)
+    vector_store_backend: str = Field(default="qdrant", min_length=1, max_length=40)
+    qdrant_url: str = Field(default="", max_length=500)
+    qdrant_api_key: SecretStr = SecretStr("")
+    memory_collection_name: str = Field(
+        default="local_ai_conversation_memory_v1",
+        min_length=1,
+        max_length=120,
+    )
+    memory_top_k: int = Field(default=5, ge=1, le=20)
+    memory_min_importance: float = Field(default=0.35, ge=0.0, le=1.0)
+    memory_auto_store_enabled: bool = True
     conversation_max_count: int = Field(default=50, ge=1, le=500)
     metadata_database_file: Path | None = None
 

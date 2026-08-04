@@ -32,7 +32,7 @@ def repo_capabilities() -> dict[str, list[dict[str, object]]]:
     capabilities["ocrEngines"] = [capability("none", "ocrEngine")]
     capabilities["pdfParsers"] = []
     capabilities["chunkers"] = [capability("recursive", "chunker")]
-    capabilities["vectorDatabases"] = [capability("chroma", "vectorDatabase")]
+    capabilities["vectorDatabases"] = [capability("qdrant", "vectorDatabase")]
     capabilities["ragPipelines"] = [capability("basic", "ragPipeline")]
     capabilities["contextCompressors"] = [capability("none", "contextCompressor")]
     return capabilities

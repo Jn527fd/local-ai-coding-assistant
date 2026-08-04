@@ -28,6 +28,7 @@ from app.routers.documents import router as documents_router
 from app.routers.diagnostics import router as diagnostics_router
 from app.routers.health import router as health_router
 from app.routers.jobs import router as jobs_router
+from app.routers.memories import router as memories_router
 from app.routers.models import router as models_router
 from app.routers.repos import router as repos_router
 from app.routers.vectorstores import router as vectorstores_router
@@ -36,6 +37,7 @@ from app.services.conversation_service import ConversationPersistenceService
 from app.services.document_service import DocumentService
 from app.services.diagnostics import DiagnosticsService
 from app.services.job_service import JobService
+from app.services.conversation_memory import ConversationMemoryService
 from app.services.local_settings_service import LocalSettingsService
 from app.services.model_manager import ModelManager
 from app.services.ollama_service import OllamaService
@@ -94,6 +96,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     vector_store_manager = VectorStoreManager(
         index_directory=app_settings.vector_index_directory,
         backend=app_settings.vector_store_backend,
+        qdrant_url=app_settings.qdrant_url,
+        qdrant_api_key=app_settings.qdrant_api_key.get_secret_value(),
     )
     component_registry = ComponentRegistry(
         ollama_service=model_manager.ollama_service,
@@ -127,6 +131,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     retrieval_pipeline = DocumentRetrievalPipeline(
         embedder_provider=embedder_provider,
         vector_store=vector_store,
+    )
+    conversation_memory_service = ConversationMemoryService(
+        vector_store=vector_store_manager.qdrant_store,
+        embedder_provider=embedder_provider,
+        collection_name=app_settings.memory_collection_name,
+        min_importance=app_settings.memory_min_importance,
     )
     context_compression_manager = ContextCompressionManager(
         llm_provider=llm_provider,
@@ -169,11 +179,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.state.embedder_provider = embedder_provider
         application.state.reranker_provider = reranker_provider
         application.state.retrieval_pipeline = retrieval_pipeline
+        application.state.conversation_memory_service = conversation_memory_service
         application.state.context_compression_manager = context_compression_manager
         application.state.diagnostics_service = diagnostics_service
         try:
             yield
         finally:
+            vector_store_manager.close()
             await model_manager.close()
             logger.info("Stopping %s", app_settings.app_name)
 
@@ -205,6 +217,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.embedder_provider = embedder_provider
     application.state.reranker_provider = reranker_provider
     application.state.retrieval_pipeline = retrieval_pipeline
+    application.state.conversation_memory_service = conversation_memory_service
     application.state.context_compression_manager = context_compression_manager
     application.state.diagnostics_service = diagnostics_service
 
@@ -228,6 +241,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(documents_router)
     application.include_router(diagnostics_router)
     application.include_router(vectorstores_router)
+    application.include_router(memories_router)
     application.include_router(chat_router)
     application.include_router(repos_router)
 

@@ -30,6 +30,7 @@ class CompressionInput:
     execution_context: AIExecutionContext
     options: CompressionOptions
     model: str
+    memory_context: str | None = None
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,8 @@ class CompressionStats:
     messages_trimmed: int = 0
     context_trimmed: int = 0
     summary_generated: bool = False
+    evidence_extracted: bool = False
+    context_overflow: bool = False
 
     def response_payload(self) -> dict[str, Any]:
         return {
@@ -53,6 +56,8 @@ class CompressionStats:
             "messagesTrimmed": self.messages_trimmed,
             "contextTrimmed": self.context_trimmed,
             "summaryGenerated": self.summary_generated,
+            "evidenceExtracted": self.evidence_extracted,
+            "contextOverflow": self.context_overflow,
         }
 
 
@@ -78,11 +83,12 @@ class CompressionResult:
             history=compression_input.history,
             latest_user_message=compression_input.latest_user_message,
             retrieved_sources=compression_input.retrieved_sources,
+            memory_summary=compression_input.memory_context,
         )
         return CompressionResult(
             history=list(compression_input.history),
             retrieved_sources=list(compression_input.retrieved_sources),
-            memory_summary=None,
+            memory_summary=compression_input.memory_context,
             warnings=warnings or [],
             stats=CompressionStats(
                 original_char_estimate=original_chars,

@@ -52,7 +52,7 @@ def capabilities_snapshot() -> dict[str, list[dict[str, object]]]:
         capability("recursive", "chunker", source="static"),
     ]
     capabilities["vectorDatabases"] = [
-        capability("chroma", "vectorDatabase", source="static"),
+        capability("qdrant", "vectorDatabase", source="qdrant"),
     ]
     capabilities["ragPipelines"] = [
         capability("basic", "ragPipeline", source="static"),
@@ -150,10 +150,10 @@ async def test_execution_context_normalizes_missing_optional_settings() -> None:
     assert context.resolved_ocr_engine == "paddleocr"
     assert context.resolved_pdf_parser == "docling"
     assert context.resolved_chunker == "recursive"
-    assert context.resolved_vector_database == "chroma"
+    assert context.resolved_vector_database == "qdrant"
     assert context.resolved_rag_pipeline == "basic"
     assert context.resolved_reranker == "none"
-    assert context.resolved_context_compressor == "none"
+    assert context.resolved_context_compressor == "auto"
     assert context.resolved_vision_model == "none"
 
 

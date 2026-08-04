@@ -23,6 +23,18 @@ data/indexes/
 data/repos/
 ```
 
+Docker Compose stores Qdrant vectors in the named `qdrant_storage` volume.
+Ordinary `docker compose down` and container recreation keep named volumes, but
+project-directory archives do not include them automatically. Export the volume
+when you need a complete off-machine backup of indexed vectors:
+
+```bash
+docker run --rm \
+  -v local-ai-coding-assistant_qdrant_storage:/qdrant/storage:ro \
+  -v "$PWD":/backup \
+  alpine tar -czf /backup/qdrant-storage-YYYYMMDD.tar.gz -C /qdrant storage
+```
+
 If repositories are mounted outside this project, back them up separately.
 Ollama model files are managed by Ollama and can usually be re-pulled, but a
 full machine backup may include them if download time matters.
@@ -72,6 +84,11 @@ On the target machine:
 git clone YOUR_REPOSITORY_URL local-ai-coding-assistant
 cd local-ai-coding-assistant
 tar -xzf /path/to/local-ai-coding-assistant-backup-YYYYMMDD.tar.gz
+docker volume create local-ai-coding-assistant_qdrant_storage
+docker run --rm \
+  -v local-ai-coding-assistant_qdrant_storage:/qdrant \
+  -v "$PWD":/backup \
+  alpine tar -xzf /backup/qdrant-storage-YYYYMMDD.tar.gz -C /qdrant
 docker compose up --build --detach
 docker compose ps
 ```

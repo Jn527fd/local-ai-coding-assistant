@@ -220,11 +220,15 @@ def test_component_capabilities_reports_execution_status_for_static_options(
         False,
     )
     assert_execution_metadata(
-        capability_by_id(data, "vectorDatabases", "chroma"),
-        CAPABILITY_STATUS_FALLBACK,
-        False,
+        capability_by_id(data, "vectorDatabases", "qdrant"),
+        CAPABILITY_STATUS_IMPLEMENTED,
+        True,
     )
-    assert capability_by_id(data, "vectorDatabases", "chroma")["fallbackStore"] == "json"
+    assert capability_by_id(data, "vectorDatabases", "qdrant")["fallbackStore"] in {
+        "json",
+        "qdrant",
+    }
+    assert "chroma" not in capability_ids(data, "vectorDatabases")
     assert_execution_metadata(
         capability_by_id(data, "contextCompressors", "token"),
         CAPABILITY_STATUS_IMPLEMENTED,
@@ -237,29 +241,24 @@ def test_component_capabilities_reports_execution_status_for_static_options(
     )
 
 
-def test_component_capabilities_reports_chroma_adapter_when_available(
+def test_component_capabilities_reports_qdrant_as_only_vector_database(
     app: FastAPI,
     logged_in_client: TestClient,
-    monkeypatch,
     tmp_path,
 ) -> None:
-    monkeypatch.setattr(
-        "app.ai.vectorstores.chroma.ChromaVectorStore.package_available",
-        staticmethod(lambda: True),
-    )
     app.state.component_registry = ComponentRegistry(
         FakeComponentOllamaService([installed_model("qwen3:4b")]),
-        vector_store_manager=VectorStoreManager(tmp_path / "vectors", backend="json"),
+        vector_store_manager=VectorStoreManager(tmp_path / "vectors", backend="qdrant"),
     )
 
     response = logged_in_client.get("/components/capabilities")
 
     assert response.status_code == 200
     data = response.json()
-    chroma = capability_by_id(data, "vectorDatabases", "chroma")
-    assert_execution_metadata(chroma, CAPABILITY_STATUS_IMPLEMENTED, True)
-    assert chroma["adapter"]["id"] == "chroma"
-    assert chroma["fallbackStore"] == "json"
+    assert capability_ids(data, "vectorDatabases") == {"qdrant"}
+    qdrant = capability_by_id(data, "vectorDatabases", "qdrant")
+    assert_execution_metadata(qdrant, CAPABILITY_STATUS_IMPLEMENTED, True)
+    assert qdrant["adapter"]["id"] == "qdrant"
 
 
 def test_component_capabilities_reports_tool_execution_metadata(

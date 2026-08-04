@@ -17,8 +17,8 @@ It is not a public multi-tenant service.
   cancellation.
 - Document ingestion v2 for TXT, Markdown, PDF, DOCX, HTML, CSV, and TSV,
   including file sniffing, diagnostics, and duplicate detection.
-- JSON vector store remains the default, with stronger adapter diagnostics,
-  export/import utilities, and optional Chroma coverage.
+- Qdrant is the standard vector database, with Docker Compose persistence,
+  stronger adapter diagnostics, and export/import utilities.
 - Deterministic retrieval evaluation fixtures and source metadata regression
   checks.
 - Opt-in repository vector indexing, freshness warnings, and language-aware
@@ -39,11 +39,12 @@ It is not a public multi-tenant service.
   with backend persistence.
 - Login sessions are in memory unless a persistent session signing key is
   configured, and active sessions still end when backend state is restarted.
-- JSON vector storage is the default. Chroma is optional; Qdrant and LanceDB are
-  deferred.
+- Qdrant is the standard vector database. Docker Compose includes a persistent
+  Qdrant volume; JSON vector storage remains only as an internal fallback when
+  Qdrant client support is unavailable.
 - OCR and vision workflows depend on locally installed optional tools/models.
-- Semantic and memory context compression modes currently fall back to supported
-  compressors.
+- Context management is automatic. Older `contextCompressor` settings are
+  accepted for compatibility but are no longer user-selectable.
 - Live Ollama smoke tests validate wiring only, not answer quality.
 
 ## Release Blockers in This Environment
@@ -69,4 +70,3 @@ on the target release machine:
   machine.
 - Backup/restore, diagnostics, security/trust-boundary, and upgrade docs are
   reviewed.
-

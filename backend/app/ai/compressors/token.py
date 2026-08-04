@@ -24,8 +24,10 @@ class TokenContextCompressor:
         summary_generated: bool = False,
         initial_warnings: list[str] | None = None,
         mode: str = "token",
+        drop_sources_to_fit: bool = True,
     ) -> CompressionResult:
         options = compression_input.options
+        memory_summary = memory_summary or compression_input.memory_context
         original_chars = estimate_prompt_chars(
             history=compression_input.history,
             latest_user_message=compression_input.latest_user_message,
@@ -71,18 +73,19 @@ class TokenContextCompressor:
         )
         context_trimmed += trim_count
 
-        while (
-            estimate_prompt_chars(
-                history=history,
-                latest_user_message=compression_input.latest_user_message,
-                retrieved_sources=sources,
-                memory_summary=memory_summary,
-            )
-            > options.max_prompt_chars
-            and sources
-        ):
-            sources.pop()
-            context_trimmed += 1
+        if drop_sources_to_fit:
+            while (
+                estimate_prompt_chars(
+                    history=history,
+                    latest_user_message=compression_input.latest_user_message,
+                    retrieved_sources=sources,
+                    memory_summary=memory_summary,
+                )
+                > options.max_prompt_chars
+                and sources
+            ):
+                sources.pop()
+                context_trimmed += 1
 
         compressed_chars = estimate_prompt_chars(
             history=history,

@@ -522,8 +522,9 @@ the local JSON store.
 
 ### Why This Phase Matters
 
-The UI exposes Chroma, FAISS, Qdrant, and LanceDB names, but JSON remains the
-only current store. Real adapters need a staged integration point.
+This phase has been superseded by the Qdrant standardization work: Qdrant is
+the active vector database, JSON remains an internal fallback, and the UI no
+longer exposes vector database choice.
 
 ### Implementation Tasks
 

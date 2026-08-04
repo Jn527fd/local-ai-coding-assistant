@@ -49,10 +49,9 @@ export function createConfigurationFromCapabilities(
       preferredAvailableId(capabilities.pdfParsers, ["docling"]) ??
       fallback.pdfParser,
     vectorDatabase:
-      firstAvailableId(capabilities.vectorDatabases) ?? fallback.vectorDatabase,
-    contextCompressor:
-      firstAvailableId(capabilities.contextCompressors) ??
-      fallback.contextCompressor,
+      preferredAvailableId(capabilities.vectorDatabases, ["qdrant"]) ??
+      fallback.vectorDatabase,
+    contextCompressor: "auto",
     reranker:
       firstAvailableId(capabilities.rerankerModels) ?? fallback.reranker,
   }

@@ -23,10 +23,10 @@ OPTIONAL_DEFAULTS = {
     "ocrEngine": "none",
     "pdfParser": "none",
     "chunker": "recursive",
-    "vectorDatabase": "chroma",
+    "vectorDatabase": "qdrant",
     "ragPipeline": "basic",
     "reranker": "none",
-    "contextCompressor": "none",
+    "contextCompressor": "auto",
     "visionModel": "none",
 }
 
@@ -132,7 +132,7 @@ class AISettingsResolver:
                 settings=normalized_settings,
                 setting_key="vectorDatabase",
                 capabilities=capabilities,
-                fallback="chroma",
+                fallback="qdrant",
             ),
             "ragPipeline": self._resolve_optional_component(
                 settings=normalized_settings,
@@ -152,9 +152,9 @@ class AISettingsResolver:
                 settings=normalized_settings,
                 setting_key="contextCompressor",
                 capabilities=capabilities,
-                fallback="none",
+                fallback="auto",
                 allow_disabled=True,
-                disabled_resolved_id="none",
+                disabled_resolved_id="auto",
             ),
             "visionModel": self._resolve_optional_component(
                 settings=normalized_settings,
@@ -300,6 +300,18 @@ class AISettingsResolver:
     ) -> ResolvedComponent:
         category = SETTING_CATEGORIES[setting_key]
         selected = self._clean_selection(getattr(settings, setting_key))
+        if setting_key == "contextCompressor":
+            return ResolvedComponent(
+                setting_key=setting_key,
+                category=category,
+                requested_id=selected or "auto",
+                resolved_id="auto",
+                valid=True,
+                available=True,
+                required=False,
+                source="builtin",
+                reason="context management is automatic",
+            )
         if allow_disabled and selected in DISABLED_SELECTIONS:
             return ResolvedComponent(
                 setting_key=setting_key,

@@ -70,6 +70,9 @@ describe("mock application services", () => {
     expect(capabilities.pdfParsers).toContainEqual(
       expect.objectContaining({ id: "docling", available: true }),
     )
+    expect(capabilities.vectorDatabases).toEqual([
+      expect.objectContaining({ id: "qdrant", available: true }),
+    ])
   })
 
   it("serves redacted diagnostics fixtures in mock mode", async () => {
@@ -85,7 +88,7 @@ describe("mock application services", () => {
       redacted: true,
       redactionPolicy: expect.stringMatching(/secrets/i),
       diagnostics: {
-        retrieval: { vectorDatabase: "json" },
+        retrieval: { vectorDatabase: "qdrant" },
       },
     })
   })

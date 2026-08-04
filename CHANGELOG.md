@@ -50,11 +50,22 @@ automation is added.
   choices.
 - Added automatic Docling PDF parsing for AI-friendly document extraction and
   removed the PDF parser selector from the chat settings UI.
+- Standardized document and repository vector storage on Qdrant, added Docker
+  Compose Qdrant persistence, and removed the vector database selector from
+  chat settings.
+- Replaced the user-selectable context compressor with automatic layered
+  context management that preserves recent messages, keeps source attribution
+  stable, trims deterministically, and uses exact-evidence extraction only
+  when required by the prompt budget.
+- Added a separate Qdrant-backed conversational memory collection for durable
+  preferences, decisions, constraints, unresolved tasks, and project facts,
+  with relevance retrieval during prompt assembly, duplicate prevention, API
+  deletion, and container-recreation persistence coverage.
 
 ### Release Candidate Checklist
 
 - [x] README landing page reviewed and refreshed for public preview wording.
-- [x] Setup docs aligned with the JSON default and optional Chroma adapter.
+- [x] Setup docs aligned with the Qdrant default and persistent Docker volume.
 - [x] Example configuration files reviewed for placeholders, empty secrets, and
   trusted-network defaults.
 - [x] Release candidate notes drafted in `docs/release-notes-0.2.0-rc1.md`.

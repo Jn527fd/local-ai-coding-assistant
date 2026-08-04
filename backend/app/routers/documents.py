@@ -776,7 +776,8 @@ async def list_document_indexes(
         "indexes": [
             collection
             for collection in collections
-            if collection.get("sourceType") != "repository"
+            if collection.get("sourceType")
+            not in {"repository", "conversation_memory"}
         ],
     }
 

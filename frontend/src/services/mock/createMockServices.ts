@@ -448,7 +448,7 @@ export function createMockServices(): MockServiceBundle {
           input.conversationSettings?.embedderModel ?? "all-minilm",
         ),
         vectorDatabase: String(
-          input.conversationSettings?.vectorDatabase ?? "chroma",
+          input.conversationSettings?.vectorDatabase ?? "qdrant",
         ),
         freshness: { fresh: true, warnings: [] },
         warnings: [],
@@ -584,7 +584,7 @@ function createMockDiagnosticsStatus(): DiagnosticsStatus {
       processingSources: 0,
     },
     retrieval: {
-      vectorDatabase: "json",
+      vectorDatabase: "qdrant",
       ragPipelines: ["basic", "hybrid", "reranked"],
     },
     jobs: {
@@ -630,10 +630,7 @@ function createMockCapabilities(): ComponentCapabilities {
       createCapability("semantic", "Chunker", "static", false),
     ],
     vectorDatabases: [
-      createCapability("chroma", "Vector Database", "static", false),
-      createCapability("faiss", "Vector Database", "static", false),
-      createCapability("qdrant", "Vector Database", "static", false),
-      createCapability("lancedb", "Vector Database", "static", false),
+      createCapability("qdrant", "Qdrant", "local"),
     ],
     ragPipelines: [
       createCapability("basic", "RAG Pipeline", "static"),

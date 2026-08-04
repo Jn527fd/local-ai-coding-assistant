@@ -17,12 +17,17 @@ services:
       LOCAL_SETTINGS_FILE: /app/data/config/app-settings.json
       DATA_DIRECTORY: /app/data
       OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
+      VECTOR_STORE_BACKEND: qdrant
+      QDRANT_URL: http://qdrant:6333
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./data:/app/data
       - "${LOCAL_REPOS_ROOT:-.}:/repositories:ro"
     restart: unless-stopped
+    depends_on:
+      qdrant:
+        condition: service_started
     healthcheck:
       test:
         - CMD
@@ -33,6 +38,12 @@ services:
       timeout: 3s
       retries: 5
       start_period: 10s
+
+  qdrant:
+    image: qdrant/qdrant:v1.18.3
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    restart: unless-stopped
 
   frontend:
     build:
@@ -58,3 +69,6 @@ services:
       timeout: 3s
       retries: 5
       start_period: 5s
+
+volumes:
+  qdrant_storage:

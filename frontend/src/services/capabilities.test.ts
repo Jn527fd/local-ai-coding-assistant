@@ -95,6 +95,15 @@ describe("component capability helpers", () => {
           source: "local",
         },
       ],
+      vectorDatabases: [
+        {
+          id: "qdrant",
+          label: "Qdrant",
+          type: "vectorDatabase",
+          available: true,
+          source: "qdrant",
+        },
+      ],
     })
 
     expect(
@@ -104,6 +113,7 @@ describe("component capability helpers", () => {
       embedder: "all-minilm",
       ocrEngine: "paddleocr",
       pdfParser: "docling",
+      vectorDatabase: "qdrant",
       visionModel: fallback.visionModel,
     })
   })

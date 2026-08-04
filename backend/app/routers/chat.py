@@ -2,6 +2,7 @@ from dataclasses import dataclass, replace
 import base64
 import binascii
 from collections.abc import AsyncIterator
+import hashlib
 import json
 import logging
 from typing import Annotated, Any
@@ -45,6 +46,7 @@ from app.services.document_service import (
     DocumentStorageError,
     DocumentValidationError,
 )
+from app.services.conversation_memory import ConversationMemoryService
 from app.services.ollama_service import (
     OllamaResponseError,
     OllamaService,
@@ -151,6 +153,7 @@ class PreparedChatExecution:
     compression_stats: dict[str, object]
     retrieved_sources: list[RetrievedSource]
     include_sources: bool
+    memory_store_warnings: list[str]
     limited_document_text_warning: str = ""
 
     def generation_settings(self) -> dict[str, object]:
@@ -601,6 +604,24 @@ def get_context_compression_manager(
     return ContextCompressionManager(llm_provider=llm_provider)
 
 
+def get_conversation_memory_service(
+    request: Request,
+    embedder_provider: Annotated[EmbedderProvider, Depends(get_embedder_provider)],
+) -> ConversationMemoryService:
+    """Return the separate long-term conversation memory service."""
+
+    registered_service = request.app.state.conversation_memory_service
+    if getattr(registered_service, "embedder_provider", None) is embedder_provider:
+        return registered_service
+    settings: Settings = request.app.state.settings
+    return ConversationMemoryService(
+        vector_store=request.app.state.vector_store_manager.qdrant_store,
+        embedder_provider=embedder_provider,
+        collection_name=settings.memory_collection_name,
+        min_importance=settings.memory_min_importance,
+    )
+
+
 def get_vector_store(request: Request) -> JsonVectorStore:
     """Return the configured local vector store."""
 
@@ -677,6 +698,65 @@ def build_rerank_plan(execution_context: object) -> RerankPlan:
         )
 
     return RerankPlan(should_rerank=True, model=reranker_model)
+
+
+async def retrieve_conversation_memory_context(
+    chat_request: ChatRequest,
+    settings: Settings,
+    execution_context: object,
+    memory_service: ConversationMemoryService,
+) -> tuple[str, list[str]]:
+    """Retrieve durable long-term memories without touching document RAG."""
+
+    embedder_component = execution_context.components["embedderModel"]
+    if not execution_context.resolved_embedder_model or not embedder_component.valid:
+        return "", []
+    existing = memory_service.list(
+        workspace_id="default",
+        conversation_id=chat_request.conversationId,
+        include_workspace_wide=True,
+        limit=1,
+    )
+    if not existing.memories:
+        return "", existing.warnings
+    result = await memory_service.retrieve(
+        workspace_id="default",
+        conversation_id=chat_request.conversationId,
+        query=chat_request.message,
+        embedder_model=execution_context.resolved_embedder_model,
+        top_k=settings.memory_top_k,
+        min_importance=settings.memory_min_importance,
+        include_workspace_wide=True,
+    )
+    return memory_service.format_memory_context(result.memories), result.warnings
+
+
+async def store_durable_memory_from_chat(
+    chat_request: ChatRequest,
+    settings: Settings,
+    execution_context: object,
+    memory_service: ConversationMemoryService,
+) -> None:
+    """Persist durable user-provided facts/preferences for future turns."""
+
+    if not settings.memory_auto_store_enabled:
+        return
+    source_hash = hashlib.sha256(chat_request.message.encode("utf-8")).hexdigest()[:16]
+    try:
+        result = await memory_service.store_from_message(
+            workspace_id="default",
+            conversation_id=chat_request.conversationId,
+            message=chat_request.message,
+            source_message_id=f"latest-user:{source_hash}",
+            source_role="user",
+            embedder_model=execution_context.resolved_embedder_model,
+            enabled=True,
+        )
+    except Exception as exc:
+        logger.warning("Durable conversation memory storage failed: %s", exc)
+        return
+    for warning in result.warnings:
+        logger.info("Durable conversation memory not stored: %s", warning)
 
 
 def should_attempt_retrieval(
@@ -1646,6 +1726,7 @@ async def prepare_chat_execution(
     retrieval_pipeline: DocumentRetrievalPipeline,
     reranker_provider: Reranker,
     compression_manager: ContextCompressor,
+    memory_service: ConversationMemoryService,
 ) -> PreparedChatExecution:
     """Resolve settings, retrieval, reranking, compression, and prompt."""
 
@@ -1762,6 +1843,12 @@ async def prepare_chat_execution(
                 top_k=top_k,
             )
 
+    memory_context, memory_warnings = await retrieve_conversation_memory_context(
+        chat_request=chat_request,
+        settings=settings,
+        execution_context=execution_context,
+        memory_service=memory_service,
+    )
     compression_result = await compression_manager.compress(
         CompressionInput(
             history=chat_request.history,
@@ -1770,6 +1857,7 @@ async def prepare_chat_execution(
             execution_context=execution_context,
             options=build_compression_options(settings),
             model=generation_model,
+            memory_context=memory_context or None,
         )
     )
     prompt_request = chat_request.model_copy(
@@ -1829,10 +1917,11 @@ async def prepare_chat_execution(
         rerank_warnings=rerank_warnings,
         compression_used=compression_result.compression_used,
         compressor_mode=compression_result.compressor_mode,
-        compression_warnings=compression_result.warnings,
+        compression_warnings=memory_warnings + compression_result.warnings,
         compression_stats=compression_result.stats.response_payload(),
         retrieved_sources=retrieved_sources,
         include_sources=include_sources,
+        memory_store_warnings=[],
         limited_document_text_warning=limited_document_text_warning,
     )
 
@@ -1854,6 +1943,10 @@ async def chat(
     compression_manager: Annotated[
         ContextCompressor,
         Depends(get_context_compression_manager),
+    ],
+    memory_service: Annotated[
+        ConversationMemoryService,
+        Depends(get_conversation_memory_service),
     ],
 ) -> ChatResponse:
     """Send an authenticated chat prompt to the configured Ollama server."""
@@ -1975,6 +2068,12 @@ async def chat(
                 top_k=top_k,
             )
 
+    memory_context, memory_warnings = await retrieve_conversation_memory_context(
+        chat_request=chat_request,
+        settings=settings,
+        execution_context=execution_context,
+        memory_service=memory_service,
+    )
     compression_result = await compression_manager.compress(
         CompressionInput(
             history=chat_request.history,
@@ -1983,6 +2082,7 @@ async def chat(
             execution_context=execution_context,
             options=build_compression_options(settings),
             model=generation_model,
+            memory_context=memory_context or None,
         )
     )
     prompt_request = chat_request.model_copy(
@@ -2069,6 +2169,12 @@ async def chat(
         answer,
         limited_document_text_warning,
     )
+    await store_durable_memory_from_chat(
+        chat_request=chat_request,
+        settings=settings,
+        execution_context=execution_context,
+        memory_service=memory_service,
+    )
 
     include_sources = (
         chat_request.ragOptions.includeSources
@@ -2085,7 +2191,7 @@ async def chat(
         rerankWarnings=rerank_warnings,
         compressionUsed=compression_result.compression_used,
         compressorMode=compression_result.compressor_mode,
-        compressionWarnings=compression_result.warnings,
+        compressionWarnings=memory_warnings + compression_result.warnings,
         compressionStats=compression_result.stats.response_payload(),
         visionUsed=vision_used,
         visionModel=generation_model if vision_used else None,
@@ -2160,6 +2266,10 @@ async def chat_stream(
         ContextCompressor,
         Depends(get_context_compression_manager),
     ],
+    memory_service: Annotated[
+        ConversationMemoryService,
+        Depends(get_conversation_memory_service),
+    ],
 ) -> StreamingResponse:
     """Stream an authenticated chat response as server-sent events."""
 
@@ -2170,6 +2280,7 @@ async def chat_stream(
         retrieval_pipeline=retrieval_pipeline,
         reranker_provider=reranker_provider,
         compression_manager=compression_manager,
+        memory_service=memory_service,
     )
 
     async def event_stream() -> AsyncIterator[str]:
@@ -2206,6 +2317,13 @@ async def chat_stream(
         final_answer = prepend_limited_document_warning(
             final_answer,
             prepared.limited_document_text_warning,
+        )
+        settings: Settings = request.app.state.settings
+        await store_durable_memory_from_chat(
+            chat_request=chat_request,
+            settings=settings,
+            execution_context=prepared.execution_context,
+            memory_service=memory_service,
         )
         yield _sse_event(
             "done",

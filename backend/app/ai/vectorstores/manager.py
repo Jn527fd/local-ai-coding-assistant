@@ -6,6 +6,7 @@ from typing import Any
 from app.ai.vectorstores.base import VectorStoreBackend, VectorStoreHealth
 from app.ai.vectorstores.chroma import ChromaVectorStore
 from app.ai.vectorstores.json_store import JsonVectorStore
+from app.ai.vectorstores.qdrant import QdrantVectorStore
 
 
 class VectorStoreManager:
@@ -14,16 +15,25 @@ class VectorStoreManager:
     def __init__(
         self,
         index_directory: Path,
-        backend: str = "json",
+        backend: str = "qdrant",
+        qdrant_url: str = "",
+        qdrant_api_key: str = "",
     ) -> None:
         self.index_directory = index_directory.expanduser().resolve()
-        self.backend = (backend or "json").strip().lower()
+        self.backend = (backend or "qdrant").strip().lower()
         self.json_store = JsonVectorStore(self.index_directory)
         self.chroma_store = ChromaVectorStore(self.index_directory / "chroma")
+        self.qdrant_store = QdrantVectorStore(
+            self.index_directory / "qdrant",
+            url=qdrant_url,
+            api_key=qdrant_api_key,
+        )
 
     def default_store(self) -> VectorStoreBackend:
         """Return the configured active backend, falling back to JSON."""
 
+        if self.backend == "qdrant" and self.qdrant_store.package_available():
+            return self.qdrant_store
         if self.backend == "chroma" and self.chroma_store.health().available:
             return self.chroma_store
         return self.json_store
@@ -32,6 +42,8 @@ class VectorStoreManager:
         """Return an adapter for a selected vector database when available."""
 
         selected = (vector_database or "").strip().lower()
+        if selected == "qdrant":
+            return self.default_store()
         if selected == "chroma" and self.backend == "chroma":
             return self.default_store()
         return self.json_store
@@ -40,15 +52,17 @@ class VectorStoreManager:
         selected = (backend_id or self.default_store().backend_id).strip().lower()
         if selected == "json":
             return self.json_store
+        if selected == "qdrant" and self.qdrant_store.package_available():
+            return self.qdrant_store
         if selected == "chroma" and self.chroma_store.health().available:
             return self.chroma_store
         return self.json_store
 
     def health(self) -> list[VectorStoreHealth]:
         return [
+            self.qdrant_store.health(),
             self.json_store.health(),
             self.chroma_store.health(),
-            self._deferred_health("qdrant", "Qdrant", "externalService"),
             self._deferred_health("lancedb", "LanceDB", "pythonPackage"),
         ]
 
@@ -108,3 +122,8 @@ class VectorStoreManager:
                 }
             ],
         )
+
+    def close(self) -> None:
+        close = getattr(self.qdrant_store, "close", None)
+        if callable(close):
+            close()

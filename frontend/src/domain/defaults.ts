@@ -8,9 +8,9 @@ export const createDefaultModelConfiguration = (): ModelConfiguration => ({
   visionModel: "llama3.2-vision:11b",
   embedder: "llama3.2-embed:3b",
   pdfParser: "docling",
-  vectorDatabase: "llama3.2-vector:3b",
+  vectorDatabase: "qdrant",
   ocrEngine: "paddleocr",
-  contextCompressor: "llama3.2-context:3b",
+  contextCompressor: "auto",
   reranker: "llama3.2-reranker:3b",
 })
 

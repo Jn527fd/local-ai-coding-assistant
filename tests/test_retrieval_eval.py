@@ -66,7 +66,7 @@ class FakeComponentRegistry:
         ]
         capabilities["ocrEngines"] = [capability("none", "ocrEngine")]
         capabilities["chunkers"] = [capability("fixed", "chunker")]
-        capabilities["vectorDatabases"] = [capability("chroma", "vectorDatabase")]
+        capabilities["vectorDatabases"] = [capability("qdrant", "vectorDatabase")]
         capabilities["ragPipelines"] = [capability("hybrid", "ragPipeline")]
         capabilities["contextCompressors"] = [
             capability("none", "contextCompressor")
@@ -158,7 +158,7 @@ async def execution_context(
         conversation_settings=ConversationSettings(
             llmModel="eval-llm",
             embedderModel=embedder_model,
-            vectorDatabase="chroma",
+            vectorDatabase="qdrant",
             ragPipeline="hybrid",
             contextCompressor="none",
         ),

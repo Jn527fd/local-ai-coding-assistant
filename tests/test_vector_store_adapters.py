@@ -6,6 +6,7 @@ from app.ai.components import Chunk
 from app.ai.vectorstores import (
     ChromaVectorStore,
     JsonVectorStore,
+    QdrantVectorStore,
     VectorStoreBackend,
     VectorStoreManager,
 )
@@ -42,15 +43,39 @@ async def assert_basic_vector_store_contract(store, collection_ref: str) -> None
     assert results[0].score > 0
 
 
-def test_vector_store_manager_defaults_to_json(tmp_path: Path) -> None:
+def test_vector_store_manager_defaults_to_qdrant_when_client_is_available(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        QdrantVectorStore,
+        "package_available",
+        staticmethod(lambda: True),
+    )
+    manager = VectorStoreManager(tmp_path / "vectors")
+
+    store = manager.default_store()
+
+    assert isinstance(store, QdrantVectorStore)
+    assert isinstance(store, VectorStoreBackend)
+    assert store.backend_id == "qdrant"
+
+
+def test_vector_store_manager_falls_back_to_json_when_qdrant_client_missing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        QdrantVectorStore,
+        "package_available",
+        staticmethod(lambda: False),
+    )
     manager = VectorStoreManager(tmp_path / "vectors")
 
     store = manager.default_store()
 
     assert isinstance(store, JsonVectorStore)
-    assert isinstance(store, VectorStoreBackend)
-    assert store.health().id == "json"
-    assert store.health().available is True
+    assert manager.diagnostics()["configuredBackend"] == "qdrant"
 
 
 def test_vector_store_manager_falls_back_to_json_when_chroma_missing(
@@ -87,13 +112,16 @@ def test_vector_store_manager_selects_chroma_when_configured_and_available(
     assert isinstance(manager.store_for_selection("faiss"), JsonVectorStore)
 
 
-def test_json_and_chroma_collection_ids_are_backend_scoped() -> None:
-    json_id = JsonVectorStore.collection_id("chat-1", "embed-a", "chroma")
-    chroma_id = ChromaVectorStore.collection_id("chat-1", "embed-a", "chroma")
+def test_collection_ids_are_backend_scoped() -> None:
+    json_id = JsonVectorStore.collection_id("chat-1", "embed-a", "qdrant")
+    chroma_id = ChromaVectorStore.collection_id("chat-1", "embed-a", "qdrant")
+    qdrant_id = QdrantVectorStore.collection_id("chat-1", "embed-a", "qdrant")
 
     assert json_id.startswith("json-")
     assert chroma_id.startswith("chroma-")
+    assert qdrant_id.startswith("qdrant-")
     assert json_id.removeprefix("json-") == chroma_id.removeprefix("chroma-")
+    assert json_id.removeprefix("json-") == qdrant_id.removeprefix("qdrant-")
 
 
 @pytest.mark.asyncio
@@ -131,14 +159,13 @@ async def test_json_vector_store_exports_and_imports_portable_collection(
     assert results[0].chunk.metadata["documentName"] == "notes.txt"
 
 
-def test_vector_store_manager_reports_deferred_backends(tmp_path: Path) -> None:
+def test_vector_store_manager_reports_qdrant_backend(tmp_path: Path) -> None:
     diagnostics = VectorStoreManager(tmp_path / "vectors").diagnostics()
     backends = {item["id"]: item for item in diagnostics["backends"]}
 
-    assert diagnostics["activeBackend"] == "json"
-    assert diagnostics["fallbackUsed"] is False
+    assert diagnostics["configuredBackend"] == "qdrant"
     assert backends["json"]["available"] is True
-    assert backends["qdrant"]["mode"] == "deferred"
+    assert backends["qdrant"]["implemented"] is QdrantVectorStore.package_available()
     assert backends["lancedb"]["implemented"] is False
 
 
@@ -184,3 +211,20 @@ async def test_chroma_vector_store_contract_when_dependency_is_installed(
     )
 
     await assert_basic_vector_store_contract(store, collection_ref)
+
+
+@pytest.mark.asyncio
+async def test_qdrant_vector_store_contract_when_dependency_is_installed(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("qdrant_client")
+    store = QdrantVectorStore(tmp_path / "qdrant")
+    collection_ref = store.collection_ref(
+        "chat-1",
+        QdrantVectorStore.collection_id("chat-1", "embed-a", "qdrant"),
+    )
+
+    try:
+        await assert_basic_vector_store_contract(store, collection_ref)
+    finally:
+        store.close()

@@ -25,16 +25,19 @@ Ollama service             Document service          Legacy repo RAG
   | /api/generate        uploads / chunks JSON       repository JSON indexes
   | /api/embed                  |
   v                             v
-component registry        JSON vector store
+component registry        Qdrant vector store
                                 |
                                 v
                       retrieval -> optional rerank
                                 |
                                 v
-                     optional context compression
+                     automatic context management
                                 |
                                 v
                           final chat prompt
+                                ^
+                                |
+                    separate Qdrant memory collection
 ```
 
 The current production storage model is deliberately local and inspectable.
@@ -297,12 +300,12 @@ for:
 - vector stores
 - retrieval
 - reranking
-- context compression
+- context management
 - RAG pipelines
 
 Real adapters include the Ollama LLM, embedding, and reranking providers, the
-document retrieval pipeline, token/summarizer compression, and the local JSON
-vector store. Packages named `unavailable.py` are explicit non-executing
+document retrieval pipeline, automatic context manager, and the Qdrant vector
+store. Packages named `unavailable.py` are explicit non-executing
 adapters. They preserve dependency-injection seams for capabilities that are
 discoverable or planned, but they raise `ComponentNotImplementedError` with a
 clear adapter-boundary message when called. They are not active runtime
@@ -314,10 +317,11 @@ implementations.
 registry data, and legacy active model fallback into a resolved execution
 context. Chat, document processing, indexing, and search use this resolved
 context to decide which LLM, embedder, parser, chunker, vector database,
-pipeline, reranker, and compressor should be used.
+pipeline, and reranker should be used.
 
 The resolver is the main boundary between frontend settings and backend
-execution. It allows invalid or unavailable choices to produce controlled
+execution. It resolves older context-compressor settings to automatic mode for
+compatibility and allows invalid or unavailable choices to produce controlled
 warnings or validation errors instead of crashing.
 
 ## Document Pipeline
@@ -372,20 +376,17 @@ engine metadata are preserved in document metadata.
 ## Vector Store Adapter Layer
 
 `VectorStoreManager` selects the active vector backend and reports adapter
-health. `JsonVectorStore` remains the default backend and stores vectors under
-`DATA_DIRECTORY/vector_indexes`. Collections are scoped by conversation,
-embedder model, and selected vector database name.
+health. `QdrantVectorStore` is the standard backend for document and repository
+vectors. Docker Compose runs Qdrant as a local service and persists its storage
+in the named `qdrant_storage` volume. For non-Docker local development,
+qdrant-client can also run in local path mode under
+`DATA_DIRECTORY/vector_indexes/qdrant` when `QDRANT_URL` is empty. Collections
+are scoped by conversation, embedder model, and vector database name.
 
-Search computes cosine similarity in Python and returns the top results. This
-is excellent for transparent local testing and small document sets. It is not
-intended to replace Chroma, FAISS, Qdrant, or LanceDB for large collections.
-
-`ChromaVectorStore` is the first optional real backend adapter. It is only
-available when the `chromadb` Python package is installed and
-`VECTOR_STORE_BACKEND=chroma` is configured. If Chroma is not installed or the
-backend is left at the default `json`, document indexing and RAG continue to
-use the JSON store. Component discovery exposes adapter health and JSON
-fallback metadata for vector database settings.
+`JsonVectorStore` remains as an internal test/emergency fallback when
+qdrant-client is unavailable. `ChromaVectorStore` remains in the adapter layer
+for legacy migration/export compatibility but is no longer exposed as a
+user-selectable vector database.
 
 The vector store contract includes collection upsert, query, metadata listing,
 deletion, health, and portable export/import operations. The
@@ -393,9 +394,7 @@ deletion, health, and portable export/import operations. The
 fallback state, and adapter checks. `/vectorstores/collections/export`,
 `/vectorstores/collections/import`, and `/vectorstores/collections/migrate`
 use the portable JSON collection payload to support local backup and
-JSON-to-adapter migration. Qdrant and LanceDB are intentionally deferred
-adapters in this release because they add service/dependency cost; they are
-reported in health metadata without changing default behavior.
+JSON-to-adapter migration. LanceDB remains deferred.
 
 ## Chat, RAG, Reranking, and Compression
 
@@ -437,13 +436,26 @@ warning behavior, and source metadata shape. The harness is intended to catch
 retrieval/source regressions before algorithm tuning; live model quality
 evaluation remains opt-in only.
 
-Compression modes:
+Context management is automatic. The chat request path preserves recent
+messages and the latest user message verbatim, maintains a structured note
+when older messages are omitted, retrieves long-term source context through the
+document/repository vector pipeline, applies reranked source order when
+available, trims deterministically against the configured prompt budget, and
+uses structured LLM evidence extraction only if the deterministic pass still
+cannot fit retrieved context. Extracted evidence must be an exact substring of
+the source passage, so code, identifiers, paths, numbers, and names are not
+accepted if the model paraphrases them. Evidence extraction failures or drift
+fall back to deterministic trimming with warnings.
 
-- `none`: unchanged prompt behavior.
-- `token`: deterministic trimming.
-- `summarizer`: LLM summary of older history.
-- `semantic`: currently falls back to token compression.
-- `memory`: currently falls back to summarizer or token compression.
+Durable conversational memory is intentionally separate from document and
+repository RAG. `ConversationMemoryService` stores preferences, decisions,
+constraints, unresolved tasks, and important project facts in the dedicated
+Qdrant collection `local_ai_conversation_memory_v1` by default. Each memory
+contains workspace, conversation, timestamp, type, importance, and
+source-message metadata. Prompt assembly retrieves relevant memories before
+automatic context management so they are budgeted with history and source
+context. Duplicate prevention uses a stable hash over workspace,
+conversation, type, and normalized memory text.
 
 Image-bearing chat requests validate base64 PNG, JPEG, or WebP attachments and
 use the selected `visionModel` instead of the text `llmModel`. Text-only chat

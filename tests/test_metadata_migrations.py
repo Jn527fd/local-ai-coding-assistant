@@ -114,7 +114,7 @@ def test_metadata_migration_imports_existing_json_metadata(tmp_path: Path) -> No
         "collectionId": "json-123",
         "conversationId": "chat-1",
         "embedderModel": "all-minilm",
-        "vectorDatabase": "chroma",
+        "vectorDatabase": "qdrant",
         "source": "json",
     }
     vector_path = settings.vector_index_directory / "chat-1" / "json-123" / "metadata.json"

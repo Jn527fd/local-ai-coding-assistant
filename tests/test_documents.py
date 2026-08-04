@@ -51,7 +51,7 @@ def document_capabilities(
         capability("semantic", "chunker"),
         capability("document-aware", "chunker"),
     ]
-    capabilities["vectorDatabases"] = [capability("chroma", "vectorDatabase")]
+    capabilities["vectorDatabases"] = [capability("qdrant", "vectorDatabase")]
     capabilities["ragPipelines"] = [capability("basic", "ragPipeline")]
     capabilities["contextCompressors"] = [
         capability("none", "contextCompressor")

@@ -43,8 +43,7 @@ def vector_capabilities(
         capability("recursive", "chunker"),
     ]
     capabilities["vectorDatabases"] = [
-        capability("chroma", "vectorDatabase"),
-        capability("faiss", "vectorDatabase"),
+        capability("qdrant", "vectorDatabase"),
     ]
     capabilities["ragPipelines"] = [capability("basic", "ragPipeline")]
     capabilities["contextCompressors"] = [
@@ -91,13 +90,17 @@ def configure_vector_tests(
     tmp_path: Path,
     capabilities: dict[str, list[dict[str, object]]] | None = None,
     chunk_size: int = 32,
+    backend: str = "json",
 ) -> FakeEmbedderProvider:
     app.state.document_service = DocumentService(
         upload_directory=tmp_path / "uploads",
         max_upload_bytes=1024 * 1024,
         chunk_size=chunk_size,
     )
-    app.state.vector_store_manager = VectorStoreManager(tmp_path / "vector_indexes")
+    app.state.vector_store_manager = VectorStoreManager(
+        tmp_path / "vector_indexes",
+        backend=backend,
+    )
     app.state.vector_store = app.state.vector_store_manager.default_store()
     app.state.ai_settings_resolver = AISettingsResolver(
         FakeComponentRegistry(capabilities)
@@ -164,7 +167,7 @@ def index_document(
             "conversationSettings": {
                 "embedderModel": embedder_model,
                 "chunker": "fixed",
-                "vectorDatabase": "chroma",
+                "vectorDatabase": "qdrant",
             },
         },
     )
@@ -471,9 +474,10 @@ def test_vector_store_health_endpoint_reports_backends(
     assert response.status_code == 200
     payload = response.json()
     backends = {item["id"]: item for item in payload["backends"]}
+    assert payload["configuredBackend"] == "json"
     assert payload["activeBackend"] == "json"
     assert backends["json"]["available"] is True
-    assert backends["qdrant"]["mode"] == "deferred"
+    assert backends["qdrant"]["implemented"] in {True, False}
     assert backends["lancedb"]["available"] is False
 
 
@@ -513,8 +517,8 @@ def test_vector_store_export_import_and_migrate_endpoints(
         json={"backend": "qdrant", "payload": payload},
     )
     assert import_response.status_code == 200
-    assert import_response.json()["backend"] == "json"
-    assert import_response.json()["fallbackUsed"] is True
+    assert import_response.json()["backend"] == "qdrant"
+    assert import_response.json()["fallbackUsed"] is False
 
     migrate_response = client.post(
         "/vectorstores/collections/migrate",

@@ -105,6 +105,8 @@ class ChatCompressionStats(BaseModel):
     messagesTrimmed: int = 0
     contextTrimmed: int = 0
     summaryGenerated: bool = False
+    evidenceExtracted: bool = False
+    contextOverflow: bool = False
 
 
 class ChatResponse(BaseModel):

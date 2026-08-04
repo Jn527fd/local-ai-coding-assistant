@@ -289,12 +289,20 @@ uses Python standard-library parsers. Optional OCR tooling is selected through
 the chat settings when available, but missing optional tools do not break the
 default document flow.
 
-Document vectors use local JSON storage under `data/` by default. Chroma is
-available as an optional adapter when `chromadb` is installed in the
-backend runtime and `VECTOR_STORE_BACKEND=chroma` is configured. FAISS, Qdrant,
-and LanceDB remain compatibility options in the settings UI. Qdrant and
-LanceDB are explicitly deferred adapters in this release and are reported as
-unavailable by vector backend diagnostics.
+Document vectors use Qdrant as the standard vector database. Docker Compose
+starts Qdrant alongside the backend and stores data in the named
+`qdrant_storage` volume, so indexed vectors survive container recreation and
+ordinary `docker compose down` runs. A small JSON vector store remains as an
+internal test/emergency fallback when the Qdrant client is unavailable, but the
+UI no longer asks users to choose a vector database.
+
+Conversational memory also uses Qdrant, but it is stored in a separate
+collection from document and repository vectors. The default collection is
+`local_ai_conversation_memory_v1`. Only durable memories such as preferences,
+decisions, constraints, unresolved tasks, and important project facts are
+stored; ordinary chat text is skipped. Because memory uses the same persistent
+Qdrant service and `qdrant_storage` volume, it survives container recreation
+and ordinary `docker compose down` runs.
 
 RAG responses can include:
 
@@ -361,15 +369,18 @@ DOCUMENT_MAX_UPLOAD_BYTES=26214400
 DOCUMENT_CHUNK_SIZE=2000
 DOCUMENT_MAX_CHUNKS=500
 EMBEDDING_BATCH_SIZE=16
-VECTOR_STORE_BACKEND=json
+VECTOR_STORE_BACKEND=qdrant
+QDRANT_URL=
+QDRANT_API_KEY=
 CONVERSATION_MAX_COUNT=50
 METADATA_DATABASE_FILE=
 ```
 
-`VECTOR_STORE_BACKEND=json` is the default and requires no extra services.
-`VECTOR_STORE_BACKEND=chroma` uses the optional local Chroma adapter only when
-the `chromadb` Python package is installed in the backend runtime; otherwise
-the app falls back to JSON.
+`VECTOR_STORE_BACKEND=qdrant` is the default. In Docker Compose,
+`QDRANT_URL=http://qdrant:6333` is set automatically for the backend. For
+non-Docker development, leave `QDRANT_URL` empty to use qdrant-client local
+path mode under `data/vector_indexes/qdrant`, or point it at a local Qdrant
+service.
 
 `REPOSITORY_ALLOWED_ROOTS` is optional. When empty, the backend allows
 repository indexing from the project root, the configured data directory, and

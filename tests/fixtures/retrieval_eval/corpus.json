@@ -1,7 +1,7 @@
 {
   "conversationId": "eval-chat",
   "embedderModel": "eval-embed",
-  "vectorDatabase": "chroma",
+  "vectorDatabase": "qdrant",
   "documents": [
     {
       "documentId": "eval-doc-setup",

@@ -545,7 +545,7 @@ Scope:
 - Add a versioned changelog and root security policy.
 - Add repository hygiene coverage for release-readiness documents.
 - Ensure Docker backend tests include release documentation files.
-- Create `roadmap_v2.md` with the next 15 development phases for the public
+- Create a follow-up roadmap with the next 15 development phases for the public
   release track.
 
 ### Commands Attempted
@@ -1563,7 +1563,7 @@ Date: 2026-07-25
 
 Scope:
 
-- Verify the promoted `proposedFrontend/` locally and in Docker.
+- Verify the promoted `frontend/` locally and in Docker.
 - Re-run backend, frontend, e2e, Compose, image build, Docker test, and optional
   live Ollama smoke checks where available.
 - Do not start Phase 25 public-release polish.
@@ -1573,12 +1573,12 @@ Scope:
 | Command | Result | Notes |
 | --- | --- | --- |
 | `.venv\\Scripts\\python.exe -m pytest` | Passed | Full backend suite passed: 185 passed, 7 skipped. Optional OCRmyPDF, live Ollama, Ollama smoke, and local Chroma checks skipped. |
-| `.\\node_modules\\.bin\\oxfmt.cmd --check .` from `proposedFrontend/` | Failed, then passed | Initial formatting drift was corrected. Formatter-sensitive inline object test types were replaced with interfaces so final formatting, ESLint, and TypeScript checks all pass. |
-| `.\\node_modules\\.bin\\eslint.cmd .` from `proposedFrontend/` | Passed | Proposed frontend ESLint completed successfully. |
-| `.\\node_modules\\.bin\\tsc.cmd --noEmit` from `proposedFrontend/` | Passed | Proposed frontend TypeScript check completed successfully. |
-| `.\\node_modules\\.bin\\vitest.cmd run` from `proposedFrontend/` | Passed | Full proposed frontend suite passed: 21 files, 100 tests. |
-| `.\\node_modules\\.bin\\vite.cmd build` from `proposedFrontend/` | Passed | Proposed frontend production build succeeded. |
-| `.\\node_modules\\.bin\\playwright.cmd test --config playwright.config.ts` from `proposedFrontend/` | Passed | Chromium e2e suite passed: 6 tests. |
+| `.\\node_modules\\.bin\\oxfmt.cmd --check .` from `frontend/` | Failed, then passed | Initial formatting drift was corrected. Formatter-sensitive inline object test types were replaced with interfaces so final formatting, ESLint, and TypeScript checks all pass. |
+| `.\\node_modules\\.bin\\eslint.cmd .` from `frontend/` | Passed | Frontend ESLint completed successfully. |
+| `.\\node_modules\\.bin\\tsc.cmd --noEmit` from `frontend/` | Passed | Frontend TypeScript check completed successfully. |
+| `.\\node_modules\\.bin\\vitest.cmd run` from `frontend/` | Passed | Full frontend suite passed: 21 files, 100 tests. |
+| `.\\node_modules\\.bin\\vite.cmd build` from `frontend/` | Passed | Frontend production build succeeded. |
+| `.\\node_modules\\.bin\\playwright.cmd test --config playwright.config.ts` from `frontend/` | Passed | Chromium e2e suite passed: 6 tests. |
 | `docker compose config` | Passed | Default Compose config resolved. |
 | `docker compose -f docker-compose.prod.yml config` | Passed | Production Compose config resolved. |
 | `docker compose -f docker-compose.test.yml config` | Passed | Test Compose config resolved. |
@@ -1592,51 +1592,129 @@ Scope:
 ### Phase 24 Verification Checklist
 
 - [x] Backend full pytest passed.
-- [x] Proposed frontend format, lint, typecheck, tests, and build passed.
-- [x] Proposed frontend Playwright e2e passed.
+- [x] Frontend format, lint, typecheck, tests, and build passed.
+- [x] Frontend Playwright e2e passed.
 - [x] Compose config validation passed for default, production, and test files.
 - [x] Promoted frontend Docker images built.
 - [x] Dockerized backend and frontend test suites passed.
 - [x] Optional live Ollama smoke remains opt-in and skips cleanly by default.
 - [x] Phase 25 public-release polish was not started.
 
-## Proposed Frontend Migration Phase 25 Public Release Polish
+## Frontend Public Release Polish
 
 Date: 2026-07-25
 
 Scope:
 
-- Refresh release-facing documentation after the promoted frontend migration.
+- Refresh release-facing documentation after the frontend promotion.
 - Update stale checklist/changelog entries from pending verification to
   completed verification where Phase 24 proved them.
-- Add manual local smoke commands for running the promoted frontend.
+- Add manual local smoke commands for running the frontend.
 - Finish the 25-phase migration track without adding new product features.
 
 ### Commands Attempted
 
 | Command | Result | Notes |
 | --- | --- | --- |
-| `rg -n "frontend/|proposedFrontend|legacy frontend|old frontend|not implemented|coming soon|future" README.md docs CHANGELOG.md mitigationPlan.md` | Passed | Used to identify stale public-release wording. Remaining matches are historical migration records, accurate limitations, or intentional references to the archived legacy frontend. |
+| Stale frontend wording search across `README.md`, `docs`, and `CHANGELOG.md` | Passed | Used to identify stale public-release wording after promoting the new frontend to the only frontend. |
 | Documentation review | Passed | README, changelog, release checklist, backup/restore, dependency review, setup, testing, and deployment hardening docs were reviewed and updated where needed. |
 | `.venv\\Scripts\\python.exe -m pytest` | Passed | Full backend suite passed: 185 passed, 7 skipped. Optional OCRmyPDF, live Ollama, Ollama smoke, and local Chroma checks skipped. |
-| `.\\node_modules\\.bin\\oxfmt.cmd --check .` from `proposedFrontend/` | Passed | Promoted frontend format check passed. |
-| `.\\node_modules\\.bin\\eslint.cmd .` from `proposedFrontend/` | Passed | Promoted frontend ESLint completed successfully. |
-| `.\\node_modules\\.bin\\tsc.cmd --noEmit` from `proposedFrontend/` | Passed | Promoted frontend TypeScript check completed successfully. |
-| `.\\node_modules\\.bin\\vite.cmd build` from `proposedFrontend/` | Passed | Promoted frontend production build succeeded. |
-| `.\\node_modules\\.bin\\vitest.cmd run` from `proposedFrontend/` | Failed, then passed | First run hit the command timeout while jsdom was slow and showed profile tests mid-failure. Focused profile rerun passed: 6 tests. Full suite rerun with a longer timeout passed: 21 files, 100 tests. |
+| `.\\node_modules\\.bin\\oxfmt.cmd --check .` from `frontend/` | Passed | Promoted frontend format check passed. |
+| `.\\node_modules\\.bin\\eslint.cmd .` from `frontend/` | Passed | Promoted frontend ESLint completed successfully. |
+| `.\\node_modules\\.bin\\tsc.cmd --noEmit` from `frontend/` | Passed | Promoted frontend TypeScript check completed successfully. |
+| `.\\node_modules\\.bin\\vite.cmd build` from `frontend/` | Passed | Promoted frontend production build succeeded. |
+| `.\\node_modules\\.bin\\vitest.cmd run` from `frontend/` | Failed, then passed | First run hit the command timeout while jsdom was slow and showed profile tests mid-failure. Focused profile rerun passed: 6 tests. Full suite rerun with a longer timeout passed: 21 files, 100 tests. |
 | `git diff --check` | Passed | No whitespace errors; Git reported expected LF-to-CRLF working-copy warnings on Windows. |
 
 ### Phase 25 Verification Checklist
 
 - [x] README public-release copy reviewed and updated.
 - [x] Changelog reflects completed promoted-frontend verification.
-- [x] Release checklist points at promoted frontend commands.
-- [x] Backup/restore docs include `proposedFrontend/.env`, `node_modules`, and
+- [x] Release checklist points at frontend commands.
+- [x] Backup/restore docs include `frontend/.env`, `node_modules`, and
   `dist` paths.
-- [x] Dependency-review docs include `proposedFrontend` pnpm and Docker files.
+- [x] Dependency-review docs include `frontend` pnpm and Docker files.
 - [x] Manual local smoke commands documented.
-- [x] Backend and promoted frontend local verification passed after docs
+- [x] Backend and frontend local verification passed after docs
   updates.
 - [x] `git diff --check` passed.
 - [x] No new feature work was started.
-- [x] The 25-phase proposed frontend migration plan is complete.
+- [x] The 25-phase frontend promotion track is complete.
+
+## Single Frontend Promotion Cleanup
+
+Date: 2026-07-29
+
+Scope:
+
+- Remove the previous frontend split so `frontend/` is the only shipped
+  frontend application.
+- Remove migration-only docs and development artifacts that are no longer
+  useful for a public repository.
+- Update Docker, Makefile, setup, CI, and docs references to point at
+  `frontend/`.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `rg -n "sample-code-repository|mitigationPlan\\.md|roadmap_v2\\.md|feature_ideas_v2\\.md" README.md docs backend tests frontend .github Makefile docker-compose.yml docker-compose.prod.yml docker-compose.test.yml` | Passed | Confirmed removed development artifacts are no longer referenced. |
+| `.venv\\Scripts\\python.exe -m pytest tests\\test_repository_hygiene.py` | Passed | Repository hygiene regression passed: 2 passed. |
+| Stale frontend identifier search across README, docs, backend, tests, scripts, Docker, CI, and frontend files | Passed with intentional compatibility matches | Only the HTTP conversation mapper and its regression test still reference the old metadata key so records saved during migration builds remain readable. |
+| `.venv\\Scripts\\python.exe -m pytest tests\\test_repository_hygiene.py tests\\test_frontend_nginx_proxy.py` | Passed | Targeted backend hygiene and Nginx proxy tests passed: 5 passed. |
+| `pnpm.cmd --dir frontend install --frozen-lockfile` | Passed after escalation | Initial sandboxed install could not access the npm registry after `node_modules` reconciliation. Escalated install completed from the lockfile. |
+| `.\\node_modules\\.bin\\vitest.CMD run src/services/http/conversationMapper.test.ts src/services/http/createHttpServices.test.ts src/services/index.test.ts` from `frontend/` | Passed | Focused service/mapper tests passed: 3 files, 40 tests. |
+| `.\\node_modules\\.bin\\tsc.CMD --noEmit` from `frontend/` | Passed | TypeScript check passed after removing stale prototype-specific Vite imports. |
+| `.\\node_modules\\.bin\\eslint.CMD .` from `frontend/` | Passed | ESLint passed. |
+| `.\\node_modules\\.bin\\vite.CMD build` from `frontend/` | Passed | Production build passed; generated `frontend/dist` was removed afterward because it is a local build artifact. |
+| `.\\node_modules\\.bin\\vitest.CMD run` from `frontend/` | Passed | Full frontend unit suite passed: 21 files, 104 tests. |
+| `docker compose config --quiet` | Passed after escalation | Initial sandboxed attempt could not read `C:\\Users\\naran\\.docker\\config.json`; escalated Compose validation passed. |
+| `git diff --check` | Passed | No whitespace errors; Git reported expected LF-to-CRLF working-copy warnings on Windows. |
+
+## Automatic PaddleOCR OCR Simplification
+
+Date: 2026-08-01
+
+Scope:
+
+- Install PaddleOCR (Baidu) and CPU PaddlePaddle with the Docker/backend Python
+  dependencies.
+- Register PaddleOCR as the preferred automatic OCR fallback for low-text PDFs.
+- Remove the OCR engine selector from chat settings to reduce user choices.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `.venv\\Scripts\\python.exe -m pytest tests\\test_paddleocr_engine.py tests\\test_component_capabilities.py tests\\test_ai_execution_context.py tests\\test_documents.py -k "paddleocr or ocr or normalizes_missing_optional_settings or component_capabilities"` | Passed with skip | 14 passed, 1 skipped. OCRmyPDF binary smoke skipped because the local binary is not installed. |
+| `.\\node_modules\\.bin\\vitest.CMD run src/features/configuration/ChatConfigurationModal.test.tsx src/services/capabilities.test.ts src/services/mock/createMockServices.test.ts` from `frontend/` | Passed | 3 files, 18 tests. |
+| `.\\node_modules\\.bin\\tsc.CMD --noEmit` from `frontend/` | Passed | TypeScript check passed. |
+| `.\\node_modules\\.bin\\eslint.CMD .` from `frontend/` | Passed | ESLint passed. |
+| `.venv\\Scripts\\python.exe -m compileall backend\\app` | Passed | Backend modules compiled successfully. |
+| `docker compose config --quiet` | Passed after escalation | Initial sandboxed attempt could not read `C:\\Users\\naran\\.docker\\config.json`; escalated Compose validation passed. |
+| `git diff --check` | Passed | No whitespace errors; Git reported expected LF-to-CRLF working-copy warnings on Windows. |
+
+## Automatic Docling PDF Parser Simplification
+
+Date: 2026-08-02
+
+Scope:
+
+- Install Docling with backend Python dependencies.
+- Register Docling as the preferred automatic PDF parser for AI-friendly
+  structured extraction.
+- Remove the PDF parser selector from chat settings to reduce user choices.
+- Keep PyMuPDF/pdfplumber as backend compatibility fallbacks for older saved
+  settings and direct API calls.
+
+### Commands Attempted
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `.venv\\Scripts\\python.exe -m pytest tests\\test_documents.py tests\\test_component_capabilities.py tests\\test_ai_execution_context.py -k "docling or pdf_parser or normalizes_missing_optional_settings or tool_execution_metadata"` | Passed | 4 passed, 37 deselected. |
+| `.\\node_modules\\.bin\\vitest.CMD run src\\features\\configuration\\ChatConfigurationModal.test.tsx src\\services\\capabilities.test.ts src\\services\\mock\\createMockServices.test.ts` from `frontend/` | Passed | 3 files, 18 tests. |
+| `.\\node_modules\\.bin\\tsc.CMD --noEmit` from `frontend/` | Passed | TypeScript check passed. |
+| `.\\node_modules\\.bin\\eslint.CMD .` from `frontend/` | Passed | ESLint passed. |
+| `.venv\\Scripts\\python.exe -m compileall backend\\app` | Passed | Backend modules compiled successfully. |
+| `rg -n "PDF parser\\|PDF Parser\\|Docling is discoverable\\|PyMuPDF or pdfplumber\\|OCR engine selector\\|PDF parser selector" README.md docs frontend\\src\\features\\configuration frontend\\src\\services` | Passed | Remaining matches are capability/discovery docs, mock labels, roadmap history, and tests asserting the settings dropdown is absent. |
+| `git diff --check` | Passed | No whitespace errors; Git reported expected LF-to-CRLF working-copy warnings on Windows. |

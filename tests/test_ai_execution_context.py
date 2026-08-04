@@ -40,8 +40,10 @@ def capabilities_snapshot() -> dict[str, list[dict[str, object]]]:
     capabilities["ocrEngines"] = [
         capability("none", "ocrEngine", source="builtin"),
         capability("tesseract", "ocrEngine", False),
+        capability("paddleocr", "ocrEngine"),
     ]
     capabilities["pdfParsers"] = [
+        capability("docling", "pdfParser"),
         capability("pymupdf", "pdfParser", False),
         capability("pdfplumber", "pdfParser"),
     ]
@@ -113,6 +115,7 @@ async def test_execution_context_falls_back_when_llm_is_missing() -> None:
     )
 
     assert context.conversation_settings.llmModel == "qwen3:4b"
+    assert context.conversation_settings.ocrEngine == "paddleocr"
     assert context.resolved_llm_model == "qwen3:4b"
     assert context.components["llmModel"].valid is True
 
@@ -144,8 +147,8 @@ async def test_execution_context_normalizes_missing_optional_settings() -> None:
     )
 
     assert context.resolved_embedder_model == "nomic-embed-text:latest"
-    assert context.resolved_ocr_engine == "none"
-    assert context.resolved_pdf_parser == "pdfplumber"
+    assert context.resolved_ocr_engine == "paddleocr"
+    assert context.resolved_pdf_parser == "docling"
     assert context.resolved_chunker == "recursive"
     assert context.resolved_vector_database == "chroma"
     assert context.resolved_rag_pipeline == "basic"

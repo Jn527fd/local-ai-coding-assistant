@@ -16,7 +16,7 @@ WORKDIR /app
 COPY backend ./backend
 COPY tests ./tests
 COPY docs ./docs
-COPY README.md SECURITY.md CHANGELOG.md roadmap_v2.md ./
+COPY README.md SECURITY.md CHANGELOG.md ./
 COPY pytest.ini ./pytest.ini
 
 CMD ["python", "-m", "pytest"]

@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from zipfile import ZipFile
 import io
+from types import SimpleNamespace
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -40,6 +41,7 @@ def document_capabilities(
         capability("ocrmypdf", "ocrEngine"),
     ]
     capabilities["pdfParsers"] = [
+        capability("docling", "pdfParser"),
         capability("pymupdf", "pdfParser", False),
         capability("pdfplumber", "pdfParser", pdfplumber_available),
     ]
@@ -536,8 +538,44 @@ def test_pdf_parser_fallback_is_safe_when_parser_is_unavailable(
     )
 
     assert summary["status"] == "failed"
-    assert summary["document"]["resolvedParser"] == "pdfplumber"
+    assert summary["document"]["resolvedParser"] == "docling"
     assert summary["document"]["selectedSettings"]["pdfParser"] == "pymupdf"
+
+
+def test_docling_pdf_adapter_extracts_markdown(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    class FakeDoclingDocument:
+        def export_to_markdown(self) -> str:
+            return "# Extracted\n\nDocling markdown text."
+
+    class FakeDocumentConverter:
+        def convert(self, source: str) -> object:
+            assert source.endswith("paper.pdf")
+            return SimpleNamespace(document=FakeDoclingDocument())
+
+    def fake_import_module(name: str) -> object:
+        if name == "docling.document_converter":
+            return SimpleNamespace(DocumentConverter=FakeDocumentConverter)
+        raise ImportError(name)
+
+    monkeypatch.setattr(
+        "app.services.document_service.importlib.import_module",
+        fake_import_module,
+    )
+    pdf_path = tmp_path / "paper.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\nfake")
+
+    service = DocumentService(
+        upload_directory=tmp_path / "documents",
+        max_upload_bytes=1024 * 1024,
+        chunk_size=24,
+    )
+
+    assert service._extract_with_docling_pages(pdf_path) == [
+        "# Extracted\n\nDocling markdown text."
+    ]
 
 
 def test_low_text_pdf_uses_selected_ocr_engine(

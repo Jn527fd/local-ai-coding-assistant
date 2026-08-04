@@ -32,16 +32,16 @@ echo "Installing backend and test dependencies..."
 .venv/bin/python -m pip install -r backend/requirements-dev.txt
 
 echo "Installing frontend dependencies..."
-pnpm --dir proposedFrontend install --frozen-lockfile
+pnpm --dir frontend install --frozen-lockfile
 
 if [[ ! -f backend/.env ]]; then
     cp backend/.env.example backend/.env
     echo "Created backend/.env from its example."
 fi
 
-if [[ ! -f proposedFrontend/.env ]]; then
-    cp proposedFrontend/.env.example proposedFrontend/.env
-    echo "Created proposedFrontend/.env from its example."
+if [[ ! -f frontend/.env ]]; then
+    cp frontend/.env.example frontend/.env
+    echo "Created frontend/.env from its example."
 fi
 
 if [[ ! -f .env ]]; then

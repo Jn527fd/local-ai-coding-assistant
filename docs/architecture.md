@@ -46,44 +46,26 @@ system, or multi-user persistence layer.
 ## Frontend
 
 The production frontend is a React single-page application built by Vite from
-`proposedFrontend/`. The older `frontend/` implementation remains in the
-repository as an archived comparison target during the migration.
+`frontend/`. It is the only frontend shipped with the repository.
 
 ```text
-proposedFrontend/src/
-|-- App.jsx                 # Application shell and workflow orchestration
-|-- api.js                  # Fetch helpers and error handling
-|-- apiBase.js              # Runtime API base URL resolution
-|-- chatState.js            # Browser-local chat/settings fallback state
-|-- main.jsx
-|-- styles.css
-|-- hooks/
-|   |-- useCapabilities.js
-|   |-- useChatSender.js
-|   |-- useDocumentWorkflow.js
-|   `-- useStoredApiKey.js
-`-- components/
-    |-- AccountPanel.jsx    # Optional API key, capabilities, per-chat settings
-    |-- Conversation.jsx
-    |-- NavigationRail.jsx
-    |-- Workspace.jsx
-    |-- WorkspaceSidebar.jsx
-    `-- ...
+frontend/src/
+|-- App.tsx
+|-- api/          # HTTP client helpers
+|-- auth/         # Session and protected-route state
+|-- components/   # Shared UI primitives
+|-- domain/       # Typed app models, DTOs, and defaults
+|-- features/     # Chat, settings, sources, profile, and configuration UI
+|-- routes/       # Route declarations and route guards
+|-- services/     # Mock and HTTP service adapters
+`-- test/         # Frontend test utilities
 ```
 
-`App.jsx` owns shell-level orchestration: authentication session restoration,
-chat list lifecycle, conversation persistence mode, account panel visibility,
-navigation/dialog state, and toasts. Focused hooks own workflow state:
-
-- `useCapabilities` owns component capability loading and refresh status.
-- `useStoredApiKey` owns optional legacy API key localStorage reads/writes.
-- `useChatSender` owns optimistic chat send/stream state and assistant
-  response metadata mapping.
-- `useDocumentWorkflow` owns document lists, indexes, upload/process/index job
-  progress, retrieval-only search, warnings, and document errors.
-
-This keeps visual components mostly prop-driven while preserving existing
-browser-local and backend conversation persistence behavior.
+`App.tsx` owns the conversation-page shell and delegates workflow behavior to
+feature modules and the `appServices` facade. UI code does not call `fetch`
+directly for app workflows; `frontend/src/services/` selects mock or HTTP
+adapters behind typed service contracts. HTTP mode is the production path, while
+mock mode remains available for hermetic frontend tests and local UI work.
 
 Accessibility conventions are handled in the component layer. Long-running
 frontend states use polite status regions, failures use alert regions where
@@ -101,8 +83,9 @@ Conversation storage behavior:
 - Backend-persisted conversations live under `data/conversations/`, scoped by
   the signed-in local username.
 - New chat defaults are built from discovered capabilities.
-- The frontend sends the active chat's recent history and settings with each
-  request.
+- The frontend sends the active chat's recent history, settings, and saved
+  system prompt with each request. System prompt file import fills that per-chat
+  prompt rather than creating or pulling an Ollama model.
 
 The Account panel no longer switches one global UI model as the main workflow.
 It exposes Conversation Settings for the active chat and a verification button
@@ -374,16 +357,17 @@ instead of crashing list/get calls. Missing originals fail processing with
 chunk artifacts are not indexed, and duplicate uploads reuse existing document
 metadata.
 
-PDF text extraction supports PyMuPDF and pdfplumber when installed in the
-backend runtime. Docling is discoverable but not implemented for parsing yet.
-DOCX, HTML, CSV, and TSV extraction uses conservative Python standard-library
-parsers. Extraction diagnostics such as parser name, text length, line counts,
-row counts, and paragraph counts are preserved in document metadata where
-available.
-When selected and available, OCRmyPDF is used as a fallback for PDFs whose
-parser output has too little selectable text. OCR warnings and resolved engine
-metadata are preserved in document metadata. Other OCR engines remain
-discoverable until provider adapters are added.
+PDF text extraction prefers Docling when installed in the backend runtime,
+because it converts PDFs into AI-friendly structured Markdown. PyMuPDF and
+pdfplumber remain available as compatibility fallbacks for older saved settings
+and direct API calls. DOCX, HTML, CSV, and TSV extraction uses conservative
+Python standard-library parsers. Extraction diagnostics such as parser name,
+text length, line counts, row counts, and paragraph counts are preserved in
+document metadata where available.
+When available, PaddleOCR is the preferred automatic fallback for PDFs whose
+parser output has too little selectable text. OCRmyPDF remains registered for
+older saved settings and direct API compatibility. OCR warnings and resolved
+engine metadata are preserved in document metadata.
 
 ## Vector Store Adapter Layer
 
@@ -579,5 +563,5 @@ network. Current limits include:
 - JSON vector storage
 - discovery-only or fallback-only component options
 - vision chat depends on locally pulled multimodal Ollama models
-- OCR execution is limited to OCRmyPDF PDF fallback
+- OCR execution is limited to low-text PDF fallback
 - no public-internet hardening

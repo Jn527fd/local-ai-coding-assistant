@@ -6,6 +6,7 @@ from app.ai.ocr.base import (
     PDFOCREngine,
 )
 from app.ai.ocr.ocrmypdf import OCRmyPDFEngine
+from app.ai.ocr.paddleocr import PaddleOCREngine
 from app.ai.ocr.unavailable import UnavailableOCREngine
 
 __all__ = [
@@ -14,6 +15,7 @@ __all__ = [
     "OCREngineUnavailableError",
     "OCRResult",
     "OCRmyPDFEngine",
+    "PaddleOCREngine",
     "PDFOCREngine",
     "UnavailableOCREngine",
 ]

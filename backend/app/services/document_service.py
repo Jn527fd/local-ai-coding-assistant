@@ -21,6 +21,7 @@ from app.ai.ocr import (
     OCREngineError,
     OCREngineUnavailableError,
     OCRmyPDFEngine,
+    PaddleOCREngine,
     PDFOCREngine,
 )
 from app.ai.execution_context import AIExecutionContext
@@ -461,15 +462,21 @@ class DocumentService:
                 "No available PDF parser is configured for this document."
             )
 
-        if parser == "pymupdf":
+        if parser == "docling":
+            try:
+                page_texts = self._extract_with_docling_pages(file_path)
+            except DocumentValidationError as exc:
+                fallback_texts = self._extract_pdf_with_legacy_fallback(file_path)
+                if fallback_texts is None:
+                    raise
+                warnings.append(
+                    f"Docling PDF extraction failed; used legacy parser fallback. {exc}"
+                )
+                page_texts = fallback_texts
+        elif parser == "pymupdf":
             page_texts = self._extract_with_pymupdf_pages(file_path)
         elif parser == "pdfplumber":
             page_texts = self._extract_with_pdfplumber_pages(file_path)
-        elif parser == "docling":
-            raise DocumentValidationError(
-                "Docling is discoverable but no PDF extraction adapter is "
-                "registered yet."
-            )
         else:
             raise DocumentValidationError(
                 f"PDF parser '{parser}' is not supported by the document service."
@@ -630,6 +637,52 @@ class DocumentService:
 
     def _extract_with_pymupdf(self, file_path: Path) -> str:
         return "\n".join(self._extract_with_pymupdf_pages(file_path))
+
+    def _extract_with_docling_pages(self, file_path: Path) -> list[str]:
+        try:
+            converter_module = importlib.import_module("docling.document_converter")
+            converter = converter_module.DocumentConverter()
+        except ImportError as exc:
+            raise DocumentValidationError("Docling is not installed.") from exc
+        except Exception as exc:
+            raise DocumentValidationError(
+                f"Docling could not be initialized: {exc}"
+            ) from exc
+
+        try:
+            result = converter.convert(str(file_path))
+            document = getattr(result, "document", None)
+            if document is None:
+                raise DocumentValidationError("Docling did not return a document.")
+            if hasattr(document, "export_to_markdown"):
+                text = document.export_to_markdown()
+            elif hasattr(document, "export_to_text"):
+                text = document.export_to_text()
+            else:
+                text = str(document)
+        except DocumentValidationError:
+            raise
+        except Exception as exc:
+            raise DocumentValidationError(
+                f"Docling could not extract text: {exc}"
+            ) from exc
+
+        if not str(text).strip():
+            raise DocumentValidationError("Docling extracted no text from the PDF.")
+        return [str(text)]
+
+    def _extract_pdf_with_legacy_fallback(self, file_path: Path) -> list[str] | None:
+        for extractor in (
+            self._extract_with_pymupdf_pages,
+            self._extract_with_pdfplumber_pages,
+        ):
+            try:
+                page_texts = extractor(file_path)
+            except DocumentValidationError:
+                continue
+            if "\n".join(page_texts).strip():
+                return page_texts
+        return None
 
     def _extract_with_pymupdf_pages(self, file_path: Path) -> list[str]:
         try:
@@ -862,9 +915,10 @@ class DocumentService:
 
     def _default_ocr_engines(self) -> dict[str, PDFOCREngine]:
         return {
+            "paddleocr": PaddleOCREngine(),
             "ocrmypdf": OCRmyPDFEngine(
                 text_extractor=self._extract_with_pymupdf,
-            )
+            ),
         }
 
     def _fallback_metadata(

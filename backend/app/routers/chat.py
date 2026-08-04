@@ -405,6 +405,25 @@ def build_memory_block(memory_summary: str | None, max_chars: int) -> str:
     )
 
 
+def build_system_prompt_block(system_prompt: str | None, max_chars: int) -> str:
+    if not system_prompt or max_chars <= 0:
+        return ""
+
+    instructions = system_prompt.strip()
+    if not instructions:
+        return ""
+    if len(instructions) > max_chars:
+        instructions = (
+            f"{instructions[: max(0, max_chars - 14)].rstrip()} [truncated]"
+        )
+    return (
+        "[System Instructions]\n"
+        "Follow these conversation-specific instructions unless they conflict "
+        "with higher-priority safety or runtime instructions.\n"
+        f"{instructions}"
+    )
+
+
 def _build_conversation_prompt(
     chat_request: ChatRequest,
     max_chars: int,
@@ -474,7 +493,12 @@ def build_chat_prompt(
     """Build the final chat prompt, optionally prefixed with document context."""
 
     sources = retrieved_sources or []
-    if not sources and not memory_summary:
+    system_limit = min(4_000, max(0, max_chars // 3))
+    system_block = build_system_prompt_block(
+        chat_request.systemPrompt,
+        system_limit,
+    )
+    if not sources and not memory_summary and not system_block:
         return _build_conversation_prompt(chat_request, max_chars)
 
     context_limit = min(6_000, max(0, max_chars // 2))
@@ -491,7 +515,9 @@ def build_chat_prompt(
     )
     memory_limit = min(2_500, max(0, max_chars // 4))
     memory_block = build_memory_block(memory_summary, memory_limit)
-    blocks = [block for block in (context_block, memory_block) if block]
+    blocks = [
+        block for block in (system_block, context_block, memory_block) if block
+    ]
     if not blocks:
         return _build_conversation_prompt(chat_request, max_chars)
 

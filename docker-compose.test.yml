@@ -14,7 +14,7 @@ services:
 
   frontend-test:
     build:
-      context: ./proposedFrontend
+      context: ./frontend
       dockerfile: Dockerfile.test
     environment:
       CI: "true"

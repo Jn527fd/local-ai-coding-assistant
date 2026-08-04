@@ -326,9 +326,14 @@ class ComponentRegistry:
             ),
             self._local_tool_capability(
                 capability_id="paddleocr",
-                label="PaddleOCR",
+                label="PaddleOCR (Baidu)",
                 capability_type="ocrEngine",
-                packages=("paddleocr",),
+                packages=("paddleocr", "paddle"),
+                available_status=CAPABILITY_STATUS_IMPLEMENTED,
+                available_implemented=True,
+                available_description=(
+                    "Runs PaddleOCR for low-text PDFs after rendering pages."
+                ),
             ),
             self._local_tool_capability(
                 capability_id="easyocr",
@@ -347,6 +352,17 @@ class ComponentRegistry:
     def _pdf_parsers(self) -> list[dict[str, Any]]:
         return [
             self._local_tool_capability(
+                capability_id="docling",
+                label="Docling",
+                capability_type="pdfParser",
+                packages=("docling",),
+                available_status=CAPABILITY_STATUS_IMPLEMENTED,
+                available_implemented=True,
+                available_description=(
+                    "Converts PDFs into AI-friendly structured Markdown with Docling."
+                ),
+            ),
+            self._local_tool_capability(
                 capability_id="pymupdf",
                 label="PyMuPDF",
                 capability_type="pdfParser",
@@ -363,12 +379,6 @@ class ComponentRegistry:
                 available_status=CAPABILITY_STATUS_IMPLEMENTED,
                 available_implemented=True,
                 available_description="Extracts selectable PDF text with pdfplumber.",
-            ),
-            self._local_tool_capability(
-                capability_id="docling",
-                label="Docling",
-                capability_type="pdfParser",
-                packages=("docling",),
             ),
         ]
 

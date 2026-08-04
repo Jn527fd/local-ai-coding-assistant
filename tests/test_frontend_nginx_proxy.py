@@ -4,7 +4,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ROUTERS_DIR = REPO_ROOT / "backend" / "app" / "routers"
-NGINX_CONFIG = REPO_ROOT / "proposedFrontend" / "nginx.conf"
+NGINX_CONFIG = REPO_ROOT / "frontend" / "nginx.conf"
 
 
 def _backend_router_prefixes() -> set[str]:

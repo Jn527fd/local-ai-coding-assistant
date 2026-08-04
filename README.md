@@ -59,7 +59,7 @@ API keys, and source code remain on the host machine during normal use.
 | Review API behavior | [API Reference](#api-reference) and [docs/api.md](docs/api.md) |
 | Run tests | [Testing](#testing) and [docs/testing.md](docs/testing.md) |
 | Deploy safely | [Security and Privacy](#security-and-privacy) and [docs/deployment-hardening.md](docs/deployment-hardening.md) |
-| See what comes next | [Roadmap](#roadmap), [roadmap_v2.md](roadmap_v2.md), and [feature_ideas_v2.md](feature_ideas_v2.md) |
+| See what comes next | [Roadmap](#roadmap) and [docs/development-roadmap.md](docs/development-roadmap.md) |
 
 ## Application Preview
 
@@ -126,8 +126,8 @@ This project demonstrates more than a basic LLM chat interface:
   users, settings, conversations, document metadata, and index metadata while
   preserving the JSON artifact stores.
 - Isolated history and context for each conversation.
-- Per-chat settings for LLM, embedder, OCR engine, PDF parser, chunker, vector
-  database, RAG pipeline, reranker, context compressor, and vision model.
+- Per-chat settings for LLM, embedder, chunker, vector database, RAG pipeline,
+  reranker, context compressor, and vision model.
 - Compact setting status lines show whether a selected capability is
   implemented, fallback-backed, detected but not wired, planned, or
   unavailable when that metadata is available.
@@ -143,9 +143,9 @@ This project demonstrates more than a basic LLM chat interface:
 - Show local job progress while processing and indexing documents.
 - Support text, Markdown, PDF, DOCX, HTML, CSV, and TSV uploads with safe
   file-type sniffing before processing.
-- Extract PDF text with PyMuPDF or pdfplumber when installed.
-- Runs OCRmyPDF as a safe low-text PDF fallback when that binary is available
-  and selected for the chat.
+- Extract PDF text with Docling by default, with PyMuPDF/pdfplumber retained as
+  backend compatibility fallbacks.
+- Run PaddleOCR automatically as a low-text/scanned PDF fallback.
 - Record extraction diagnostics and detect duplicate document uploads.
 - Chunk documents with fixed and recursive chunking modes.
 - Embed chunks with local Ollama embedding models.
@@ -269,6 +269,7 @@ Optional Python packages for detection and PDF extraction are installed through
 ```text
 pymupdf
 pdfplumber
+docling
 ocrmypdf
 ```
 
@@ -423,6 +424,11 @@ docker compose up --build --detach
 Changing a chat's model or RAG settings does not clear the conversation. Other
 chats keep their own settings.
 
+The Context / System Prompt panel can import a UTF-8 text file. Imported
+content fills the active chat's system prompt and is sent with that chat's
+requests so it can guide the model's responses. It does not pull, create, or
+replace local Ollama models.
+
 ### Upload and Search Documents
 
 Document workflows use the active chat's settings. A typical local RAG setup is:
@@ -438,10 +444,11 @@ sources can include both vector and rerank scores. When context compression is
 enabled, responses include compression metadata and warnings when trimming or
 fallbacks occur.
 
-OCRmyPDF fallback is implemented for scanned or low-text PDFs. Other detected
-OCR engines are surfaced for capability visibility but are not wired into the
-document pipeline yet. Vision chat works when a local multimodal Ollama model
-is selected for the active chat.
+OCR is automatic for scanned or low-text PDFs. Docker installs PaddleOCR
+(Baidu) for CPU-friendly local OCR, and OCRmyPDF remains available as a
+compatibility fallback when selected through older saved settings or API calls.
+Vision chat works when a local multimodal Ollama model is selected for the
+active chat.
 
 ### Index a Repository
 
@@ -454,7 +461,7 @@ For local development, enter an absolute path readable by the backend:
 For Docker, repositories are mounted read-only beneath `/repositories`:
 
 ```text
-/repositories/sample-code-repository
+/repositories/example-repository
 ```
 
 ### Ask a Grounded Question
@@ -483,7 +490,8 @@ response examples, and error behavior.
 Document upload currently supports plain text, Markdown, PDF, DOCX, HTML,
 CSV, and TSV files. Uploads are sniffed before processing so obvious
 extension/content mismatches fail with clear errors. PDF extraction uses
-PyMuPDF or pdfplumber when installed in the backend runtime. Processed chunks,
+Docling by default when installed in the backend runtime, with PyMuPDF and
+pdfplumber retained as compatibility fallbacks. Processed chunks,
 extraction diagnostics, and embeddings are stored under ignored local data
 directories. Duplicate uploads in the same conversation reuse existing
 document metadata instead of storing another copy.
@@ -539,7 +547,7 @@ Safe templates are committed for every local configuration file:
 | --- | --- | --- |
 | `.env.example` | `.env` | Docker build, LAN address, and repository mounts |
 | `backend/.env.example` | `backend/.env` | Backend, Ollama, and security settings |
-| `proposedFrontend/.env.example` | `proposedFrontend/.env` | Development API URL and mock-mode switch |
+| `frontend/.env.example` | `frontend/.env` | Development API URL and mock-mode switch |
 | `credentials.example.json` | `data/config/credentials.json` | Local users and password hashes |
 | `app-settings.example.json` | `data/config/app-settings.json` | Active API key and legacy model fallback |
 
@@ -582,7 +590,7 @@ Ollama, a GPU, downloaded models, host data, or network access.
 
 ```bash
 python -m pip install -r requirements-dev.txt
-pnpm --dir proposedFrontend install --frozen-lockfile
+pnpm --dir frontend install --frozen-lockfile
 
 make test-backend
 make test-frontend
@@ -631,7 +639,7 @@ reranker smoke model.
 Playwright tests remain separate from the default frontend CI script:
 
 ```bash
-cd proposedFrontend
+cd frontend
 pnpm test:e2e
 ```
 
@@ -642,12 +650,11 @@ Ollama.
 
 ## Manual Local Smoke
 
-Use this path when you want to run the promoted frontend against the real local
-backend:
+Use this path when you want to run the frontend against the real local backend:
 
 ```bash
 python -m pip install -r requirements-dev.txt
-pnpm --dir proposedFrontend install --frozen-lockfile
+pnpm --dir frontend install --frozen-lockfile
 
 copy backend\.env.example backend\.env
 python scripts\manage_credentials.py set YOUR_USERNAME
@@ -706,16 +713,14 @@ local-ai-coding-assistant/
 |   |   `-- services/      # Documents, Ollama, settings, models, and repositories
 |   |-- Dockerfile
 |   `-- requirements*.txt
-|-- proposedFrontend/
+|-- frontend/
 |   |-- src/               # Production React/Vite frontend
 |   |-- Dockerfile
 |   `-- nginx.conf
-|-- frontend/              # Archived legacy frontend kept for comparison
 |-- tests/                 # Isolated backend tests
 |-- scripts/               # Linux setup, startup, and credential tools
 |-- docs/                  # Architecture, API, and setup guides
 |-- data/                  # Ignored local settings, metadata, and generated indexes
-|-- sample-code-repository/
 |-- docker-compose.yml
 `-- Makefile
 ```
@@ -743,11 +748,10 @@ local-ai-coding-assistant/
 
 ## Roadmap
 
-The completed stabilization and frontend-migration tracks are captured in
-[roadmap_v2.md](roadmap_v2.md) and [mitigationPlan.md](mitigationPlan.md).
-Future public-release work should focus on the highest-impact items in
-[feature_ideas_v2.md](feature_ideas_v2.md): stronger retrieval quality,
-broader OCR/document workflows, richer repository intelligence, more durable
+The active development plan is maintained in
+[docs/development-roadmap.md](docs/development-roadmap.md). Future
+public-release work should prioritize stronger retrieval quality, broader
+OCR/document workflows, richer repository intelligence, more durable
 session/auth options, and production-grade observability.
 
 ## Documentation
@@ -765,8 +769,6 @@ session/auth options, and production-grade observability.
 - [Security policy](SECURITY.md)
 - [Changelog](CHANGELOG.md)
 - [Release notes: 0.2.0 stable v2](docs/release-notes-0.2.0.md)
-- [Roadmap v2](roadmap_v2.md)
-- [Feature ideas v2](feature_ideas_v2.md)
 
 ## Contributing
 

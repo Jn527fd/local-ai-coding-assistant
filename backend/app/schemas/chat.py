@@ -56,6 +56,7 @@ class ChatRequest(BaseModel):
 
     conversationId: str | None = Field(default=None, max_length=100)
     model: str | None = Field(default=None, min_length=1, max_length=100)
+    systemPrompt: str | None = Field(default=None, max_length=8_000)
     message: str = Field(min_length=1, max_length=10_000)
     conversationSettings: ConversationSettings | None = None
     attachment_document_ids: list[str] = Field(

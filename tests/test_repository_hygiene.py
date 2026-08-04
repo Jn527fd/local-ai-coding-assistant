@@ -64,10 +64,10 @@ def test_release_readiness_documents_exist_and_cover_required_topics() -> None:
             "Docker Verification",
             "Manual Smoke",
         ],
-        "roadmap_v2.md": [
-            "Roadmap v2",
-            "Phase 1: Release Candidate Stabilization",
-            "Phase 15: Public Release Candidate QA",
+        "docs/development-roadmap.md": [
+            "Development Roadmap",
+            "Phase 1:",
+            "Phase 15:",
         ],
     }
 

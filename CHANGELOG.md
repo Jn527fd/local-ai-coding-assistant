@@ -44,8 +44,12 @@ automation is added.
 - Production deployment template, environment validation tooling, and a
   backup-before-upgrade helper for safer self-hosted container replacement.
 - Promoted the proposed React/Vite frontend to the production frontend build
-  target for Makefile, Docker Compose, Docker test images, and CI while keeping
-  the legacy frontend archived for comparison.
+  target for Makefile, Docker Compose, Docker test images, and CI.
+- Added automatic PaddleOCR (Baidu) OCR support for Docker/backend installs and
+  removed the OCR engine selector from the chat settings UI to reduce setup
+  choices.
+- Added automatic Docling PDF parsing for AI-friendly document extraction and
+  removed the PDF parser selector from the chat settings UI.
 
 ### Release Candidate Checklist
 

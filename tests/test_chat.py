@@ -574,6 +574,37 @@ def test_chat_sends_only_explicit_history_as_context(
     assert "User: And how is it declared?" in prompt
 
 
+def test_chat_includes_conversation_system_prompt_in_model_prompt(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    fake_ollama = FakeOllamaService()
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+
+    try:
+        response = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "message": "Say hello.",
+                "systemPrompt": (
+                    "Always answer in a concise, friendly tone and mention "
+                    "local-only execution."
+                ),
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    prompt = fake_ollama.calls[0][1]
+    assert "[System Instructions]" in prompt
+    assert "Always answer in a concise, friendly tone" in prompt
+    assert "local-only execution" in prompt
+    assert prompt.index("[System Instructions]") < prompt.index("User: Say hello.")
+
+
 def test_chat_bounds_large_history_to_recent_context(
     app: FastAPI,
     client: TestClient,

@@ -213,7 +213,21 @@ class AISettingsResolver:
                 continue
             if key == "pdfParser":
                 values[key] = (
-                    self._first_available_id(capabilities, "pdfParsers")
+                    self._preferred_available_id(
+                        capabilities,
+                        "pdfParsers",
+                        ["docling"],
+                    )
+                    or fallback
+                )
+                continue
+            if key == "ocrEngine":
+                values[key] = (
+                    self._preferred_available_id(
+                        capabilities,
+                        "ocrEngines",
+                        ["paddleocr"],
+                    )
                     or fallback
                 )
                 continue
@@ -393,6 +407,22 @@ class AISettingsResolver:
             if self._is_available(item):
                 return self._capability_id(item)
         return ""
+
+    def _preferred_available_id(
+        self,
+        capabilities: dict[str, list[dict[str, Any]]],
+        category: str,
+        preferred_ids: list[str],
+    ) -> str:
+        for preferred_id in preferred_ids:
+            capability = self._capability_by_id(
+                capabilities,
+                category,
+                preferred_id,
+            )
+            if capability is not None and self._is_available(capability):
+                return preferred_id
+        return self._first_available_id(capabilities, category)
 
     def _capability_by_id(
         self,

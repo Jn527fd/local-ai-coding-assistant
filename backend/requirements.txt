@@ -1,6 +1,10 @@
 fastapi>=0.115.0,<1.0.0
 httpx>=0.28.0,<1.0.0
 ocrmypdf>=16.0.0,<17.0.0
+paddleocr>=3.0.0,<4.0.0
+--extra-index-url https://www.paddlepaddle.org.cn/packages/stable/cpu/
+paddlepaddle==3.2.0
+docling>=2.0.0,<3.0.0
 pdfplumber>=0.11.0,<1.0.0
 pydantic>=2.10.0,<3.0.0
 pydantic-settings>=2.6.0,<3.0.0

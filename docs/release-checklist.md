@@ -55,7 +55,7 @@ Deferred or blocked before tagging:
 - [ ] Confirm no unfinished phase work is included accidentally.
 - [ ] Review `CHANGELOG.md` and update the release date.
 - [ ] Review `README.md` feature and limitation claims.
-- [ ] Confirm `docs/development-roadmap.md` and `roadmap_v2.md` describe the
+- [ ] Confirm `docs/development-roadmap.md` describes the
   next work accurately.
 
 ## 2. Local Configuration Hygiene
@@ -103,12 +103,12 @@ Deferred or blocked before tagging:
 
 - [x] Backend tests: `.venv\Scripts\python.exe -m pytest` or
   `python -m pytest`.
-- [x] Frontend format: `pnpm format:check` from `proposedFrontend/`.
-- [x] Frontend lint: `pnpm lint` from `proposedFrontend/`.
-- [x] Frontend typecheck: `pnpm typecheck` from `proposedFrontend/`.
-- [x] Frontend unit/integration tests: `pnpm test` from `proposedFrontend/`.
-- [x] Frontend production build: `pnpm build` from `proposedFrontend/`.
-- [x] Frontend e2e tests: `pnpm test:e2e` from `proposedFrontend/`.
+- [x] Frontend format: `pnpm format:check` from `frontend/`.
+- [x] Frontend lint: `pnpm lint` from `frontend/`.
+- [x] Frontend typecheck: `pnpm typecheck` from `frontend/`.
+- [x] Frontend unit/integration tests: `pnpm test` from `frontend/`.
+- [x] Frontend production build: `pnpm build` from `frontend/`.
+- [x] Frontend e2e tests: `pnpm test:e2e` from `frontend/`.
 - [x] Whitespace check: `git diff --check`.
 - [ ] Env validation script tests: `python -m pytest tests/test_deployment_scripts.py`.
 

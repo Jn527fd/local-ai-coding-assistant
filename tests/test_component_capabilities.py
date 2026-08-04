@@ -268,7 +268,7 @@ def test_component_capabilities_reports_tool_execution_metadata(
     monkeypatch,
 ) -> None:
     def fake_find_spec(name: str) -> object | None:
-        return object() if name == "pdfplumber" else None
+        return object() if name in {"docling", "pdfplumber"} else None
 
     monkeypatch.setattr(
         "app.services.component_registry.find_spec",
@@ -301,8 +301,8 @@ def test_component_capabilities_reports_tool_execution_metadata(
     )
     assert_execution_metadata(
         capability_by_id(data, "pdfParsers", "docling"),
-        CAPABILITY_STATUS_UNAVAILABLE,
-        False,
+        CAPABILITY_STATUS_IMPLEMENTED,
+        True,
     )
 
 
@@ -327,6 +327,37 @@ def test_component_capabilities_marks_ocrmypdf_implemented_when_binary_exists(
     data = response.json()
     assert_execution_metadata(
         capability_by_id(data, "ocrEngines", "ocrmypdf"),
+        CAPABILITY_STATUS_IMPLEMENTED,
+        True,
+    )
+
+
+def test_component_capabilities_marks_paddleocr_implemented_when_packages_exist(
+    app: FastAPI,
+    logged_in_client: TestClient,
+    monkeypatch,
+) -> None:
+    def fake_find_spec(name: str) -> object | None:
+        return object() if name in {"paddleocr", "paddle"} else None
+
+    monkeypatch.setattr(
+        "app.services.component_registry.find_spec",
+        fake_find_spec,
+    )
+    monkeypatch.setattr(
+        "app.services.component_registry.shutil.which",
+        lambda _name: None,
+    )
+    app.state.component_registry = ComponentRegistry(UnavailableOllamaService())
+
+    response = logged_in_client.get("/components/capabilities")
+
+    assert response.status_code == 200
+    data = response.json()
+    paddle = capability_by_id(data, "ocrEngines", "paddleocr")
+    assert paddle["label"] == "PaddleOCR (Baidu)"
+    assert_execution_metadata(
+        paddle,
         CAPABILITY_STATUS_IMPLEMENTED,
         True,
     )

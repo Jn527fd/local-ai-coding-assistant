@@ -18,7 +18,7 @@ dependency files:
 
 ```bash
 python -m pip install -r requirements-dev.txt
-pnpm --dir proposedFrontend install --frozen-lockfile
+pnpm --dir frontend install --frozen-lockfile
 ```
 
 Run the backend tests:
@@ -41,10 +41,7 @@ make test
 
 ## Frontend Checks
 
-The production frontend lives in `proposedFrontend/`. `make test-frontend`
-runs linting, TypeScript, Vitest, and a production build against that app. The
-archived legacy frontend can still be checked explicitly with
-`make test-legacy-frontend`.
+The production frontend lives in `frontend/`. `make test-frontend` runs linting, TypeScript, Vitest, and a production build against that app.
 
 ## Continuous Integration
 
@@ -208,7 +205,7 @@ Playwright is not part of the default frontend test target. Run it
 separately when browser coverage is needed:
 
 ```bash
-cd proposedFrontend
+cd frontend
 pnpm test:e2e
 ```
 

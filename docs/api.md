@@ -276,6 +276,7 @@ curl -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
   -d '{
     "conversationId":"chat-1",
+    "systemPrompt":"Answer concisely and prefer local project context.",
     "message":"Explain dependency injection briefly.",
     "conversationSettings":{
       "llmModel":"llama3.2:3b",
@@ -303,6 +304,11 @@ curl -X POST http://localhost:8000/chat \
     ]
   }'
 ```
+
+`systemPrompt` is optional. The frontend's system prompt file import fills this
+conversation-specific prompt, and the backend prepends it to the final model
+prompt before recent history, retrieved document context, and the latest user
+message are sent to Ollama. This does not create or modify an Ollama model.
 
 `images` is optional. When supplied, the backend requires
 `conversationSettings.visionModel` to resolve to an available local Ollama
@@ -372,11 +378,14 @@ Common errors:
 Document endpoints are scoped by `conversationId`. Supported uploads are
 `.txt`, `.md`, `.pdf`, `.docx`, `.html`, `.htm`, `.csv`, and `.tsv`. Uploads
 are sniffed before storage so malformed files and obvious extension/content
-mismatches return clear `400` errors. PDFs require an available parser such as
-PyMuPDF or pdfplumber inside the backend runtime. DOCX, HTML, CSV, and TSV
-extraction uses Python standard-library parsers. When `ocrEngine` is set to
-`ocrmypdf` and the selected parser extracts very little text, processing
-attempts an OCRmyPDF fallback if the `ocrmypdf` binary is available.
+mismatches return clear `400` errors. PDFs prefer Docling inside the backend
+runtime so extracted text is structured for AI workflows. PyMuPDF and
+pdfplumber remain supported as compatibility fallbacks. DOCX, HTML, CSV, and
+TSV extraction uses Python standard-library parsers. OCR is automatic in the
+frontend: new chats prefer `paddleocr` when capability discovery reports it
+available. When the selected parser extracts very little text, processing can
+run PaddleOCR over rendered PDF pages. Older saved settings and direct API calls
+that set `pdfParser` or `ocrEngine` remain supported as compatibility paths.
 
 Upload uses multipart form data. `conversationSettings` is a JSON string:
 
@@ -384,7 +393,7 @@ Upload uses multipart form data. `conversationSettings` is a JSON string:
 curl -X POST http://localhost:8000/documents/upload \
   -H "Authorization: Bearer $API_KEY" \
   -F "conversationId=chat-1" \
-  -F 'conversationSettings={"pdfParser":"pymupdf","ocrEngine":"none","chunker":"recursive"}' \
+  -F 'conversationSettings={"pdfParser":"docling","ocrEngine":"paddleocr","chunker":"recursive"}' \
   -F "file=@notes.pdf"
 ```
 
@@ -582,12 +591,12 @@ health and JSON fallback metadata.
 Legacy repository keyword RAG remains available:
 
 ```bash
-SAMPLE_REPO_PATH="$(realpath sample-code-repository)"
+REPO_PATH="/home/user/projects/example-repository"
 
 curl -X POST http://localhost:8000/repos/index-local \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
-  -d "{\"path\":\"$SAMPLE_REPO_PATH\"}"
+  -d "{\"path\":\"$REPO_PATH\"}"
 ```
 
 Docker uses `/repositories/...` paths. The response contains `repo_name`,
@@ -616,13 +625,13 @@ curl -X POST http://localhost:8000/repos/ask \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "repo_name": "sample-code-repository",
+    "repo_name": "example-repository",
     "question": "Where are the add and multiply functions implemented?"
   }'
 ```
 
 For frontend compatibility, this endpoint also accepts camelCase
-`{"repoName":"sample-code-repository","question":"..."}`. Responses preserve
+`{"repoName":"example-repository","question":"..."}`. Responses preserve
 the existing `repo_name` and source metadata conventions used by legacy clients.
 
 Response:
@@ -649,7 +658,7 @@ curl -X POST http://localhost:8000/repos/index-local/vector \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "path": "/repositories/sample-code-repository",
+    "path": "/repositories/example-repository",
     "conversationId": "local-chat-1",
     "conversationSettings": {
       "embedderModel": "all-minilm"

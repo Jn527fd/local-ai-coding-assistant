@@ -120,11 +120,7 @@ Press `Ctrl+C` in the startup terminal to stop both development servers.
 
 ## Frontend
 
-The production frontend now lives in `proposedFrontend/`. The old `frontend/`
-folder remains in the repository as an archived legacy implementation for
-comparison during the migration.
-
-Normal frontend commands use `proposedFrontend/`:
+The production frontend lives in `frontend/`.
 
 ```bash
 make install-frontend
@@ -172,8 +168,6 @@ Current setting categories:
 
 - LLM model
 - Embedder model
-- OCR engine
-- PDF parser
 - Chunker
 - Vector database
 - RAG pipeline
@@ -181,6 +175,8 @@ Current setting categories:
 - Context compressor
 - Vision model
 
+OCR is handled automatically. Docker installs PaddleOCR (Baidu) in the backend
+image and new chats prefer it when capability discovery reports it available.
 Select **Refresh local models/tools** after pulling Ollama models or changing
 installed parser/OCR packages. Select **Verify chat settings** for an explicit
 confirmation of the active chat's selections.
@@ -244,24 +240,31 @@ Python packages in `backend/requirements.txt` currently include:
 ```text
 pymupdf
 pdfplumber
+docling
 ocrmypdf
+paddleocr
+paddlepaddle
 ```
 
 These support detection for:
 
-- PDF parser: `pymupdf`
-- PDF parser: `pdfplumber`
-- OCR engine and low-text PDF fallback: `ocrmypdf`
+- Automatic PDF parser: `docling`
+- Compatibility PDF parser fallback: `pymupdf`
+- Compatibility PDF parser fallback: `pdfplumber`
+- Automatic OCR engine and low-text PDF fallback: `paddleocr`
+- Compatibility OCR fallback: `ocrmypdf`
 
 Tesseract is a system binary, not a Python-only package. To detect
 `tesseract`, install it in the runtime where the backend actually runs. If the
 backend runs in Docker, install it in the image/container, not only in a host
 virtual environment.
 
-When `ocrmypdf` is selected for a chat and the selected PDF parser returns very
-little selectable text, document processing can run OCRmyPDF and extract text
-from the OCR output. Other OCR engines may appear in discovery before they are
-wired into document processing.
+Document processing prefers Docling for PDFs because it produces AI-friendly
+Markdown from document structure. If Docling is unavailable or fails, the
+backend can fall back to PyMuPDF/pdfplumber for older saved settings and direct
+API compatibility. When a parser returns very little selectable text,
+processing can run PaddleOCR and extract text from rendered PDF pages. The UI no
+longer asks users to choose between PDF parsers or OCR engines.
 
 ## Documents and RAG
 
@@ -413,7 +416,7 @@ Real secrets and mutable local values are excluded:
 ```text
 .env
 backend/.env
-proposedFrontend/.env
+frontend/.env
 data/config/credentials.json
 data/config/app-settings.json
 data/conversations/
@@ -427,7 +430,7 @@ These safe templates are committed:
 ```text
 .env.example
 backend/.env.example
-proposedFrontend/.env.example
+frontend/.env.example
 credentials.example.json
 app-settings.example.json
 ```

@@ -12,7 +12,7 @@ Back up the repository plus these mutable local paths:
 ```text
 .env
 backend/.env
-proposedFrontend/.env
+frontend/.env
 data/config/credentials.json
 data/config/app-settings.json
 data/metadata/
@@ -40,12 +40,12 @@ Create an archive from the project root:
 ```bash
 tar --exclude=.git \
   --exclude=.venv \
-  --exclude=proposedFrontend/node_modules \
-  --exclude=proposedFrontend/dist \
+  --exclude=frontend/node_modules \
+  --exclude=frontend/dist \
   --exclude=frontend/node_modules \
   --exclude=frontend/dist \
   -czf local-ai-coding-assistant-backup-YYYYMMDD.tar.gz \
-  .env backend/.env proposedFrontend/.env data
+  .env backend/.env frontend/.env data
 ```
 
 Store the archive somewhere encrypted if it contains credentials, API keys,

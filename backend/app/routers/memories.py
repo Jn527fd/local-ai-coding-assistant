@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Query, Request, status
 
 from app.auth.api_key import require_session_or_api_key
 from app.schemas.memories import (
@@ -86,10 +86,6 @@ async def delete_memory(
 ) -> MemoryDeleteResponse:
     try:
         deleted = service.delete(memory_id=memory_id, workspace_id=workspaceId)
-    except ConversationMemoryError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(exc),
-        ) from exc
+    except ConversationMemoryError:
+        return MemoryDeleteResponse(deleted=False, memoryId=memory_id)
     return MemoryDeleteResponse(deleted=deleted, memoryId=memory_id)
-

@@ -74,7 +74,13 @@ class ConversationMemoryService:
             memory_type,
             memory_text,
         )
-        existing = await self._find_by_hash(source_hash)
+        try:
+            existing = await self._find_by_hash(source_hash)
+        except Exception as exc:
+            return MemoryOperationResult(
+                [],
+                [f"Memory was not stored because Qdrant is unavailable: {exc}"],
+            )
         if existing is not None:
             return MemoryOperationResult([existing], [])
 
@@ -105,7 +111,13 @@ class ConversationMemoryService:
             sourceRole=source_role,
             sourceHash=source_hash,
         )
-        self._upsert_record(record, embedding)
+        try:
+            self._upsert_record(record, embedding)
+        except Exception as exc:
+            return MemoryOperationResult(
+                [],
+                [f"Memory was not stored because Qdrant is unavailable: {exc}"],
+            )
         return MemoryOperationResult([record], [])
 
     async def store_from_message(
@@ -167,16 +179,16 @@ class ConversationMemoryService:
                 [f"Long-term memory retrieval failed because embedding failed: {exc}"],
             )
 
-        client, models = self.vector_store._client_and_models()
-        query_filter = self._memory_filter(
-            models=models,
-            workspace_id=self._clean_scope(workspace_id, "default"),
-            conversation_id=self._clean_optional_scope(conversation_id),
-            memory_types=memory_types or (),
-            min_importance=min_importance,
-            include_workspace_wide=include_workspace_wide,
-        )
         try:
+            client, models = self.vector_store._client_and_models()
+            query_filter = self._memory_filter(
+                models=models,
+                workspace_id=self._clean_scope(workspace_id, "default"),
+                conversation_id=self._clean_optional_scope(conversation_id),
+                memory_types=memory_types or (),
+                min_importance=min_importance,
+                include_workspace_wide=include_workspace_wide,
+            )
             hits = client.query_points(
                 collection_name=self.collection_name,
                 query=[float(value) for value in query_embedding],
@@ -184,8 +196,11 @@ class ConversationMemoryService:
                 limit=top_k,
                 with_payload=True,
             ).points
-        except Exception:
-            return MemoryOperationResult([], [])
+        except Exception as exc:
+            return MemoryOperationResult(
+                [],
+                [f"Long-term memory retrieval skipped because Qdrant is unavailable: {exc}"],
+            )
 
         memories = [
             self._record_from_payload(dict(hit.payload or {}), score=float(hit.score))
@@ -211,16 +226,16 @@ class ConversationMemoryService:
         include_workspace_wide: bool = True,
         limit: int = 100,
     ) -> MemoryOperationResult:
-        client, models = self.vector_store._client_and_models()
-        query_filter = self._memory_filter(
-            models=models,
-            workspace_id=self._clean_scope(workspace_id, "default"),
-            conversation_id=self._clean_optional_scope(conversation_id),
-            memory_types=memory_types or (),
-            min_importance=0.0,
-            include_workspace_wide=include_workspace_wide,
-        )
         try:
+            client, models = self.vector_store._client_and_models()
+            query_filter = self._memory_filter(
+                models=models,
+                workspace_id=self._clean_scope(workspace_id, "default"),
+                conversation_id=self._clean_optional_scope(conversation_id),
+                memory_types=memory_types or (),
+                min_importance=0.0,
+                include_workspace_wide=include_workspace_wide,
+            )
             points, _next_page = client.scroll(
                 collection_name=self.collection_name,
                 scroll_filter=query_filter,
@@ -228,8 +243,11 @@ class ConversationMemoryService:
                 with_payload=True,
                 with_vectors=False,
             )
-        except Exception:
-            return MemoryOperationResult([], [])
+        except Exception as exc:
+            return MemoryOperationResult(
+                [],
+                [f"Long-term memory listing skipped because Qdrant is unavailable: {exc}"],
+            )
         memories = [
             self._record_from_payload(dict(point.payload or {}))
             for point in points
@@ -244,23 +262,23 @@ class ConversationMemoryService:
         memory_id: str,
         workspace_id: str | None = None,
     ) -> bool:
-        client, models = self.vector_store._client_and_models()
-        must: list[Any] = [
-            models.FieldCondition(
-                key="id",
-                match=models.MatchValue(value=memory_id),
-            )
-        ]
-        if workspace_id:
-            must.append(
-                models.FieldCondition(
-                    key="workspaceId",
-                    match=models.MatchValue(
-                        value=self._clean_scope(workspace_id, "default")
-                    ),
-                )
-            )
         try:
+            client, models = self.vector_store._client_and_models()
+            must: list[Any] = [
+                models.FieldCondition(
+                    key="id",
+                    match=models.MatchValue(value=memory_id),
+                )
+            ]
+            if workspace_id:
+                must.append(
+                    models.FieldCondition(
+                        key="workspaceId",
+                        match=models.MatchValue(
+                            value=self._clean_scope(workspace_id, "default")
+                        ),
+                    )
+                )
             client.delete(
                 collection_name=self.collection_name,
                 points_selector=models.FilterSelector(
@@ -269,7 +287,9 @@ class ConversationMemoryService:
                 wait=True,
             )
         except Exception as exc:
-            raise ConversationMemoryError("Unable to delete memory.") from exc
+            raise ConversationMemoryError(
+                f"Unable to delete memory because Qdrant is unavailable: {exc}"
+            ) from exc
         return True
 
     @staticmethod
@@ -340,8 +360,8 @@ class ConversationMemoryService:
         )
 
     async def _find_by_hash(self, source_hash: str) -> MemoryRecord | None:
-        client, models = self.vector_store._client_and_models()
         try:
+            client, models = self.vector_store._client_and_models()
             points, _next_page = client.scroll(
                 collection_name=self.collection_name,
                 scroll_filter=models.Filter(

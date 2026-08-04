@@ -279,6 +279,10 @@ The standard vector backend is Qdrant. Docker Compose starts a Qdrant service
 with a named `qdrant_storage` volume so indexed vectors survive container
 recreation and ordinary `docker compose down` runs.
 
+Do not use `docker compose down -v` unless you intentionally want to delete
+Qdrant data. The `-v` flag removes the named volume that stores document,
+repository, and conversational memory vectors.
+
 Tesseract is a system binary, so Docker images or host environments must
 install `tesseract-ocr` separately if you want the `tesseract` engine detected.
 
@@ -372,6 +376,10 @@ docker compose logs --follow
 docker compose restart
 docker compose down
 ```
+
+`docker compose down` keeps the named Qdrant volume. `docker compose down -v`
+is destructive and deletes `qdrant_storage`, including indexed document,
+repository, and conversational memory vectors.
 
 Detached containers continue running after the terminal or SSH session closes.
 The `restart: unless-stopped` policy restarts them after a reboot once Docker
@@ -537,6 +545,11 @@ client is unavailable. Vector backend health diagnostics are available from
 `/vectorstores/health`, and collection export/import/migration endpoints can
 copy portable vector payloads between available stores. Re-indexing a directory
 with the same final directory name replaces its previous repository index.
+
+Conversational memory is stored in a separate Qdrant collection, but it uses
+the same persistent `qdrant_storage` volume. It survives ordinary container
+replacement and `docker compose down`; it is deleted by `docker compose down
+-v` unless you have exported the volume first.
 
 GitHub cloning is not implemented yet. Clone a GitHub repository locally, then
 index its local path.

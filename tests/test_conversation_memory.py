@@ -2,10 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 import pytest
 
 from app.ai.vectorstores.qdrant import QdrantVectorStore
-from app.services.conversation_memory import ConversationMemoryService
+from app.schemas.memories import MemoryRecord
+from app.services.conversation_memory import (
+    ConversationMemoryError,
+    ConversationMemoryService,
+    MemoryOperationResult,
+)
 
 
 class FakeMemoryEmbedder:
@@ -223,3 +230,165 @@ def test_extract_durable_memories_skips_ordinary_chat(tmp_path: Path):
     assert service.extract_durable_memories(
         "Remember that I prefer TypeScript examples."
     )[0][0] == "preference"
+
+
+@pytest.mark.asyncio
+async def test_auto_memory_storage_filters_ordinary_chat(tmp_path: Path):
+    service = _service(tmp_path)
+
+    result = await service.store_from_message(
+        workspace_id="workspace-a",
+        conversation_id="conversation-a",
+        message="Hi, can you explain this file?",
+        source_message_id="message-a",
+        source_role="user",
+        embedder_model="all-minilm",
+    )
+
+    assert result.memories == []
+    assert result.warnings == []
+    assert service.list("workspace-a", "conversation-a").memories == []
+
+
+@pytest.mark.asyncio
+async def test_memory_gracefully_handles_unavailable_qdrant(tmp_path: Path):
+    service = ConversationMemoryService(
+        vector_store=QdrantVectorStore(
+            tmp_path / "unused",
+            url="http://127.0.0.1:1",
+        ),
+        embedder_provider=FakeMemoryEmbedder(),
+        collection_name="unavailable_memory_test",
+        min_importance=0.2,
+    )
+
+    stored = await service.store(
+        "workspace-a",
+        "conversation-a",
+        "Decision: use Qdrant when available.",
+        "decision",
+        0.9,
+        "message-a",
+        "user",
+        "all-minilm",
+    )
+    listed = service.list("workspace-a", "conversation-a")
+    retrieved = await service.retrieve(
+        "workspace-a",
+        "conversation-a",
+        "Qdrant decision",
+        "all-minilm",
+    )
+
+    assert stored.memories == []
+    assert "Qdrant is unavailable" in stored.warnings[0]
+    assert listed.memories == []
+    assert "Qdrant is unavailable" in listed.warnings[0]
+    assert retrieved.memories == []
+    assert "Qdrant is unavailable" in retrieved.warnings[0]
+    with pytest.raises(ConversationMemoryError, match="Qdrant is unavailable"):
+        service.delete("missing-memory")
+
+
+def test_memories_api_create_list_search_and_delete(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    fake_service = FakeMemoryApiService()
+    app.state.conversation_memory_service = fake_service
+
+    create_response = client.post(
+        "/memories",
+        headers=auth_headers,
+        json={
+            "workspaceId": "workspace-a",
+            "conversationId": "conversation-a",
+            "text": "I prefer TypeScript examples.",
+            "type": "preference",
+            "importance": 0.8,
+            "sourceMessageId": "message-a",
+            "sourceRole": "user",
+            "embedderModel": "all-minilm",
+        },
+    )
+    list_response = client.get(
+        "/memories?workspaceId=workspace-a&conversationId=conversation-a",
+        headers=auth_headers,
+    )
+    search_response = client.post(
+        "/memories/search",
+        headers=auth_headers,
+        json={
+            "workspaceId": "workspace-a",
+            "conversationId": "conversation-a",
+            "query": "TypeScript preference",
+            "embedderModel": "all-minilm",
+        },
+    )
+    delete_response = client.delete(
+        "/memories/memory-a?workspaceId=workspace-a",
+        headers=auth_headers,
+    )
+
+    assert create_response.status_code == 201
+    assert create_response.json()["memories"][0]["id"] == "memory-a"
+    assert list_response.status_code == 200
+    assert list_response.json()["memories"][0]["workspaceId"] == "workspace-a"
+    assert search_response.status_code == 200
+    assert search_response.json()["memories"][0]["text"] == (
+        "I prefer TypeScript examples."
+    )
+    assert delete_response.status_code == 200
+    assert delete_response.json() == {"deleted": True, "memoryId": "memory-a"}
+    assert fake_service.deleted == [("memory-a", "workspace-a")]
+
+
+def test_memories_api_delete_degrades_when_qdrant_is_unavailable(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    app.state.conversation_memory_service = FakeUnavailableMemoryApiService()
+
+    response = client.delete(
+        "/memories/memory-a?workspaceId=workspace-a",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"deleted": False, "memoryId": "memory-a"}
+
+
+class FakeMemoryApiService:
+    def __init__(self) -> None:
+        self.memory = MemoryRecord(
+            id="memory-a",
+            workspaceId="workspace-a",
+            conversationId="conversation-a",
+            text="I prefer TypeScript examples.",
+            type="preference",
+            importance=0.8,
+            sourceMessageId="message-a",
+            sourceRole="user",
+            sourceHash="hash-a",
+        )
+        self.deleted: list[tuple[str, str | None]] = []
+
+    async def store(self, **kwargs) -> MemoryOperationResult:
+        return MemoryOperationResult([self.memory], [])
+
+    def list(self, **kwargs) -> MemoryOperationResult:
+        return MemoryOperationResult([self.memory], [])
+
+    async def retrieve(self, **kwargs) -> MemoryOperationResult:
+        return MemoryOperationResult([self.memory], [])
+
+    def delete(self, memory_id: str, workspace_id: str | None = None) -> bool:
+        self.deleted.append((memory_id, workspace_id))
+        return True
+
+
+class FakeUnavailableMemoryApiService(FakeMemoryApiService):
+    def delete(self, memory_id: str, workspace_id: str | None = None) -> bool:
+        raise ConversationMemoryError("Unable to delete memory because Qdrant is unavailable")

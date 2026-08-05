@@ -107,8 +107,7 @@ export function LoginScreen({
         </div>
 
         <p id="login-hint" className="login-hint">
-          For this prototype, use <strong>test</strong> for both the username
-          and password.
+          Sign in with the local account created during setup.
         </p>
       </section>
     </main>

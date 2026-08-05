@@ -11,6 +11,7 @@ export interface ChatAttachment {
   size: number
   status: AttachmentStatus
   url?: string
+  data?: string
   error?: string
 }
 

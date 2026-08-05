@@ -6,9 +6,10 @@ This project is designed for a single operator or trusted home/lab network. It
 is not currently a hardened public internet, multi-tenant, or enterprise access
 control system.
 
-The supported release target is the current `main` branch and tagged release
-candidates produced from it. Older development branches may contain incomplete
-security behavior and should not be treated as maintained deployments.
+The supported release target is the current `main` branch and tagged stable
+releases produced from it. Active development happens on `testing_main`; that
+branch can contain incomplete or experimental security behavior and should not
+be treated as a maintained deployment.
 
 ## Trust Model
 
@@ -70,4 +71,3 @@ Review and complete:
 - [Deployment hardening](docs/deployment-hardening.md)
 - [Backup and restore](docs/backup-restore.md)
 - [Dependency and security review](docs/dependency-security.md)
-- [Release checklist](docs/release-checklist.md)

@@ -61,6 +61,12 @@ automation is added.
   preferences, decisions, constraints, unresolved tasks, and project facts,
   with relevance retrieval during prompt assembly, duplicate prevention, API
   deletion, and container-recreation persistence coverage.
+- Added a structured vision evidence pipeline that uses the selected vision
+  model only to extract persisted image artifacts, while the primary chat model
+  remains responsible for all user-facing responses.
+- Refreshed public README/docs for the production frontend, simplified
+  settings workflow, Qdrant storage, Docling/PaddleOCR defaults, conversational
+  memory, and structured vision artifacts.
 
 ### Release Candidate Checklist
 
@@ -68,7 +74,6 @@ automation is added.
 - [x] Setup docs aligned with the Qdrant default and persistent Docker volume.
 - [x] Example configuration files reviewed for placeholders, empty secrets, and
   trusted-network defaults.
-- [x] Release candidate notes drafted in `docs/release-notes-0.2.0-rc1.md`.
 - [x] Stable v2 release notes drafted in `docs/release-notes-0.2.0.md`.
 - [x] Support and hotfix guidance added in `docs/support.md`.
 - [x] Local backend, frontend lint/build, script tests, compile checks, and

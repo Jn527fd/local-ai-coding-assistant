@@ -41,6 +41,7 @@ from app.services.conversation_memory import ConversationMemoryService
 from app.services.local_settings_service import LocalSettingsService
 from app.services.model_manager import ModelManager
 from app.services.ollama_service import OllamaService
+from app.services.vision_artifacts import VisionArtifactService
 from app.services.audit_log import AuditLogger
 from app.utils.logging import configure_logging
 
@@ -138,6 +139,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         collection_name=app_settings.memory_collection_name,
         min_importance=app_settings.memory_min_importance,
     )
+    vision_artifact_service = VisionArtifactService(
+        storage_directory=app_settings.vision_artifact_directory,
+        ollama_service=model_manager.ollama_service,
+    )
     context_compression_manager = ContextCompressionManager(
         llm_provider=llm_provider,
     )
@@ -180,6 +185,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.state.reranker_provider = reranker_provider
         application.state.retrieval_pipeline = retrieval_pipeline
         application.state.conversation_memory_service = conversation_memory_service
+        application.state.vision_artifact_service = vision_artifact_service
         application.state.context_compression_manager = context_compression_manager
         application.state.diagnostics_service = diagnostics_service
         try:
@@ -218,6 +224,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.reranker_provider = reranker_provider
     application.state.retrieval_pipeline = retrieval_pipeline
     application.state.conversation_memory_service = conversation_memory_service
+    application.state.vision_artifact_service = vision_artifact_service
     application.state.context_compression_manager = context_compression_manager
     application.state.diagnostics_service = diagnostics_service
 

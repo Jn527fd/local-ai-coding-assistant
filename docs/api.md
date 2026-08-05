@@ -371,10 +371,12 @@ conversation-specific prompt, and the backend prepends it to the final model
 prompt before recent history, retrieved document context, and the latest user
 message are sent to Ollama. This does not create or modify an Ollama model.
 
-`images` is optional. When supplied, the backend requires
-`conversationSettings.visionModel` to resolve to an available local Ollama
-vision model. Supported MIME types are `image/png`, `image/jpeg`, and
-`image/webp`; each image is validated before the request is sent to Ollama.
+`images` is optional. When supplied, the backend validates each PNG, JPEG, or
+WebP image and uses the selected `conversationSettings.visionModel` only as a
+structured evidence extractor. The primary `llmModel` still generates the
+user-facing answer. Vision artifacts are persisted with conversation, message,
+and image IDs and can be reused in later turns. If the vision model is missing
+or extraction fails, chat falls back to the primary LLM with `visionWarnings`.
 
 `POST /chat/stream` accepts the same request body and returns
 `text/event-stream`. Events are:
@@ -422,7 +424,8 @@ Response:
 `history` accepts at most 30 user/assistant messages. The backend does not
 persist chat history. It builds a bounded prompt using
 `CHAT_CONTEXT_MAX_CHARS`, optional retrieved document context, optional
-reranking, and automatic context management.
+reranking, relevant Qdrant memories, relevant structured image artifacts, and
+automatic context management.
 
 Common errors:
 

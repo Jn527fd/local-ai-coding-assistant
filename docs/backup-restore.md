@@ -18,6 +18,7 @@ data/config/app-settings.json
 data/metadata/
 data/uploads/
 data/conversations/
+data/vision_artifacts/
 data/vector_indexes/
 data/indexes/
 data/repos/

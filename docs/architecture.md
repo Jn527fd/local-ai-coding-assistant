@@ -458,11 +458,28 @@ context. Duplicate prevention uses a stable hash over workspace,
 conversation, type, and normalized memory text.
 
 Image-bearing chat requests validate base64 PNG, JPEG, or WebP attachments and
-use the selected `visionModel` instead of the text `llmModel`. Text-only chat
-continues through the existing LLM path. `/chat` remains a complete JSON
-response endpoint. `/chat/stream` emits `progress`, `metadata`, `token`,
-`done`, and `error` server-sent events so the browser can render partial
-assistant messages while preserving the non-streaming fallback contract.
+run a structured evidence-extraction step with the selected `visionModel`.
+The vision model is not the assistant persona and does not write user-facing
+answers. It returns JSON evidence for visible text, errors, file paths, code,
+UI elements, observations, and uncertainties. `VisionArtifactService` persists
+that artifact under `data/vision_artifacts/` with conversation, message, and
+image IDs. Prompt assembly then injects relevant image artifacts alongside
+recent messages, structured conversation state, document/repository context,
+and Qdrant-backed conversational memory before the primary `llmModel`
+generates the final answer. If vision extraction fails, chat falls back to the
+primary text model with warnings. `/chat` remains a complete JSON response
+endpoint. `/chat/stream` emits `progress`, `metadata`, `token`, `done`, and
+`error` server-sent events so the browser can render partial assistant
+messages while preserving the non-streaming fallback contract.
+
+Vision-artifact retrieval currently uses a modular local scorer rather than a
+vector index. The scorer is conversation/workspace isolated, always keeps the
+current image analysis in the candidate set, ranks exact identifiers such as
+paths, code symbols, and error strings ahead of softer term matches, favors
+newer artifacts when scores tie, rejects irrelevant prior artifacts, and
+enforces prompt-context size limits. The retriever boundary is intentionally
+separate from prompt assembly so vector search can be added later without
+changing chat prompt construction.
 
 ## Legacy Repository RAG
 

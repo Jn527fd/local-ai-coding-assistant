@@ -44,10 +44,9 @@ API keys, and source code remain on the host machine during normal use.
 - Source-grounded answers with source numbers, vector scores, rerank scores,
   warnings, and compression metadata.
 - Local capability discovery for LLMs, embedders, rerankers, vision models,
-  OCR engines, PDF parsers, chunkers, vector stores, RAG pipelines, and
-  runtime context-management support.
-- Optional OCRmyPDF fallback for low-text PDFs and optional vision chat for
-  local multimodal Ollama models.
+  chunkers, RAG pipelines, and runtime context-management support.
+- Automatic Docling PDF extraction, PaddleOCR fallback for low-text PDFs, and
+  structured vision evidence handoff for local multimodal Ollama models.
 - Docker Compose deployment, hermetic default tests, optional live Ollama smoke
   tests, and release-readiness documentation.
 
@@ -60,7 +59,7 @@ API keys, and source code remain on the host machine during normal use.
 | Review API behavior | [API Reference](#api-reference) and [docs/api.md](docs/api.md) |
 | Run tests | [Testing](#testing) and [docs/testing.md](docs/testing.md) |
 | Deploy safely | [Security and Privacy](#security-and-privacy) and [docs/deployment-hardening.md](docs/deployment-hardening.md) |
-| See what comes next | [Roadmap](#roadmap) and [docs/development-roadmap.md](docs/development-roadmap.md) |
+| Report issues or contribute | [Contributing](#contributing) and [docs/support.md](docs/support.md) |
 
 ## Application Preview
 
@@ -104,8 +103,9 @@ This project demonstrates more than a basic LLM chat interface:
   switcher.
 - Displays connection state, local model/tool inventory, and user-facing
   errors.
-- Supports image attachments for chat requests when the active chat has a
-  valid local Ollama vision model selected.
+- Supports image attachments through a structured vision-evidence step: the
+  selected vision model extracts text, paths, code, UI details, observations,
+  and uncertainties, while the primary chat model writes the answer.
 - Bounds chat context and model output to keep local inference responsive.
 
 ### Authentication and Account Management
@@ -155,8 +155,8 @@ This project demonstrates more than a basic LLM chat interface:
 - Use retrieved chunks in chat prompts with stable source numbering and source
   metadata.
 - Optionally rerank candidate chunks before prompt injection.
-- Optionally compress long chat history and retrieved context before
-  generation.
+- Automatically manage long chat history, durable memories, image evidence,
+  and retrieved context before generation.
 
 ### Repository Intelligence
 
@@ -224,7 +224,7 @@ Detailed design notes are available in
 | Backend | Python, FastAPI, Pydantic | APIs, validation, sessions, orchestration, and component discovery |
 | Local inference | Ollama | Model downloads, text generation, embeddings, and reranker prompts |
 | Metadata | SQLite + local JSON artifacts | Migration bookkeeping and local metadata catalogue |
-| Retrieval | Qdrant, JSON fallback | Document vectors, source metadata, and legacy keyword RAG |
+| Retrieval | Qdrant + internal JSON fallback | Document, repository, and memory vectors plus legacy keyword RAG |
 | HTTP client | HTTPX | Async communication with Ollama |
 | Deployment | Docker, Docker Compose, Nginx | Reproducible frontend and backend services |
 | Testing | pytest, FastAPI TestClient, Vitest, MSW | API, authentication, AI flow, documents, frontend, and Docker tests |
@@ -233,7 +233,7 @@ Detailed design notes are available in
 
 The per-chat settings UI is backed by `GET /components/capabilities`. The
 backend reuses Ollama model discovery, categorizes installed models, and also
-checks for optional local tools. The response includes:
+reports backend-managed document and context components. The response includes:
 
 - `llmModels`
 - `embedderModels`
@@ -265,15 +265,19 @@ While Account is open, the Ollama status refreshes periodically; the
 immediately. Model and tool selection requires no internet connection after
 installation. To reclaim disk space manually, use `ollama rm MODEL_NAME`.
 
-Optional Python packages for detection and PDF extraction are installed through
+Python packages for PDF extraction and OCR are installed through
 `backend/requirements.txt`:
 
 ```text
-pymupdf
-pdfplumber
 docling
-ocrmypdf
+paddleocr
+paddlepaddle
 ```
+
+Docling is the default PDF parser for AI-friendly document extraction.
+PaddleOCR is the default OCR fallback for scanned or low-text PDFs. PyMuPDF,
+pdfplumber, and OCRmyPDF remain backend compatibility fallbacks for older saved
+settings and direct API calls.
 
 The standard vector backend is Qdrant. Docker Compose starts a Qdrant service
 with a named `qdrant_storage` volume so indexed vectors survive container
@@ -283,8 +287,9 @@ Do not use `docker compose down -v` unless you intentionally want to delete
 Qdrant data. The `-v` flag removes the named volume that stores document,
 repository, and conversational memory vectors.
 
-Tesseract is a system binary, so Docker images or host environments must
-install `tesseract-ocr` separately if you want the `tesseract` engine detected.
+Tesseract is no longer part of the main UI workflow. If older saved settings or
+direct API calls reference it, detection still requires installing the
+`tesseract-ocr` system binary in the backend runtime.
 
 ## Quick Start
 
@@ -425,11 +430,9 @@ docker compose up --build --detach
 ### Chat with a Model
 
 1. Sign in with a configured local user.
-2. Open the account menu and save an API key.
-3. Verify the API status shows as connected.
-4. Choose the active chat's model and AI settings in Conversation Settings.
-5. Press **Verify chat settings** if you want an explicit confirmation.
-6. Submit a prompt.
+2. Choose the active chat's model and AI settings in Conversation Settings.
+3. Press **Verify chat settings** if you want an explicit confirmation.
+4. Submit a prompt.
 
 Changing a chat's model or RAG settings does not clear the conversation. Other
 chats keep their own settings.
@@ -455,11 +458,15 @@ management preserves recent messages verbatim, keeps source attribution
 stable, trims retrieved context deterministically, and reports compression
 metadata or warnings when the model budget requires it.
 
+Image attachments are analyzed by the selected vision model before final
+prompt assembly. The analysis is stored as a structured artifact for the
+conversation, then relevant image evidence can be reused in later turns. The
+primary LLM remains the only model that produces user-facing answers.
+
 OCR is automatic for scanned or low-text PDFs. Docker installs PaddleOCR
 (Baidu) for CPU-friendly local OCR, and OCRmyPDF remains available as a
-compatibility fallback when selected through older saved settings or API calls.
-Vision chat works when a local multimodal Ollama model is selected for the
-active chat.
+compatibility fallback for older saved settings or API calls. Image evidence
+works when a local multimodal Ollama model is selected for the active chat.
 
 ### Index a Repository
 
@@ -627,8 +634,9 @@ make test-docker
 ```
 
 GitHub Actions runs backend pytest and frontend lint/test/build on pushes to
-`main`, `phase-*` branches, and pull requests. Docker verification is available
-as a manual workflow so the default CI path stays fast and Ollama-free.
+`main`, the development branch `testing_main`, and pull requests. Docker
+verification is available as a manual workflow so the default CI path stays
+fast and Ollama-free.
 
 Quick smoke checks are also available:
 
@@ -697,8 +705,7 @@ docker compose up --build
 
 Then open `http://localhost:5173`.
 
-Before a public release or remote deployment, also review the
-[release checklist](docs/release-checklist.md),
+Before a remote deployment, also review the
 [deployment hardening guide](docs/deployment-hardening.md),
 [backup and restore guide](docs/backup-restore.md), and
 [dependency and security review](docs/dependency-security.md).
@@ -767,25 +774,15 @@ local-ai-coding-assistant/
 - GitHub repositories must be cloned locally before indexing.
 - The default deployment assumes a trusted home or development network.
 
-## Roadmap
-
-The active development plan is maintained in
-[docs/development-roadmap.md](docs/development-roadmap.md). Future
-public-release work should prioritize stronger retrieval quality, broader
-OCR/document workflows, richer repository intelligence, more durable
-session/auth options, and production-grade observability.
-
 ## Documentation
 
 - [Architecture](docs/architecture.md)
 - [API reference](docs/api.md)
 - [Linux Mint setup](docs/setup.md)
 - [Testing](docs/testing.md)
-- [Development roadmap](docs/development-roadmap.md)
 - [Deployment hardening](docs/deployment-hardening.md)
 - [Backup and restore](docs/backup-restore.md)
 - [Dependency and security review](docs/dependency-security.md)
-- [Release checklist](docs/release-checklist.md)
 - [Support and hotfix guidance](docs/support.md)
 - [Security policy](SECURITY.md)
 - [Changelog](CHANGELOG.md)

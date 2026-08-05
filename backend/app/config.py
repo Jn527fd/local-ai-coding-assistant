@@ -169,6 +169,12 @@ class Settings(BaseSettings):
         return self.data_directory.expanduser().resolve() / "conversations"
 
     @property
+    def vision_artifact_directory(self) -> Path:
+        """Return the directory used for structured image evidence artifacts."""
+
+        return self.data_directory.expanduser().resolve() / "vision_artifacts"
+
+    @property
     def resolved_metadata_database_file(self) -> Path:
         """Return the local SQLite metadata database path."""
 

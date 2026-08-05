@@ -38,7 +38,7 @@ Before each public release candidate:
 3. Run default backend and frontend tests.
 4. Run Docker test images.
 5. Run optional live Ollama smoke tests only on a machine prepared for them.
-6. Record results in `docs/verification-log.md`.
+6. Record release-facing changes in `CHANGELOG.md`.
 
 ## Useful Audit Commands
 

@@ -60,11 +60,10 @@ Hotfix rules:
 
 - Keep the change focused on the defect.
 - Add or update regression tests.
-- Update `CHANGELOG.md`, relevant docs, and `docs/verification-log.md`.
+- Update `CHANGELOG.md` and relevant public docs.
 - Run the smallest targeted tests first, then the full relevant suite.
 - Do not add feature work in a hotfix branch.
 - Back up local `data/` before applying deployment hotfixes.
 
 After verification, merge through the normal review path and retag only if the
 project has an approved release/tag workflow for the target version.
-

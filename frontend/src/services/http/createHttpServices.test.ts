@@ -1041,6 +1041,59 @@ describe("HTTP application services", () => {
     })
   })
 
+  it("sends ready image attachments as image evidence instead of document IDs", async () => {
+    const calls: ApiCall[] = []
+    const services = createHttpServices({
+      apiClient: createFakeApiClient((path, options) => {
+        calls.push({ path, options })
+        if (path === "/conversations/chat-a" && !options.method) {
+          return { conversation: backendConversation({ id: "chat-a" }) }
+        }
+        if (path === "/chat" && options.method === "POST") {
+          return { model: "qwen3:4b", answer: "Backend answer" }
+        }
+        if (path === "/conversations/chat-a" && options.method === "PUT") {
+          return { conversation: options.body }
+        }
+        throw new Error(`Unexpected request: ${path}`)
+      }),
+    })
+
+    await services.messages.send({
+      conversationId: "chat-a",
+      content: "What error is shown?",
+      attachmentIds: [],
+      attachments: [
+        {
+          id: "image-a",
+          filename: "error.png",
+          mediaType: "image/png",
+          size: 12,
+          status: "ready",
+          data: "aW1hZ2UtYnl0ZXM=",
+        },
+      ],
+    })
+
+    const chatBody = calls.find((call) => call.path === "/chat")?.options.body
+    expect(chatBody).toMatchObject({
+      attachmentDocumentIds: [],
+      images: [
+        {
+          id: "image-a",
+          name: "error.png",
+          mimeType: "image/png",
+          data: "aW1hZ2UtYnl0ZXM=",
+        },
+      ],
+    })
+    const persisted = calls.find(
+      (call) =>
+        call.path === "/conversations/chat-a" && call.options.method === "PUT",
+    )?.options.body
+    expect(JSON.stringify(persisted)).not.toContain("aW1hZ2UtYnl0ZXM=")
+  })
+
   it("does not enable RAG options when no sources are selected or attached", async () => {
     const calls: ApiCall[] = []
     const services = createHttpServices({

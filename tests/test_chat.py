@@ -13,12 +13,17 @@ from app.ai.ocr import OCRResult
 from app.ai.pipelines.retrieval import DocumentRetrievalPipeline
 from app.ai.rerankers import RerankResult
 from app.ai.vectorstores import JsonVectorStore, QdrantVectorStore, VectorStoreError
-from app.routers.chat import get_conversation_memory_service, get_ollama_service
+from app.routers.chat import (
+    get_conversation_memory_service,
+    get_ollama_service,
+    get_vision_artifact_service,
+)
 from app.schemas.memories import MemoryRecord
 from app.services.component_registry import CAPABILITY_KEYS
 from app.services.conversation_memory import MemoryOperationResult
 from app.services.document_service import DocumentService
 from app.services.ollama_service import InstalledOllamaModel
+from app.services.vision_artifacts import VisionArtifactService
 
 
 class FakeOllamaService:
@@ -29,13 +34,25 @@ class FakeOllamaService:
         installed_models: list[InstalledOllamaModel] | None = None,
         summary_response: str = "Condensed memory summary.",
         chat_response: str = "Mocked local model response",
+        vision_response: str = (
+            '{"visibleText":["Traceback (most recent call last):"],'
+            '"errors":["ModuleNotFoundError: No module named qdrant_client"],'
+            '"filePaths":["backend/app/main.py"],'
+            '"code":["from qdrant_client import QdrantClient"],'
+            '"uiElements":["terminal"],'
+            '"observations":["The screenshot shows a Python import error."],'
+            '"uncertainties":[]}'
+        ),
         fail_summary: bool = False,
+        fail_vision: bool = False,
     ) -> None:
         self.calls: list[tuple[str, str, list[str]]] = []
         self.installed_models = installed_models or []
         self.summary_response = summary_response
         self.chat_response = chat_response
+        self.vision_response = vision_response
         self.fail_summary = fail_summary
+        self.fail_vision = fail_vision
 
     async def generate(
         self,
@@ -44,6 +61,10 @@ class FakeOllamaService:
         images: list[str] | None = None,
     ) -> str:
         self.calls.append((model, prompt, list(images or [])))
+        if images:
+            if self.fail_vision:
+                raise ComponentUnavailableError("vision failed")
+            return self.vision_response
         if "Memory summary:" in prompt:
             if self.fail_summary:
                 raise ComponentUnavailableError("summary failed")
@@ -1132,20 +1153,25 @@ def test_chat_uses_selected_vision_model_for_image_request(
         tmp_path,
         capabilities=chat_capabilities(vision_models=["llava:latest"]),
     )
+    vision_service = VisionArtifactService(tmp_path / "vision", fake_ollama)
     app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+    app.dependency_overrides[get_vision_artifact_service] = lambda: vision_service
 
     try:
         response = client.post(
             "/chat",
             headers=auth_headers,
             json={
+                "conversationId": "conversation-a",
                 "message": "Describe this image.",
+                "messageId": "message-a",
                 "conversationSettings": {
                     "llmModel": "qwen3:4b",
                     "visionModel": "llava:latest",
                 },
                 "images": [
                     {
+                        "id": "image-a",
                         "name": "tiny.png",
                         "mimeType": "image/png",
                         "data": "aW1hZ2UtYnl0ZXM=",
@@ -1158,14 +1184,21 @@ def test_chat_uses_selected_vision_model_for_image_request(
 
     payload = response.json()
     assert response.status_code == 200
-    assert payload["model"] == "llava:latest"
+    assert payload["model"] == "qwen3:4b"
     assert payload["visionUsed"] is True
     assert payload["visionModel"] == "llava:latest"
     assert fake_ollama.calls[0][0] == "llava:latest"
     assert fake_ollama.calls[0][2] == ["aW1hZ2UtYnl0ZXM="]
+    assert fake_ollama.calls[1][0] == "qwen3:4b"
+    assert fake_ollama.calls[1][2] == []
+    assert "Structured image evidence" in fake_ollama.calls[1][1]
+    assert "ModuleNotFoundError: No module named qdrant_client" in fake_ollama.calls[1][1]
+    listed = vision_service.retrieve_relevant("conversation-a", "qdrant_client")
+    assert listed.artifacts[0].messageId == "message-a"
+    assert listed.artifacts[0].imageId == "image-a"
 
 
-def test_chat_rejects_image_request_without_available_vision_model(
+def test_chat_falls_back_when_image_request_has_no_available_vision_model(
     app: FastAPI,
     client: TestClient,
     auth_headers: dict[str, str],
@@ -1194,9 +1227,74 @@ def test_chat_rejects_image_request_without_available_vision_model(
     finally:
         app.dependency_overrides.clear()
 
-    assert response.status_code == 400
-    assert "requires a valid available vision model" in response.json()["detail"]
-    assert fake_ollama.calls == []
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["model"] == "qwen3:4b"
+    assert payload["visionUsed"] is False
+    assert "requires a valid available vision model" in payload["visionWarnings"][0]
+    assert fake_ollama.calls[0][0] == "qwen3:4b"
+    assert fake_ollama.calls[0][2] == []
+
+
+def test_chat_reuses_prior_image_artifact_for_multiturn_continuity(
+    app: FastAPI,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    fake_ollama = FakeOllamaService()
+    configure_chat_rag_tests(
+        app,
+        tmp_path,
+        capabilities=chat_capabilities(vision_models=["llava:latest"]),
+    )
+    vision_service = VisionArtifactService(tmp_path / "vision", fake_ollama)
+    app.dependency_overrides[get_ollama_service] = lambda: fake_ollama
+    app.dependency_overrides[get_vision_artifact_service] = lambda: vision_service
+
+    try:
+        first = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "conversationId": "conversation-a",
+                "messageId": "message-a",
+                "message": "What error is in this screenshot?",
+                "conversationSettings": {
+                    "llmModel": "qwen3:4b",
+                    "visionModel": "llava:latest",
+                },
+                "images": [
+                    {
+                        "id": "image-a",
+                        "name": "tiny.png",
+                        "mimeType": "image/png",
+                        "data": "aW1hZ2UtYnl0ZXM=",
+                    }
+                ],
+            },
+        )
+        second = client.post(
+            "/chat",
+            headers=auth_headers,
+            json={
+                "conversationId": "conversation-a",
+                "messageId": "message-b",
+                "message": "Which file path did the screenshot mention?",
+                "conversationSettings": {
+                    "llmModel": "qwen3:4b",
+                    "visionModel": "llava:latest",
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    final_text_prompt = fake_ollama.calls[-1][1]
+    assert "Structured image evidence" in final_text_prompt
+    assert "backend/app/main.py" in final_text_prompt
 
 
 def test_chat_rejects_invalid_image_base64(

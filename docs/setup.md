@@ -169,14 +169,15 @@ Current setting categories:
 - LLM model
 - Embedder model
 - Chunker
-- Vector database
 - RAG pipeline
 - Reranker
-- Context compressor
 - Vision model
 
 OCR is handled automatically. Docker installs PaddleOCR (Baidu) in the backend
 image and new chats prefer it when capability discovery reports it available.
+PDF parsing is handled automatically with Docling as the default parser.
+Qdrant is the standard vector database and automatic context management is
+always handled by the backend.
 Select **Refresh local models/tools** after pulling Ollama models or changing
 installed parser/OCR packages. Select **Verify chat settings** for an explicit
 confirmation of the active chat's selections.
@@ -271,13 +272,12 @@ longer asks users to choose between PDF parsers or OCR engines.
 Typical document workflow:
 
 1. Pull a chat model and an embedding model with Ollama.
-2. Save an API key.
-3. Select the active chat's LLM and embedder in Conversation Settings.
-4. Upload a `.txt`, `.md`, `.pdf`, `.docx`, `.html`, `.htm`, `.csv`, or
+2. Select the active chat's LLM and embedder in Conversation Settings.
+3. Upload a `.txt`, `.md`, `.pdf`, `.docx`, `.html`, `.htm`, `.csv`, or
    `.tsv` document.
-5. Process the document.
-6. Build an index.
-7. Search indexed chunks or ask a RAG-enabled chat question.
+4. Process the document.
+5. Build an index.
+6. Search indexed chunks or ask a RAG-enabled chat question.
 
 The UI runs document processing and indexing through small local background
 jobs so it can show progress. The original synchronous document API endpoints
@@ -285,9 +285,9 @@ remain available for scripts and tests.
 
 Document uploads are sniffed before processing so obvious extension/content
 mismatches fail early with clear errors. DOCX, HTML, CSV, and TSV extraction
-uses Python standard-library parsers. Optional OCR tooling is selected through
-the chat settings when available, but missing optional tools do not break the
-default document flow.
+uses lightweight local parsers. OCR is automatic for scanned or low-text PDFs
+when PaddleOCR is available, and missing optional compatibility tools do not
+break the default document flow.
 
 Document vectors use Qdrant as the standard vector database. Docker Compose
 starts Qdrant alongside the backend and stores data in the named
@@ -538,8 +538,8 @@ HTTP does not encrypt passwords, cookies, or API keys; use an HTTPS reverse
 proxy before accessing the app across an untrusted network.
 
 For production-style deployment, review
-`docs/deployment-hardening.md`, `docs/backup-restore.md`, and
-`docs/release-checklist.md` before exposing the app beyond a trusted LAN.
+`docs/deployment-hardening.md` and `docs/backup-restore.md` before exposing
+the app beyond a trusted LAN.
 
 ## Tests
 

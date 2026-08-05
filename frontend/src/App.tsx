@@ -990,19 +990,26 @@ export default function App() {
         setConversationDraft(createDefaultConversationDraft())
       }
 
-      const messageAttachments = readyAttachments.map((attachment) => ({
-        id: attachment.id,
-        filename: attachment.filename,
-        mediaType: attachment.mediaType,
-        size: attachment.size,
-        status: attachment.status,
-        url: attachment.url,
-        error: attachment.error,
-      }))
+      const messageAttachments = await Promise.all(
+        readyAttachments.map(async (attachment) => ({
+          id: attachment.id,
+          filename: attachment.filename,
+          mediaType: attachment.mediaType,
+          size: attachment.size,
+          status: attachment.status,
+          url: attachment.url,
+          data: attachment.mediaType.startsWith("image/")
+            ? await fileToBase64(attachment.file)
+            : undefined,
+          error: attachment.error,
+        })),
+      )
       for await (const event of appServices.messages.stream({
         conversationId,
         content,
-        attachmentIds: messageAttachments.map((attachment) => attachment.id),
+        attachmentIds: messageAttachments
+          .filter((attachment) => !attachment.mediaType.startsWith("image/"))
+          .map((attachment) => attachment.id),
         attachments: messageAttachments,
       })) {
         if (event.type === "accepted") {
@@ -1718,6 +1725,16 @@ export default function App() {
 
 function reportBackgroundServiceError(error: unknown) {
   console.error(normalizeError(error))
+}
+
+async function fileToBase64(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer()
+  let binary = ""
+  const bytes = new Uint8Array(buffer)
+  for (let index = 0; index < bytes.length; index += 1) {
+    binary += String.fromCharCode(bytes[index])
+  }
+  return btoa(binary)
 }
 
 function updateConversationMessage(

@@ -53,6 +53,7 @@ from app.services.ollama_service import (
     OllamaTimeoutError,
     OllamaUnavailableError,
 )
+from app.services.vision_artifacts import VisionArtifactService
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +143,8 @@ class PreparedChatExecution:
     generation_model: str
     image_payloads: list[str]
     vision_used: bool
+    vision_model: str | None
+    vision_warnings: list[str]
     rag_used: bool
     rag_warnings: list[str]
     reranking_used: bool
@@ -159,7 +162,7 @@ class PreparedChatExecution:
     def generation_settings(self) -> dict[str, object]:
         return {
             "model": self.generation_model,
-            "images": self.image_payloads,
+            "images": [],
             "visionUsed": self.vision_used,
             "executionContext": self.execution_context,
             "retrievedSources": [
@@ -1692,11 +1695,11 @@ def prepare_vision_images(chat_request: ChatRequest) -> list[str]:
 def resolve_generation_model(
     chat_request: ChatRequest,
     execution_context: object,
-) -> tuple[str, bool]:
-    """Select the text or vision model for this chat request."""
+) -> tuple[str, bool, str | None, list[str]]:
+    """Select the text model and optional evidence-extraction vision model."""
 
     if not chat_request.images:
-        return execution_context.resolved_llm_model, False
+        return execution_context.resolved_llm_model, False, None, []
 
     vision_component = execution_context.components["visionModel"]
     requested_id = (vision_component.requested_id or "").strip()
@@ -1709,14 +1712,64 @@ def resolve_generation_model(
     ):
         reason = vision_component.reason or "vision model is unavailable"
         selected = requested_id or "none"
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
+        return (
+            execution_context.resolved_llm_model,
+            False,
+            None,
+            [
                 "Image chat requires a valid available vision model. "
                 f"Selected vision model '{selected}' cannot be used: {reason}."
-            ),
+            ],
         )
-    return vision_model, True
+    return execution_context.resolved_llm_model, True, vision_model, []
+
+
+def get_vision_artifact_service(request: Request) -> VisionArtifactService:
+    """Return structured image evidence persistence service."""
+
+    return request.app.state.vision_artifact_service
+
+
+async def retrieve_vision_artifact_context(
+    chat_request: ChatRequest,
+    vision_artifact_service: VisionArtifactService,
+    vision_model: str | None,
+    vision_enabled: bool,
+) -> tuple[str, list[str]]:
+    """Analyze current images and retrieve relevant prior image artifacts."""
+
+    artifacts = []
+    warnings: list[str] = []
+    if chat_request.images:
+        result = await vision_artifact_service.analyze_images(
+            workspace_id="default",
+            conversation_id=chat_request.conversationId,
+            message_id=chat_request.messageId,
+            images=chat_request.images,
+            vision_model=vision_model if vision_enabled else None,
+        )
+        artifacts.extend(result.artifacts)
+        warnings.extend(result.warnings)
+
+    previous = vision_artifact_service.retrieve_relevant(
+        workspace_id="default",
+        conversation_id=chat_request.conversationId,
+        query=chat_request.message,
+        limit=6,
+        current_artifacts=artifacts,
+        candidate_limit=24,
+    )
+    warnings.extend(previous.warnings)
+    return (
+        vision_artifact_service.format_artifact_context(previous.artifacts),
+        warnings,
+    )
+
+
+def merge_prompt_contexts(*contexts: str) -> str:
+    """Join optional prompt context blocks without losing labels."""
+
+    return "\n\n".join(context.strip() for context in contexts if context.strip())
 
 
 async def prepare_chat_execution(
@@ -1727,6 +1780,7 @@ async def prepare_chat_execution(
     reranker_provider: Reranker,
     compression_manager: ContextCompressor,
     memory_service: ConversationMemoryService,
+    vision_artifact_service: VisionArtifactService,
 ) -> PreparedChatExecution:
     """Resolve settings, retrieval, reranking, compression, and prompt."""
 
@@ -1744,7 +1798,7 @@ async def prepare_chat_execution(
         conversation_id=chat_request.conversationId,
     )
     image_payloads = prepare_vision_images(chat_request)
-    generation_model, vision_used = resolve_generation_model(
+    generation_model, vision_used, vision_model, vision_warnings = resolve_generation_model(
         chat_request,
         execution_context,
     )
@@ -1849,6 +1903,14 @@ async def prepare_chat_execution(
         execution_context=execution_context,
         memory_service=memory_service,
     )
+    vision_context, artifact_warnings = await retrieve_vision_artifact_context(
+        chat_request=chat_request,
+        vision_artifact_service=vision_artifact_service,
+        vision_model=vision_model,
+        vision_enabled=vision_used,
+    )
+    vision_warnings.extend(artifact_warnings)
+    prompt_memory_context = merge_prompt_contexts(memory_context, vision_context)
     compression_result = await compression_manager.compress(
         CompressionInput(
             history=chat_request.history,
@@ -1857,7 +1919,7 @@ async def prepare_chat_execution(
             execution_context=execution_context,
             options=build_compression_options(settings),
             model=generation_model,
-            memory_context=memory_context or None,
+            memory_context=prompt_memory_context or None,
         )
     )
     prompt_request = chat_request.model_copy(
@@ -1908,8 +1970,10 @@ async def prepare_chat_execution(
         prompt=prompt,
         prompt_request=prompt_request,
         generation_model=generation_model,
-        image_payloads=image_payloads,
+        image_payloads=[],
         vision_used=vision_used,
+        vision_model=vision_model if vision_used else None,
+        vision_warnings=vision_warnings,
         rag_used=bool(rag_result and rag_result.rag_used),
         rag_warnings=rag_warnings,
         reranking_used=reranking_used,
@@ -1917,7 +1981,7 @@ async def prepare_chat_execution(
         rerank_warnings=rerank_warnings,
         compression_used=compression_result.compression_used,
         compressor_mode=compression_result.compressor_mode,
-        compression_warnings=memory_warnings + compression_result.warnings,
+        compression_warnings=memory_warnings + vision_warnings + compression_result.warnings,
         compression_stats=compression_result.stats.response_payload(),
         retrieved_sources=retrieved_sources,
         include_sources=include_sources,
@@ -1948,6 +2012,10 @@ async def chat(
         ConversationMemoryService,
         Depends(get_conversation_memory_service),
     ],
+    vision_artifact_service: Annotated[
+        VisionArtifactService,
+        Depends(get_vision_artifact_service),
+    ],
 ) -> ChatResponse:
     """Send an authenticated chat prompt to the configured Ollama server."""
 
@@ -1965,7 +2033,7 @@ async def chat(
         conversation_id=chat_request.conversationId,
     )
     image_payloads = prepare_vision_images(chat_request)
-    generation_model, vision_used = resolve_generation_model(
+    generation_model, vision_used, vision_model, vision_warnings = resolve_generation_model(
         chat_request,
         execution_context,
     )
@@ -2074,6 +2142,14 @@ async def chat(
         execution_context=execution_context,
         memory_service=memory_service,
     )
+    vision_context, artifact_warnings = await retrieve_vision_artifact_context(
+        chat_request=chat_request,
+        vision_artifact_service=vision_artifact_service,
+        vision_model=vision_model,
+        vision_enabled=vision_used,
+    )
+    vision_warnings.extend(artifact_warnings)
+    prompt_memory_context = merge_prompt_contexts(memory_context, vision_context)
     compression_result = await compression_manager.compress(
         CompressionInput(
             history=chat_request.history,
@@ -2082,7 +2158,7 @@ async def chat(
             execution_context=execution_context,
             options=build_compression_options(settings),
             model=generation_model,
-            memory_context=memory_context or None,
+            memory_context=prompt_memory_context or None,
         )
     )
     prompt_request = chat_request.model_copy(
@@ -2134,7 +2210,7 @@ async def chat(
             history=[item.model_dump() for item in prompt_request.history],
             settings={
                 "model": generation_model,
-                "images": image_payloads,
+                "images": [],
                 "visionUsed": vision_used,
                 "executionContext": execution_context,
                 "retrievedSources": [
@@ -2191,10 +2267,11 @@ async def chat(
         rerankWarnings=rerank_warnings,
         compressionUsed=compression_result.compression_used,
         compressorMode=compression_result.compressor_mode,
-        compressionWarnings=memory_warnings + compression_result.warnings,
+        compressionWarnings=memory_warnings + vision_warnings + compression_result.warnings,
         compressionStats=compression_result.stats.response_payload(),
         visionUsed=vision_used,
-        visionModel=generation_model if vision_used else None,
+        visionModel=vision_model if vision_used else None,
+        visionWarnings=vision_warnings,
         sources=(
             [source.response_payload() for source in retrieved_sources]
             if include_sources
@@ -2222,10 +2299,8 @@ def _chat_metadata_payload(
         "compressionWarnings": prepared.compression_warnings,
         "compressionStats": prepared.compression_stats,
         "visionUsed": prepared.vision_used,
-        "visionModel": (
-            prepared.generation_model if prepared.vision_used else None
-        ),
-        "visionWarnings": [],
+        "visionModel": prepared.vision_model if prepared.vision_used else None,
+        "visionWarnings": prepared.vision_warnings,
         "sources": (
             [source.response_payload() for source in prepared.retrieved_sources]
             if prepared.include_sources
@@ -2270,6 +2345,10 @@ async def chat_stream(
         ConversationMemoryService,
         Depends(get_conversation_memory_service),
     ],
+    vision_artifact_service: Annotated[
+        VisionArtifactService,
+        Depends(get_vision_artifact_service),
+    ],
 ) -> StreamingResponse:
     """Stream an authenticated chat response as server-sent events."""
 
@@ -2281,6 +2360,7 @@ async def chat_stream(
         reranker_provider=reranker_provider,
         compression_manager=compression_manager,
         memory_service=memory_service,
+        vision_artifact_service=vision_artifact_service,
     )
 
     async def event_stream() -> AsyncIterator[str]:

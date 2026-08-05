@@ -17,9 +17,6 @@ venv/
 
 # Node and Vite
 node_modules/
-!sample-code-repository/node_modules/
-!sample-code-repository/node_modules/ignored-package/
-!sample-code-repository/node_modules/ignored-package/index.js
 frontend/dist/
 frontend/.vite/
 npm-debug.log*
@@ -60,13 +57,5 @@ Thumbs.db
 *.tmp
 tmp/
 temp/
-frontendOld/
-old/
-frontendCurrBad/
-# best one so far is oldGood/
-frontendOldGood/ 
-frontendOldOK/
-frontendCurrOk/
-frontendCurrBest/
-frontendCurrOk2/
+local-dev-history/
 

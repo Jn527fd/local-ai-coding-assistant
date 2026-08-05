@@ -225,7 +225,7 @@ export function createHttpServices({
       content: input.content,
       status: "complete",
       createdAt,
-      attachments: input.attachments ?? [],
+      attachments: (input.attachments ?? []).map(stripAttachmentData),
     }
     const assistantMessage: ChatMessage = {
       id: createId("message-assistant"),
@@ -307,14 +307,27 @@ export function createHttpServices({
   const buildChatRequestBody = (
     conversation: Conversation,
     input: SendMessageRequestDto,
+    messageId?: string,
   ) => {
     const attachmentDocumentIds = uniqueStrings(input.attachmentIds)
+    const images = (input.attachments ?? [])
+      .filter(
+        (attachment) =>
+          attachment.mediaType.startsWith("image/") && attachment.data,
+      )
+      .map((attachment) => ({
+        id: attachment.id,
+        name: attachment.filename,
+        mimeType: attachment.mediaType,
+        data: attachment.data,
+      }))
     const ragDocumentIds = uniqueStrings([
       ...conversation.sourceIds,
       ...attachmentDocumentIds,
     ])
     return {
       conversationId: conversation.id,
+      messageId,
       message: input.content,
       systemPrompt: conversation.systemPrompt,
       history: conversation.messages
@@ -329,6 +342,7 @@ export function createHttpServices({
         conversation.modelConfiguration,
       ),
       attachmentDocumentIds,
+      images,
       ragOptions:
         ragDocumentIds.length > 0
           ? {
@@ -447,13 +461,13 @@ export function createHttpServices({
   }
 
   const sendNonStreamingMessage = async (input: SendMessageRequestDto) => {
-    const { conversation, acceptedConversation, assistantMessage } =
+    const { conversation, acceptedConversation, userMessage, assistantMessage } =
       await createPendingExchange(input)
     try {
       const response = await apiClient.request<BackendChatResponse>("/chat", {
         method: "POST",
         headers: authorizationHeaders(),
-        body: buildChatRequestBody(conversation, input),
+        body: buildChatRequestBody(conversation, input, userMessage.id),
       })
       const completed = completeAssistantMessage(
         acceptedConversation,
@@ -487,7 +501,7 @@ export function createHttpServices({
     let streamedMetadata: ChatMessageMetadata | undefined
     try {
       for await (const event of streamBackendChat(
-        buildChatRequestBody(conversation, input),
+        buildChatRequestBody(conversation, input, userMessage.id),
       )) {
         if (event.event === "token") {
           const delta = sseText(event.data, "text")
@@ -1259,6 +1273,14 @@ function delay(milliseconds: number): Promise<void> {
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))]
+}
+
+function stripAttachmentData<Attachment extends { data?: string }>(
+  attachment: Attachment,
+): Omit<Attachment, "data"> {
+  const clone = { ...attachment }
+  delete clone.data
+  return clone
 }
 
 function isProfilePreferences(

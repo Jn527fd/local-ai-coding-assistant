@@ -59,15 +59,15 @@ def test_release_readiness_documents_exist_and_cover_required_topics() -> None:
             "Useful Audit Commands",
             "Secret and Artifact Hygiene",
         ],
-        "docs/release-checklist.md": [
-            "Required Tests",
-            "Docker Verification",
-            "Manual Smoke",
+        "docs/setup.md": [
+            "Docker Compose",
+            "Per-Chat AI Settings",
+            "Documents and RAG",
         ],
-        "docs/development-roadmap.md": [
-            "Development Roadmap",
-            "Phase 1:",
-            "Phase 15:",
+        "docs/testing.md": [
+            "default suite",
+            "Optional Live Ollama Tests",
+            "Docker Tests",
         ],
     }
 
